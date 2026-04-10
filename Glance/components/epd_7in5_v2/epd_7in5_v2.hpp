@@ -14,11 +14,17 @@ struct FrameSize{
     const size_t frame_buf_size = (width * height * bits_per_pixel) / 8;
 };
 
+struct EpdConfig {
+    FrameSize frame;
+    Spi& spi_device;
+    std::uint8_t dc_pin;
+    std::uint8_t reset_pin;
+    std::uint8_t busy_pin;
+};
+
 class Epd7in5V2 {
 public:
-    Epd7in5V2(const struct FrameSize& frame, Spi& spi_device, 
-              std::uint8_t dc_pin, std::uint8_t reset_pin, 
-              std::uint8_t busy_pin, std::uint8_t power_pin);
+    Epd7in5V2(const EpdConfig& config);
     
     // Initialization variants
     void init(void);
@@ -42,7 +48,6 @@ private:
     void send_data(std::span<const uint8_t> data);
     void wait_until_idle(void);
     void turn_on_display(void);
-    void power_on(void);
     void reset_hardware(void);
 
     // Initialization sub-functions
@@ -58,5 +63,4 @@ private:
     Gpio dc;
     Gpio reset;
     Gpio busy;
-    Gpio power;
 };

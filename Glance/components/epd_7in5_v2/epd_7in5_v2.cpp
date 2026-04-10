@@ -8,19 +8,15 @@ static const char *TAG = "Epd7in5V2";
 
 #define DELAY_MS(ms) vTaskDelay(pdMS_TO_TICKS(ms))
 
-Epd7in5V2::Epd7in5V2(const struct FrameSize& frame, Spi& spi_device, 
-                         std::uint8_t dc_pin, std::uint8_t reset_pin, 
-                         std::uint8_t busy_pin, std::uint8_t power_pin)
-    : frame_size(frame), spi(spi_device),
-      dc(dc_pin, Gpio::Dir::output),
-      reset(reset_pin, Gpio::Dir::output),
-      busy(busy_pin, Gpio::Dir::input),
-      power(power_pin, Gpio::Dir::output) 
+Epd7in5V2::Epd7in5V2(const EpdConfig& config)
+    : frame_size(config.frame), spi(config.spi_device),
+      dc(config.dc_pin, Gpio::Dir::output),
+      reset(config.reset_pin, Gpio::Dir::output),
+      busy(config.busy_pin, Gpio::Dir::input)
 {
 }
 
 void Epd7in5V2::init(void) {
-    power_on();
     reset_hardware();
 
     set_booster_soft_start();
@@ -43,7 +39,6 @@ void Epd7in5V2::init(void) {
 }
 
 void Epd7in5V2::init_fast(void) {
-    power_on();
     reset_hardware();
     
     set_panel_setting();
@@ -67,7 +62,6 @@ void Epd7in5V2::init_fast(void) {
 }
 
 void Epd7in5V2::init_part(void) {
-    power_on();
     reset_hardware();
 
     set_panel_setting();
@@ -83,7 +77,6 @@ void Epd7in5V2::init_part(void) {
 }
 
 void Epd7in5V2::init_4gray(void) {
-    power_on();
     reset_hardware();
 
     set_panel_setting();
@@ -342,12 +335,6 @@ void Epd7in5V2::turn_on_display(void) {
     send_command(epd::Command::DRF);
     DELAY_MS(100);
     wait_until_idle();
-}
-
-void Epd7in5V2::power_on(void) {
-    ESP_LOGI(TAG, "e-Paper power on");
-    power.write(true);
-    DELAY_MS(100);
 }
 
 void Epd7in5V2::reset_hardware(void) {
