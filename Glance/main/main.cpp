@@ -6,8 +6,9 @@
 #include "spi.hpp"
 #include "glance_board.hpp"
 #include "wifi.hpp"
-#include "credential.hpp"
 #include "time_manager.hpp"
+#include "config.hpp"
+#include "esp_spiffs.h"
 
 static const char *TAG = "main";
 
@@ -15,14 +16,56 @@ extern "C" {
     extern uint8_t photo[];
 }
 
+static esp_err_t mount_spiffs() {
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = true
+    };
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount SPIFFS (%s)", esp_err_to_name(ret));
+        return ret;
+    }
+    return ESP_OK;
+}
+
+#include <dirent.h>
+
+static void list_spiffs_files() {
+    ESP_LOGI(TAG, "Listing files in /spiffs:");
+    DIR *dir = opendir("/spiffs");
+    if (dir == NULL) {
+        ESP_LOGE(TAG, "Failed to open directory /spiffs");
+        return;
+    }
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        ESP_LOGI(TAG, "  Found file: %s", ent->d_name);
+    }
+    closedir(dir);
+}
+
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "Hello, please wait 3 seconds");
     vTaskDelay(pdMS_TO_TICKS(3000));
 
+    // Mount storage and load config
+    AppConfig app_cfg;
+    if (mount_spiffs() == ESP_OK) {
+        list_spiffs_files();
+        ConfigManager cfg_mgr("/spiffs/config.json");
+        if (cfg_mgr.load() == ESP_OK) {
+            app_cfg = cfg_mgr.get();
+            ESP_LOGI(TAG, "Config loaded for WiFi: %s", app_cfg.wifi.ssid.c_str());
+        }
+    }
+
     // Connect to WiFi
     Wifi& wifi = Wifi::get_instance();
-    if (wifi.connect(credential::WIFI_SSID, credential::WIFI_PASS) == ESP_OK) {
+    if (wifi.connect(app_cfg.wifi.ssid, app_cfg.wifi.password) == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected successfully!");
         
         // Sync time via NTP

@@ -1,0 +1,11 @@
+{
+  "wifi": {
+    "ssid": "YOUR_WIFI_SSID",
+    "password": "YOUR_WIFI_PASSWORD"
+  },
+  "calendar": {
+    "urls": [
+        "https://example.com/calendar.ics"
+    ]
+  }
+}
