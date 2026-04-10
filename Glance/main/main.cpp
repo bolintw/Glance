@@ -2,7 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "eink_display.hpp"
+#include "epd_7in5_v2.hpp"
 #include "spi.hpp"
 
 static const char *TAG = "main";
@@ -58,7 +58,7 @@ extern "C" void app_main(void)
         .bits_per_pixel = 1
     };
 
-    EinkDisplay display(frame, spi_device, PIN_NUM_DC, PIN_NUM_N_RST, PIN_NUM_BUSY, PIN_NUM_PWR);
+    Epd7in5V2 display(frame, spi_device, PIN_NUM_DC, PIN_NUM_N_RST, PIN_NUM_BUSY, PIN_NUM_PWR);
 
     ESP_LOGI(TAG, "Initializing display...");
     display.init();
@@ -80,8 +80,6 @@ extern "C" void app_main(void)
     display.sleep();
 
     while (true) {
-        // We can't easily read PIN_NUM_BUSY directly here because display object owns the Gpio busy object.
-        // But we can just log a message.
         ESP_LOGI(TAG, "Hello, ESP32-S3 ePaper!");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
