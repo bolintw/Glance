@@ -4,35 +4,13 @@
 #include "esp_log.h"
 #include "epd_7in5_v2.hpp"
 #include "spi.hpp"
+#include "glance_board.hpp"
 
 static const char *TAG = "main";
 
 extern "C" {
     extern uint8_t photo[];
 }
-
-// Pin definitions from netlist
-#define PIN_NUM_MOSI 35
-#define PIN_NUM_CLK  36
-#define PIN_NUM_CS   37
-#define PIN_NUM_DC   38
-#define PIN_NUM_N_RST 39
-#define PIN_NUM_BUSY 40
-#define PIN_NUM_PWR  14
-
-// Additional pins
-#define PIN_NUM_LED  48
-#define PIN_NUM_BTN  1
-#define PIN_NUM_SDA  3
-#define PIN_NUM_SCL  46
-#define PIN_NUM_ALRT 9
-#define PIN_NUM_FLS_CS 21
-#define PIN_NUM_MISO 47
-#define PIN_NUM_BOOT 0
-#define PIN_NUM_RTC_XTAL_P 15
-#define PIN_NUM_RTC_XTAL_N 16
-#define PIN_NUM_USB_D_N 19
-#define PIN_NUM_USB_D_P 20
 
 extern "C" void app_main(void)
 {
@@ -41,24 +19,35 @@ extern "C" void app_main(void)
 
     // SPI Configuration
     SpiConfig spi_config;
-    spi_config.mosi_pin = PIN_NUM_MOSI;
-    spi_config.miso_pin = -1;
-    spi_config.sclk_pin = PIN_NUM_CLK;
-    spi_config.cs_pin = PIN_NUM_CS;
-    spi_config.host_id = 1; // SPI2_HOST is usually 1
-    spi_config.clock_speed_hz = 1 * 1000 * 1000; // 2MHz as in demo
+    spi_config.mosi_pin = board::MOSI;
+    spi_config.miso_pin = -1; // MISO is not needed for EPD writes
+    spi_config.sclk_pin = board::CLK;
+    spi_config.cs_pin = board::EPD_CS;
+    spi_config.host_id = 1; // SPI2_HOST
+    spi_config.clock_speed_hz = 1 * 1000 * 1000;
     spi_config.max_transfer_size = 800 * 480 / 8;
 
     Spi spi_device(spi_config);
 
+    // Power on the V33_2 rail (Controls EPD, Flash, and LED)
+    Gpio power(board::PWR, Gpio::Dir::output);
+    power.write(true);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     // E-Ink Display Configuration
-    FrameSize frame = {
-        .width = 800,
-        .height = 480,
-        .bits_per_pixel = 1
+    EpdConfig epd_config = {
+        .frame = {
+            .width = 800,
+            .height = 480,
+            .bits_per_pixel = 1
+        },
+        .spi_device = spi_device,
+        .dc_pin = board::EPD_DC,
+        .reset_pin = board::EPD_RST,
+        .busy_pin = board::EPD_BUSY,
     };
 
-    Epd7in5V2 display(frame, spi_device, PIN_NUM_DC, PIN_NUM_N_RST, PIN_NUM_BUSY, PIN_NUM_PWR);
+    Epd7in5V2 display(epd_config);
 
     ESP_LOGI(TAG, "Initializing display...");
     display.init();
@@ -68,7 +57,7 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(500));
 
     ESP_LOGI(TAG, "Showing image...");
-    display.show(std::span<const uint8_t>(photo, frame.frame_buf_size));
+    display.show(std::span<const uint8_t>(photo, epd_config.frame.frame_buf_size));
     
     vTaskDelay(pdMS_TO_TICKS(3000));
 
