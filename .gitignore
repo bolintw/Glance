@@ -18,6 +18,7 @@ tags
 # esp-idf build
 **/build/
 sdkconfig
+Glance/main/credential.hpp
 sdkconfig.old
 
 **/.cache

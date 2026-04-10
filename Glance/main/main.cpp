@@ -5,6 +5,8 @@
 #include "epd_7in5_v2.hpp"
 #include "spi.hpp"
 #include "glance_board.hpp"
+#include "wifi.hpp"
+#include "credential.hpp"
 
 static const char *TAG = "main";
 
@@ -16,6 +18,14 @@ extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "Hello, please wait 3 seconds");
     vTaskDelay(pdMS_TO_TICKS(3000));
+
+    // Connect to WiFi
+    Wifi& wifi = Wifi::get_instance();
+    if (wifi.connect(credential::WIFI_SSID, credential::WIFI_PASS) == ESP_OK) {
+        ESP_LOGI(TAG, "WiFi connected successfully!");
+    } else {
+        ESP_LOGE(TAG, "WiFi connection failed.");
+    }
 
     // SPI Configuration
     SpiConfig spi_config;
