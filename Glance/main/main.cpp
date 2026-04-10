@@ -7,6 +7,7 @@
 #include "glance_board.hpp"
 #include "wifi.hpp"
 #include "credential.hpp"
+#include "time_manager.hpp"
 
 static const char *TAG = "main";
 
@@ -23,6 +24,14 @@ extern "C" void app_main(void)
     Wifi& wifi = Wifi::get_instance();
     if (wifi.connect(credential::WIFI_SSID, credential::WIFI_PASS) == ESP_OK) {
         ESP_LOGI(TAG, "WiFi connected successfully!");
+        
+        // Sync time via NTP
+        TimeManager& time_mgr = TimeManager::get_instance();
+        if (time_mgr.sync() == ESP_OK) {
+            // Set timezone to Taipei (UTC+8)
+            time_mgr.set_timezone("CST-8");
+            ESP_LOGI(TAG, "Current time: %s", time_mgr.get_formatted_time().c_str());
+        }
     } else {
         ESP_LOGE(TAG, "WiFi connection failed.");
     }
@@ -78,8 +87,9 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Display go to sleep");
     display.sleep();
 
+    TimeManager& time_mgr = TimeManager::get_instance();
     while (true) {
-        ESP_LOGI(TAG, "Hello, ESP32-S3 ePaper!");
+        ESP_LOGI(TAG, "Current Time: %s", time_mgr.get_formatted_time().c_str());
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
