@@ -24,6 +24,3 @@ sdkconfig.old
 **/esp-idf
 **/ics_config.h
 **/managed_components
-
-**/GEMINI.md
-**/credentials.h
