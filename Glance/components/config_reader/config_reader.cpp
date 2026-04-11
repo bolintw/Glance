@@ -43,7 +43,7 @@ std::string ConfigReader::print() const {
 ConfigReader ConfigReader::get_object(const std::string& key) const {
     if (!root) return ConfigReader(nullptr);
     cJSON* obj = cJSON_GetObjectItem(root, key.c_str());
-    return ConfigReader(obj, false);
+    return ConfigReader(obj, false); // Child objects are not owners
 }
 
 std::string ConfigReader::get_string(const std::string& key, const std::string& default_val) const {

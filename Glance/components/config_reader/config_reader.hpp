@@ -26,5 +26,5 @@ public:
 
 private:
     cJSON* root;
-    bool is_owner;
+    bool is_owner; // Whether this instance owns and should free the root cJSON node
 };

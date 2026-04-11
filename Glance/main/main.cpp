@@ -8,43 +8,12 @@
 #include "wifi.hpp"
 #include "time_manager.hpp"
 #include "config.hpp"
-#include "esp_spiffs.h"
+#include "storage.hpp"
 
 static const char *TAG = "main";
 
 extern "C" {
     extern uint8_t photo[];
-}
-
-static esp_err_t mount_spiffs() {
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/spiffs",
-        .partition_label = NULL,
-        .max_files = 5,
-        .format_if_mount_failed = true
-    };
-    esp_err_t ret = esp_vfs_spiffs_register(&conf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to mount SPIFFS (%s)", esp_err_to_name(ret));
-        return ret;
-    }
-    return ESP_OK;
-}
-
-#include <dirent.h>
-
-static void list_spiffs_files() {
-    ESP_LOGI(TAG, "Listing files in /spiffs:");
-    DIR *dir = opendir("/spiffs");
-    if (dir == NULL) {
-        ESP_LOGE(TAG, "Failed to open directory /spiffs");
-        return;
-    }
-    struct dirent *ent;
-    while ((ent = readdir(dir)) != NULL) {
-        ESP_LOGI(TAG, "  Found file: %s", ent->d_name);
-    }
-    closedir(dir);
 }
 
 extern "C" void app_main(void)
@@ -54,8 +23,8 @@ extern "C" void app_main(void)
 
     // Mount storage and load config
     AppConfig app_cfg;
-    if (mount_spiffs() == ESP_OK) {
-        list_spiffs_files();
+    if (Storage::init("/spiffs", "storage") == ESP_OK) {
+        Storage::list_files();
         ConfigManager cfg_mgr("/spiffs/config.json");
         if (cfg_mgr.load() == ESP_OK) {
             app_cfg = cfg_mgr.get();
@@ -65,18 +34,22 @@ extern "C" void app_main(void)
 
     // Connect to WiFi
     Wifi& wifi = Wifi::get_instance();
-    if (wifi.connect(app_cfg.wifi.ssid, app_cfg.wifi.password) == ESP_OK) {
-        ESP_LOGI(TAG, "WiFi connected successfully!");
-        
-        // Sync time via NTP
-        TimeManager& time_mgr = TimeManager::get_instance();
-        if (time_mgr.sync() == ESP_OK) {
-            // Set timezone to Taipei (UTC+8)
-            time_mgr.set_timezone("CST-8");
-            ESP_LOGI(TAG, "Current time: %s", time_mgr.get_formatted_time().c_str());
+    if (!app_cfg.wifi.ssid.empty()) {
+        if (wifi.connect(app_cfg.wifi.ssid, app_cfg.wifi.password) == ESP_OK) {
+            ESP_LOGI(TAG, "WiFi connected successfully!");
+            
+            // Sync time via NTP
+            TimeManager& time_mgr = TimeManager::get_instance();
+            if (time_mgr.sync() == ESP_OK) {
+                // Set timezone to Taipei (UTC+8)
+                time_mgr.set_timezone("CST-8");
+                ESP_LOGI(TAG, "Current time: %s", time_mgr.get_formatted_time().c_str());
+            }
+        } else {
+            ESP_LOGE(TAG, "WiFi connection failed.");
         }
     } else {
-        ESP_LOGE(TAG, "WiFi connection failed.");
+        ESP_LOGE(TAG, "WiFi SSID is empty in config!");
     }
 
     // SPI Configuration

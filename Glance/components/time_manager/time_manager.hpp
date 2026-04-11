@@ -10,16 +10,16 @@ public:
         return instance;
     }
 
-    // 初始化 NTP 並同步時間
+    // Initialize NTP and synchronize time
     esp_err_t sync();
     
-    // 設定時區 (例如 "CST-8" 代表台北)
+    // Set timezone (e.g., "CST-8" for Taipei)
     void set_timezone(const std::string& tz);
 
-    // 取得目前時間字串 (格式化輸出)
+    // Get current time string (formatted output)
     std::string get_formatted_time();
 
-    // 檢查時間是否已經校準
+    // Check if system time has been set
     bool is_time_set();
 
 private:
