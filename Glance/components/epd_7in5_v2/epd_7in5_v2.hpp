@@ -11,7 +11,10 @@ struct FrameSize{
     size_t width;
     size_t height;
     size_t bits_per_pixel;
-    const size_t frame_buf_size = (width * height * bits_per_pixel) / 8;
+    size_t frame_buf_size;
+
+    FrameSize(size_t w, size_t h, size_t bpp)
+        : width(w), height(h), bits_per_pixel(bpp), frame_buf_size((w * h * bpp) / 8) {}
 };
 
 struct EpdConfig {
@@ -20,6 +23,9 @@ struct EpdConfig {
     std::uint8_t dc_pin;
     std::uint8_t reset_pin;
     std::uint8_t busy_pin;
+
+    EpdConfig(const FrameSize& f, Spi& s, std::uint8_t dc, std::uint8_t rst, std::uint8_t busy)
+        : frame(f), spi_device(s), dc_pin(dc), reset_pin(rst), busy_pin(busy) {}
 };
 
 class Epd7in5V2 {

@@ -1,21 +1,21 @@
-#include "config_reader.hpp"
+#include "json_reader.hpp"
 #include <cstdlib>
 
-ConfigReader::ConfigReader() : root(nullptr), is_owner(true) {}
+JsonReader::JsonReader() : root(nullptr), is_owner(true) {}
 
-ConfigReader::ConfigReader(cJSON* node, bool owner) : root(node), is_owner(owner) {}
+JsonReader::JsonReader(cJSON* node, bool owner) : root(node), is_owner(owner) {}
 
-ConfigReader::~ConfigReader() {
+JsonReader::~JsonReader() {
     if (is_owner && root) {
         cJSON_Delete(root);
     }
 }
 
-ConfigReader::ConfigReader(ConfigReader&& other) noexcept : root(other.root), is_owner(other.is_owner) {
+JsonReader::JsonReader(JsonReader&& other) noexcept : root(other.root), is_owner(other.is_owner) {
     other.root = nullptr;
 }
 
-ConfigReader& ConfigReader::operator=(ConfigReader&& other) noexcept {
+JsonReader& JsonReader::operator=(JsonReader&& other) noexcept {
     if (this != &other) {
         if (is_owner && root) cJSON_Delete(root);
         root = other.root;
@@ -25,14 +25,14 @@ ConfigReader& ConfigReader::operator=(ConfigReader&& other) noexcept {
     return *this;
 }
 
-bool ConfigReader::parse(const std::string& json_str) {
+bool JsonReader::parse(const std::string& json_str) {
     if (is_owner && root) cJSON_Delete(root);
     root = cJSON_Parse(json_str.c_str());
     is_owner = true;
     return root != nullptr;
 }
 
-std::string ConfigReader::print() const {
+std::string JsonReader::print() const {
     if (!root) return "";
     char* str = cJSON_Print(root);
     std::string result(str);
@@ -40,13 +40,13 @@ std::string ConfigReader::print() const {
     return result;
 }
 
-ConfigReader ConfigReader::get_object(const std::string& key) const {
-    if (!root) return ConfigReader(nullptr);
+JsonReader JsonReader::get_object(const std::string& key) const {
+    if (!root) return JsonReader(nullptr);
     cJSON* obj = cJSON_GetObjectItem(root, key.c_str());
-    return ConfigReader(obj, false); // Child objects are not owners
+    return JsonReader(obj, false); // Child objects are not owners
 }
 
-std::string ConfigReader::get_string(const std::string& key, const std::string& default_val) const {
+std::string JsonReader::get_string(const std::string& key, const std::string& default_val) const {
     if (!root) return default_val;
     cJSON* item = cJSON_GetObjectItem(root, key.c_str());
     if (cJSON_IsString(item)) {
@@ -55,7 +55,7 @@ std::string ConfigReader::get_string(const std::string& key, const std::string& 
     return default_val;
 }
 
-std::vector<std::string> ConfigReader::get_string_array(const std::string& key) const {
+std::vector<std::string> JsonReader::get_string_array(const std::string& key) const {
     std::vector<std::string> results;
     if (!root) return results;
     cJSON* array = cJSON_GetObjectItem(root, key.c_str());

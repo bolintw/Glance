@@ -11,12 +11,9 @@ static const char *TAG = "TimeManager";
 
 esp_err_t TimeManager::sync() {
     ESP_LOGI(TAG, "Initializing SNTP for ESP-IDF v6.0...");
-    
-    // 使用 v6.0 建議的 netif_sntp 配置方式
+
+    // Use the official macro to get a base config, ensuring all internal fields are correct
     esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-    // 如果需要多個伺服器，可以在這裡額外設定
-    // config.index_of_first_server = 0;
-    // config.num_of_servers = 1;
 
     esp_err_t ret = esp_netif_sntp_init(&config);
     if (ret != ESP_OK) {
@@ -24,16 +21,15 @@ esp_err_t TimeManager::sync() {
         return ret;
     }
 
-    // 等待校時成功 (最久 10 秒)
+    // Wait for time synchronization (up to 10 seconds)
     int retry = 0;
     const int max_retry = 10;
-    while (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(1000)) != ESP_OK && ++retry < max_retry) {
+    while (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(1000)) != ESP_OK) {
+        if (++retry >= max_retry) {
+            ESP_LOGE(TAG, "NTP Sync failed after timeout.");
+            return ESP_FAIL;
+        }
         ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, max_retry);
-    }
-
-    if (retry == max_retry) {
-        ESP_LOGE(TAG, "NTP Sync failed.");
-        return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "NTP Sync success!");

@@ -3,22 +3,22 @@
 #include <vector>
 #include "cJSON.h"
 
-class ConfigReader {
+class JsonReader {
 public:
-    ConfigReader();
-    ConfigReader(cJSON* node, bool owner = false);
-    ~ConfigReader();
+    JsonReader();
+    JsonReader(cJSON* node, bool owner = false);
+    ~JsonReader();
 
     // Disable copy, only allow move
-    ConfigReader(const ConfigReader&) = delete;
-    ConfigReader& operator=(const ConfigReader&) = delete;
-    ConfigReader(ConfigReader&& other) noexcept;
-    ConfigReader& operator=(ConfigReader&& other) noexcept;
+    JsonReader(const JsonReader&) = delete;
+    JsonReader& operator=(const JsonReader&) = delete;
+    JsonReader(JsonReader&& other) noexcept;
+    JsonReader& operator=(JsonReader&& other) noexcept;
 
     bool parse(const std::string& json_str);
     std::string print() const;
 
-    ConfigReader get_object(const std::string& key) const;
+    JsonReader get_object(const std::string& key) const;
     std::string get_string(const std::string& key, const std::string& default_val = "") const;
     std::vector<std::string> get_string_array(const std::string& key) const;
 

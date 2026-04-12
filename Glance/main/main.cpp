@@ -28,7 +28,7 @@ extern "C" void app_main(void)
         ConfigManager cfg_mgr("/spiffs/config.json");
         if (cfg_mgr.load() == ESP_OK) {
             app_cfg = cfg_mgr.get();
-            ESP_LOGI(TAG, "Config loaded for WiFi: %s", app_cfg.wifi.ssid.c_str());
+            ESP_LOGI(TAG, "Config loaded successfully");
         }
     }
 
@@ -70,17 +70,8 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));
 
     // E-Ink Display Configuration
-    EpdConfig epd_config = {
-        .frame = {
-            .width = 800,
-            .height = 480,
-            .bits_per_pixel = 1
-        },
-        .spi_device = spi_device,
-        .dc_pin = board::EPD_DC,
-        .reset_pin = board::EPD_RST,
-        .busy_pin = board::EPD_BUSY,
-    };
+    FrameSize frame = {800, 480, 1};
+    EpdConfig epd_config(frame, spi_device, board::EPD_DC, board::EPD_RST, board::EPD_BUSY);
 
     Epd7in5V2 display(epd_config);
 

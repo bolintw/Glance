@@ -8,12 +8,11 @@ static const char *TAG = "Storage";
 esp_err_t Storage::init(const std::string& base_path, const std::string& label) {
     ESP_LOGI(TAG, "Mounting SPIFFS at %s...", base_path.c_str());
     
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = base_path.c_str(),
-        .partition_label = label.empty() ? NULL : label.c_str(),
-        .max_files = 5,
-        .format_if_mount_failed = true
-    };
+    esp_vfs_spiffs_conf_t conf = {};
+    conf.base_path = base_path.c_str();
+    conf.partition_label = label.empty() ? NULL : label.c_str();
+    conf.max_files = 5;
+    conf.format_if_mount_failed = true;
     
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
     if (ret != ESP_OK) {

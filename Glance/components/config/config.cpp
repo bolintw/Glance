@@ -1,5 +1,5 @@
 #include "config.hpp"
-#include "config_reader.hpp"
+#include "json_reader.hpp"
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -27,17 +27,17 @@ esp_err_t ConfigManager::load() {
     std::string json_str(json_str_ptr);
     free(json_str_ptr);
 
-    ConfigReader root;
+    JsonReader root;
     if (!root.parse(json_str)) {
         ESP_LOGE(TAG, "Failed to parse JSON");
         return ESP_FAIL;
     }
 
-    ConfigReader wifi = root.get_object("wifi");
+    JsonReader wifi = root.get_object("wifi");
     config.wifi.ssid = wifi.get_string("ssid");
     config.wifi.password = wifi.get_string("password");
 
-    ConfigReader calendar = root.get_object("calendar");
+    JsonReader calendar = root.get_object("calendar");
     config.calendar.urls = calendar.get_string_array("urls");
 
     ESP_LOGI(TAG, "Config loaded successfully");
