@@ -9,6 +9,7 @@
 #include "time_manager.hpp"
 #include "config.hpp"
 #include "storage.hpp"
+#include "http_client.hpp"
 
 static const char *TAG = "main";
 
@@ -44,6 +45,12 @@ extern "C" void app_main(void)
                 // Set timezone to Taipei (UTC+8)
                 time_mgr.set_timezone("CST-8");
                 ESP_LOGI(TAG, "Current time: %s", time_mgr.get_formatted_time().c_str());
+            }
+
+            if (!app_cfg.calendar.urls.empty()) {
+                HttpClient http_client;
+                ESP_LOGI(TAG, "Fetching calendar data...");
+                http_client.fetch(app_cfg.calendar.urls[0]);
             }
         } else {
             ESP_LOGE(TAG, "WiFi connection failed.");
