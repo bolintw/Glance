@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# VSCode: keep settings.json shared (project-relevant, no personal paths in
+# it), ignore the rest (launch.json, c_cpp_properties.json etc. tend to
+# carry machine-specific paths / serial ports).
+.vscode/*
+!.vscode/settings.json
