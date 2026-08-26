@@ -1,0 +1,16 @@
+menu "Glance WiFi"
+
+    config GLANCE_WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            SSID for the M1 WiFi connectivity regression test. Local to
+            sdkconfig (gitignored) -- not baked into sdkconfig.defaults.
+
+    config GLANCE_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+        help
+            WPA2 password. Local to sdkconfig (gitignored).
+
+endmenu
