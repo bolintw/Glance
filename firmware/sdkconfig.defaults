@@ -1,0 +1,12 @@
+# Board: eCalendar V2.1, ESP32-S3-WROOM-1-N8R8 (8MB flash, Octal PSRAM).
+# Confirmed 2026-08-26 during M0 bring-up (esptool flash-size probe + chip
+# markings); refs/private docs previously had this as N16R8.
+#
+# Octal PSRAM shares GPIO35-37 with the SPI bus used for EPD/flash
+# (CLK/MOSI/EPD_CS). Keep PSRAM disabled until M3 decides whether the board
+# needs it (see dev plan Open Decisions).
+CONFIG_SPIRAM=n
+
+# Module's embedded flash is 8MB. Unrelated to the external 16MB W25Q128 SPI
+# flash on FLS_CS/GPIO21.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y

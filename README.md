@@ -25,7 +25,7 @@ The device is a passive information radiator, not an interactive hub. Calendar m
 ### Key Components
 | Designator | Component          | Value/Type                  | Description                                      |
 |------------|--------------------|-----------------------------|--------------------------------------------------|
-| U1         | ESP32-S3-wroom     | ESP32-S3-WROOM-1-N8R2       | Main microcontroller with Wi-Fi and Bluetooth.   |
+| U1         | ESP32-S3-wroom     | ESP32-S3-WROOM-1-N8R8       | Main microcontroller with Wi-Fi and Bluetooth. 8MB flash, Octal PSRAM. PSRAM conflicts with GPIO35-37, so it's currently disabled via menuconfig. |
 | U14        | MAX17048G+T10      | Fuel Gauge                  | Monitors battery charge level via I2C.           |
 | U4         | TPS63031DSKR       | Buck-boost converter        | Main 3.3V power supply for the board.            |
 | U12        | TP4057             | Li-Ion Charger              | Manages charging of a single-cell Li-Ion battery.|
