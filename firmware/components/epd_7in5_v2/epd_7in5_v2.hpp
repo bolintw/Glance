@@ -9,14 +9,6 @@
 #include "gpio.hpp"
 #include "spi.hpp"
 
-struct FrameSize {
-    size_t width;
-    size_t height;
-
-    constexpr size_t bytesPerRow() const { return width / 8; }
-    constexpr size_t framebufferSize() const { return width * height / 8; }
-};
-
 struct EpdConfig {
     FrameSize frame;
     Spi& spiDevice;

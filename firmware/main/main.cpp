@@ -1,16 +1,23 @@
 #include <vector>
 
-#include "driver/spi_master.h"
-#include "epd_7in5_v2.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
+#include "serial_dump_display.hpp"
+#else
+#include "driver/spi_master.h"
+#include "epd_7in5_v2.hpp"
 #include "gpio.hpp"
 #include "spi.hpp"
+#endif
 
 namespace {
 constexpr const char* kTag = "main";
+constexpr FrameSize kPanelSize{.width = 800, .height = 480};
 
+#ifndef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
 // GPIO14: switches the V33_2 rail that powers the EPD, external flash, and
 // LED. It's off by default to save power in deep sleep -- must be driven
 // high before the EPD (or anything else on that rail) will respond to
@@ -24,8 +31,7 @@ constexpr int kEpdDcPin = 38;
 constexpr int kEpdResetPin = 39;
 constexpr int kEpdBusyPin = 40;
 constexpr uint32_t kEpdSpiClockHz = 1'000'000;
-
-constexpr FrameSize kPanelSize{.width = 800, .height = 480};
+#endif
 
 // M1 EPD regression test pattern: a border frame plus a diagonal line.
 // Deliberately simple/procedural -- no fonts or images yet, this only
@@ -60,6 +66,9 @@ std::vector<uint8_t> buildTestPattern(const FrameSize& frame) {
 
 extern "C" void app_main(void)
 {
+#ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
+    SerialDumpDisplay display(kPanelSize);
+#else
     Gpio peripheralPower(kPeripheralPowerPin, Gpio::Direction::output);
     peripheralPower.write(true);
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -83,7 +92,10 @@ extern "C" void app_main(void)
         .busyPin = kEpdBusyPin,
     };
     Epd7in5V2 display(epdConfig);
+#endif
 
+    // Everything below is identical regardless of backend -- that's the
+    // point of the Display interface (M2).
     ESP_LOGI(kTag, "M1 EPD regression: init + clear");
     display.init();
     display.clear();

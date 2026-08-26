@@ -1,7 +1,19 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
+
+// Shared by every Display implementation (real panel or simulator) so a
+// backend swap never needs a different way to describe the framebuffer's
+// dimensions.
+struct FrameSize {
+    size_t width;
+    size_t height;
+
+    constexpr size_t bytesPerRow() const { return width / 8; }
+    constexpr size_t framebufferSize() const { return width * height / 8; }
+};
 
 // Backend-agnostic interface for the panel. Upper layers (rendering,
 // eventually LVGL) only ever talk to this -- swapping the real EPD for a

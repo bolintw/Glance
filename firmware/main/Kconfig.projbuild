@@ -1,0 +1,18 @@
+menu "Glance Display Backend"
+
+    choice GLANCE_DISPLAY_BACKEND
+        prompt "Display backend"
+        default GLANCE_DISPLAY_BACKEND_EPD
+        help
+            M2: swap between the real EPD and a PC-side simulator without
+            touching any code above the Display interface (main.cpp only
+            changes which concrete class it constructs).
+
+        config GLANCE_DISPLAY_BACKEND_EPD
+            bool "Real EPD (SPI)"
+
+        config GLANCE_DISPLAY_BACKEND_SIMULATOR
+            bool "Serial dump simulator (no physical screen needed, see firmware/tools/display_sim)"
+    endchoice
+
+endmenu
