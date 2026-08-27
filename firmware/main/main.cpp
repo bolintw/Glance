@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 
 #include "esp_log.h"
@@ -37,7 +38,7 @@ constexpr uint32_t kEpdSpiClockHz = 1'000'000;
 // Deliberately simple/procedural -- no fonts or images yet, this only
 // exists to prove the ported driver's bit packing and full-refresh timing
 // are correct. Bit 1 == white, 0 == black (see display.hpp).
-std::vector<uint8_t> buildTestPattern(const FrameSize& frame) {
+[[maybe_unused]] std::vector<uint8_t> buildTestPattern(const FrameSize& frame) {
     std::vector<uint8_t> framebuffer(frame.framebufferSize(), 0xFF);
     size_t bytesPerRow = frame.bytesPerRow();
 
@@ -58,6 +59,54 @@ std::vector<uint8_t> buildTestPattern(const FrameSize& frame) {
     for (size_t x = 0; x < frame.width; x++) {
         size_t y = x * frame.height / frame.width;
         setBlack(x, y);
+    }
+
+    return framebuffer;
+}
+
+// Hardware-and-agent-in-the-loop demo: a circle outline, drawn with the
+// midpoint circle algorithm, centered on the panel.
+std::vector<uint8_t> buildCirclePattern(const FrameSize& frame) {
+    std::vector<uint8_t> framebuffer(frame.framebufferSize(), 0xFF);
+    size_t bytesPerRow = frame.bytesPerRow();
+
+    auto setBlack = [&](int x, int y) {
+        if (x < 0 || y < 0 || static_cast<size_t>(x) >= frame.width || static_cast<size_t>(y) >= frame.height) {
+            return;
+        }
+        size_t byteIndex = static_cast<size_t>(y) * bytesPerRow + static_cast<size_t>(x) / 8;
+        uint8_t bitMask = static_cast<uint8_t>(0x80 >> (x % 8));
+        framebuffer[byteIndex] &= static_cast<uint8_t>(~bitMask);
+    };
+
+    int centerX = static_cast<int>(frame.width / 2);
+    int centerY = static_cast<int>(frame.height / 2);
+    int radius = static_cast<int>(std::min(frame.width, frame.height) / 2) - 20;
+
+    auto plotOctants = [&](int x, int y) {
+        setBlack(centerX + x, centerY + y);
+        setBlack(centerX - x, centerY + y);
+        setBlack(centerX + x, centerY - y);
+        setBlack(centerX - x, centerY - y);
+        setBlack(centerX + y, centerY + x);
+        setBlack(centerX - y, centerY + x);
+        setBlack(centerX + y, centerY - x);
+        setBlack(centerX - y, centerY - x);
+    };
+
+    int x = 0;
+    int y = radius;
+    int d = 1 - radius;
+    plotOctants(x, y);
+    while (x < y) {
+        x++;
+        if (d < 0) {
+            d += 2 * x + 1;
+        } else {
+            y--;
+            d += 2 * (x - y) + 1;
+        }
+        plotOctants(x, y);
     }
 
     return framebuffer;
@@ -101,7 +150,7 @@ extern "C" void app_main(void)
     display.clear();
 
     ESP_LOGI(kTag, "M1 EPD regression: flushing test pattern");
-    auto pattern = buildTestPattern(kPanelSize);
+    auto pattern = buildCirclePattern(kPanelSize);
     display.flush(pattern);
 
     ESP_LOGI(kTag, "M1 EPD regression: sleep");

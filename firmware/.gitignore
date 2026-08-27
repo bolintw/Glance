@@ -7,3 +7,4 @@ dependencies.lock
 # tools/display_sim
 .venv/
 __pycache__/
+latest_frame.png

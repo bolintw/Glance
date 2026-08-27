@@ -20,6 +20,11 @@ corrupting raw payload bytes equal to 0x0A, a fixed-size TX ring buffer
 rejecting single writes bigger than itself, and single ~64KB console lines
 being unreliable even over the otherwise-solid plain-text log path).
 Chunking into small lines sidesteps all of that.
+
+Every rendered frame is also written to disk (--dump-path, default
+latest_frame.png next to this script). The GUI is for a human watching
+live; the dump file is for an agent -- it has no way to see the Tk
+window, but can just read the image file after each flush().
 """
 
 import argparse
@@ -28,6 +33,7 @@ import binascii
 import threading
 import time
 import tkinter as tk
+from pathlib import Path
 from tkinter import scrolledtext
 
 import serial
@@ -38,6 +44,7 @@ FRAME_PREFIX = b"GLNC:"
 TYPE_FRAME = 0x01
 HEADER_LEN = 1 + 4  # type + length
 CHECKSUM_LEN = 2
+DEFAULT_DUMP_PATH = Path(__file__).parent / "latest_frame.png"
 
 
 def checksum(payload: bytes) -> int:
@@ -58,11 +65,12 @@ def unpack_1bpp(payload: bytes, width: int, height: int) -> Image.Image:
 
 
 class DisplaySimApp:
-    def __init__(self, root: tk.Tk, port: str, baud: int, width: int, height: int):
+    def __init__(self, root: tk.Tk, port: str, baud: int, width: int, height: int, dump_path: Path):
         self.width = width
         self.height = height
         self.baud = baud
         self.port = port
+        self.dump_path = dump_path
         # ESP32-S3's native USB-Serial-JTAG peripheral IS the same chip
         # being reset, so any reset (physical RST or software) drops and
         # re-enumerates the USB connection -- unlike a board with a
@@ -272,6 +280,8 @@ class DisplaySimApp:
 
     def _render_frame(self, payload: bytes):
         image = unpack_1bpp(payload, self.width, self.height)
+        image.save(self.dump_path)
+        self._emit_log(f"[display_sim] frame written to {self.dump_path}\n")
         self.image_label.after(0, self._show_image, image)
 
     def _show_image(self, image: Image.Image):
@@ -285,10 +295,18 @@ def main():
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--width", type=int, default=800)
     parser.add_argument("--height", type=int, default=480)
+    parser.add_argument(
+        "--dump-path",
+        type=Path,
+        default=DEFAULT_DUMP_PATH,
+        help="Where to write each rendered frame as a PNG, overwritten on every flush() "
+        "(default: %(default)s). Lets an agent without eyes on the GUI inspect the "
+        "current frame by just reading this file.",
+    )
     args = parser.parse_args()
 
     root = tk.Tk()
-    app = DisplaySimApp(root, args.port, args.baud, args.width, args.height)
+    app = DisplaySimApp(root, args.port, args.baud, args.width, args.height, args.dump_path)
     root.protocol("WM_DELETE_WINDOW", lambda: (app.stop(), root.destroy()))
     root.mainloop()
 

@@ -26,6 +26,19 @@ Confirmed with this toolchain (GCC 15.2.0 for xtensa-esp32s3):
 - C: `-std=gnu23`
 - C++: `-std=gnu++26` (auto-selected by ESP-IDF as the highest the compiler supports)
 
+## Display backend
+
+`main.cpp` builds against either the real EPD driver or the
+`SerialDumpDisplay` simulator (see `firmware/tools/display_sim/README.md`),
+picked at compile time via the `Glance Display Backend` Kconfig choice.
+Switch quickly without going through `idf.py menuconfig`:
+
+```sh
+./switch_display.sh sim   # no physical panel needed
+./switch_display.sh epd   # panel must be wired up
+idf.py build flash -p <PORT>
+```
+
 ## Structure
 
 - `main/` — app entry point (`app_main`), kept as a thin bootstrap.

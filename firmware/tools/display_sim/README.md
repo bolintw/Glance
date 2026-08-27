@@ -47,6 +47,13 @@ python3 -c "import tkinter; print(tkinter.TkVersion)"   # should print 8.6 or hi
 5. A window opens with the log on the right and the last rendered frame on
    the left; it updates each time firmware calls `flush()`.
 
+Every rendered frame is also written to `latest_frame.png` next to this
+script (overwritten each time), regardless of whether the GUI window is
+being watched. This is "hardware and agent in the loop": the GUI is for a
+human iterating on rendering live; the PNG dump is for an agent, which has
+no way to see the Tk window but can read an image file after each
+`flush()`. Override the path with `--dump-path`.
+
 ## Protocol
 
 Must stay in sync with
