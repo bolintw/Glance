@@ -4,6 +4,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "time_sync.hpp"
+#include "wifi_manager.hpp"
 
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
 #include "serial_dump_display.hpp"
@@ -17,6 +19,8 @@
 namespace {
 constexpr const char* kTag = "main";
 constexpr FrameSize kPanelSize{.width = 800, .height = 480};
+constexpr uint32_t kWifiConnectTimeoutMs = 15000;
+constexpr uint32_t kNtpSyncTimeoutMs = 10000;
 
 #ifndef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
 // GPIO14: switches the V33_2 rail that powers the EPD, external flash, and
@@ -115,6 +119,19 @@ std::vector<uint8_t> buildCirclePattern(const FrameSize& frame) {
 
 extern "C" void app_main(void)
 {
+    ESP_LOGI(kTag, "M3 time sync: connecting WiFi");
+    WifiManager wifi;
+    esp_err_t wifiResult = wifi.connect(kWifiConnectTimeoutMs);
+    if (wifiResult == ESP_OK) {
+        ESP_LOGI(kTag, "M3 time sync: WiFi connected, syncing NTP");
+        esp_err_t timeResult = time_sync::sync(kNtpSyncTimeoutMs);
+        if (timeResult != ESP_OK) {
+            ESP_LOGE(kTag, "M3 time sync: NTP sync failed (%s)", esp_err_to_name(timeResult));
+        }
+    } else {
+        ESP_LOGE(kTag, "M3 time sync: WiFi failed (%s), skipping NTP sync", esp_err_to_name(wifiResult));
+    }
+
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
     SerialDumpDisplay display(kPanelSize);
 #else
