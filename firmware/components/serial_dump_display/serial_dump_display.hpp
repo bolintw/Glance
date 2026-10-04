@@ -11,6 +11,10 @@
 // display_sim.py:
 //   [TYPE 1B] [LENGTH 4B LE] [PAYLOAD] [CHECKSUM 2B LE]
 // CHECKSUM is a 16-bit wraparound sum of the payload bytes.
+//
+// The packet is encoded and printed one line at a time, never built whole:
+// with WiFi holding its buffers there's no contiguous ~64KB left on the heap
+// for a full base64 copy of a frame.
 class SerialDumpDisplay : public Display {
 public:
     explicit SerialDumpDisplay(FrameSize frame);
@@ -21,6 +25,7 @@ public:
     void sleep() override;
 
 private:
+    // An empty span sends an all-white frame without allocating one.
     void sendFramePacket(std::span<const uint8_t> framebuffer);
 
     FrameSize frame_;

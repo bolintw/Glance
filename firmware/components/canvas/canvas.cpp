@@ -185,5 +185,9 @@ std::string ellipsize(std::string_view utf8, const Font& font, int maxWidth) {
         pos = next;
         keep = pos;
     }
+    // "重複 ..." reads worse than "重複...".
+    while (keep > 0 && utf8[keep - 1] == ' ') {
+        keep--;
+    }
     return std::string(utf8.substr(0, keep)) + std::string(kEllipsis);
 }

@@ -141,6 +141,9 @@ void testEllipsize() {
     CHECK(ellipsize("A\xE6\xB8\xAC\xE6\xB8\xAC", kFont, 23) == "A...");
     CHECK(ellipsize("A\xE6\xB8\xAC\xE6\xB8\xAC", kFont, 24) == "A\xE6\xB8\xAC...");
     CHECK(ellipsize("AAAA", kFont, 3) == "...");
+    // A cut right after a space doesn't leave "A ...".
+    CHECK(measureText(" ", kFont) == 5);  // missing glyph -> placeholder advance
+    CHECK(ellipsize("A AAA", kFont, 19) == "A...");
 }
 
 }  // namespace

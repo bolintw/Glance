@@ -1,38 +1,54 @@
-// Renders a sample frame with the real Canvas + baked fonts and writes it as
-// a PBM, so text rendering can be checked on the Mac without flashing.
-// `make -C firmware/test/host preview` turns it into build/preview.png.
+// Renders the calendar screen on the Mac with the same code the firmware
+// runs (calendar_view + Canvas + baked fonts), fed from the test calendar
+// fixture, and writes it as a PBM.
+//
+//   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
+//   make -C firmware/test/host preview NOW=2026-11-25T12:00
+//
+// produces build/preview.png.
 
 #include <cstdio>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 
-#include "canvas.hpp"
-#include "fonts.hpp"
+#include "calendar_view.hpp"
+#include "ics_datetime.hpp"
+#include "ics_event_collector.hpp"
+#include "ics_line_reader.hpp"
+
+namespace {
+
+constexpr int32_t kTaipei = 8 * 3600;
+
+int64_t parseNow(const char* text) {
+    int y, mo, d, h, mi;
+    if (std::sscanf(text, "%d-%d-%dT%d:%d", &y, &mo, &d, &h, &mi) != 5) {
+        std::fprintf(stderr, "bad time %s, want YYYY-MM-DDTHH:MM\n", text);
+        std::exit(2);
+    }
+    return ics::toUnix({y, mo, d}, h * 3600 + mi * 60, kTaipei);
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
     const char* out = argc > 1 ? argv[1] : "build/preview.pbm";
+    const int64_t now = parseNow(argc > 2 ? argv[2] : "2026-10-04T15:30");
+
+    std::ifstream in(FIXTURE_DIR "/google_test_calendar.ics", std::ios::binary);
+    std::string ics{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    ics::EventCollector collector({.now = now, .displayUtcOffset = kTaipei, .maxResults = 10});
+    ics::LineReader reader([&](std::string_view line) { collector.onLine(line); });
+    reader.feed(ics);
+    reader.finish();
+    auto events = collector.takeResults();
+
     constexpr FrameSize kFrame{.width = 800, .height = 480};
     std::vector<uint8_t> fb(kFrame.framebufferSize());
     Canvas canvas(fb, kFrame);
-    canvas.fill(Color::white);
-
-    canvas.drawText(20, 10, "2026", kNotoSansTcBold40, Color::black);
-    canvas.drawText(160, 40, "Oct.", kNotoSansTcMedium50, Color::black);
-    canvas.drawText(290, 0, "14", kNotoSansTcRegular100, Color::black);
-    canvas.drawText(430, 40, "三", kNotoSansTcBold40, Color::black);
-
-    canvas.roundedRect(20, 160, 760, 300, 16, 2, Color::black);
-    const char* samples[] = {
-        "10/14 : 測試：非常長的標題，以及各種標點符號。的測試;,./?\"'`是否一切顯示正常呢",
-        "10/15 : 測試 每天重複 Daily standup",
-        "10/19 : 測試 每月重複（第三個星期一）",
-        "10/21 : 龜鬱鑿齉 — 罕用字與 ˍ‾∼≒ 缺字",
-        "abcdefghijklmnopqrstuvwxyz 0123456789",
-    };
-    int y = 175;
-    for (const char* s : samples) {
-        canvas.drawText(40, y, ellipsize(s, kNotoSansTcBold30, 720), kNotoSansTcBold30, Color::black);
-        y += 52;
-    }
+    calendar_view::render(canvas, now, kTaipei, events);
 
     std::FILE* f = std::fopen(out, "wb");
     if (!f) {

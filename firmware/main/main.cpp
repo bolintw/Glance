@@ -1,15 +1,17 @@
-#include <algorithm>
+#include <ctime>
+#include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
-#include <ctime>
-
 #include "calendar_fetch.hpp"
+#include "calendar_view.hpp"
+#include "canvas.hpp"
 #include "esp_heap_caps.h"
-#include "ics_event_collector.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "ics_event_collector.hpp"
 #include "time_sync.hpp"
 #include "wifi_manager.hpp"
 
@@ -53,109 +55,38 @@ constexpr int kEpdBusyPin = 40;
 constexpr uint32_t kEpdSpiClockHz = 1'000'000;
 #endif
 
-// M1 EPD regression test pattern: a border frame plus a diagonal line.
-// Deliberately simple/procedural -- no fonts or images yet, this only
-// exists to prove the ported driver's bit packing and full-refresh timing
-// are correct. Bit 1 == white, 0 == black (see display.hpp).
-[[maybe_unused]] std::vector<uint8_t> buildTestPattern(const FrameSize& frame) {
-    std::vector<uint8_t> framebuffer(frame.framebufferSize(), 0xFF);
-    size_t bytesPerRow = frame.bytesPerRow();
-
-    auto setBlack = [&](size_t x, size_t y) {
-        size_t byteIndex = y * bytesPerRow + x / 8;
-        uint8_t bitMask = static_cast<uint8_t>(0x80 >> (x % 8));
-        framebuffer[byteIndex] &= static_cast<uint8_t>(~bitMask);
-    };
-
-    for (size_t x = 0; x < frame.width; x++) {
-        setBlack(x, 0);
-        setBlack(x, frame.height - 1);
-    }
-    for (size_t y = 0; y < frame.height; y++) {
-        setBlack(0, y);
-        setBlack(frame.width - 1, y);
-    }
-    for (size_t x = 0; x < frame.width; x++) {
-        size_t y = x * frame.height / frame.width;
-        setBlack(x, y);
-    }
-
-    return framebuffer;
-}
-
-// Hardware-and-agent-in-the-loop demo: a circle outline, drawn with the
-// midpoint circle algorithm, centered on the panel.
-std::vector<uint8_t> buildCirclePattern(const FrameSize& frame) {
-    std::vector<uint8_t> framebuffer(frame.framebufferSize(), 0xFF);
-    size_t bytesPerRow = frame.bytesPerRow();
-
-    auto setBlack = [&](int x, int y) {
-        if (x < 0 || y < 0 || static_cast<size_t>(x) >= frame.width || static_cast<size_t>(y) >= frame.height) {
-            return;
-        }
-        size_t byteIndex = static_cast<size_t>(y) * bytesPerRow + static_cast<size_t>(x) / 8;
-        uint8_t bitMask = static_cast<uint8_t>(0x80 >> (x % 8));
-        framebuffer[byteIndex] &= static_cast<uint8_t>(~bitMask);
-    };
-
-    int centerX = static_cast<int>(frame.width / 2);
-    int centerY = static_cast<int>(frame.height / 2);
-    int radius = static_cast<int>(std::min(frame.width, frame.height) / 2) - 20;
-
-    auto plotOctants = [&](int x, int y) {
-        setBlack(centerX + x, centerY + y);
-        setBlack(centerX - x, centerY + y);
-        setBlack(centerX + x, centerY - y);
-        setBlack(centerX - x, centerY - y);
-        setBlack(centerX + y, centerY + x);
-        setBlack(centerX - y, centerY + x);
-        setBlack(centerX + y, centerY - x);
-        setBlack(centerX - y, centerY - x);
-    };
-
-    int x = 0;
-    int y = radius;
-    int d = 1 - radius;
-    plotOctants(x, y);
-    while (x < y) {
-        x++;
-        if (d < 0) {
-            d += 2 * x + 1;
-        } else {
-            y--;
-            d += 2 * (x - y) + 1;
-        }
-        plotOctants(x, y);
-    }
-
-    return framebuffer;
-}
-
-// M4: fetch every configured calendar into one EventCollector and log the
-// next events. Logs the slot number, never the URL, since the URL is a secret.
-std::vector<ics::Occurrence> fetchUpcomingEvents() {
+// Fetches every configured calendar into one EventCollector. nullopt if
+// calendars are configured but none could be fetched -- an empty list would
+// wrongly read as "nothing coming up". Logs the slot number, never the URL,
+// since the URL is a secret.
+std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents() {
     ics::EventCollector collector({
         .now = time(nullptr),
         .displayUtcOffset = time_sync::kUtcOffsetSeconds,
         .maxResults = kMaxEvents,
     });
 
-    size_t freeBefore = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
+    size_t configured = 0;
+    size_t fetched = 0;
     for (size_t slot = 0; slot < std::size(kIcsUrls); slot++) {
         const char* url = kIcsUrls[slot];
         if (url[0] == '\0') {
             continue;
         }
+        configured++;
         esp_err_t err = calendar_fetch::fetchLines(url, [&](std::string_view line) { collector.onLine(line); });
-        ESP_LOGI(kTag, "M4: calendar %zu: %s", slot + 1, esp_err_to_name(err));
+        ESP_LOGI(kTag, "calendar %zu: %s", slot + 1, esp_err_to_name(err));
+        fetched += err == ESP_OK;
     }
-    auto events = collector.takeResults();
-    ESP_LOGI(kTag, "M4: heap free before %zu, after %zu; lowest since boot before %zu, after %zu", freeBefore,
-             heap_caps_get_free_size(MALLOC_CAP_DEFAULT), lowestBefore,
+    ESP_LOGI(kTag, "heap lowest since boot: %zu before fetching, %zu after", lowestBefore,
              heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
+    if (configured > 0 && fetched == 0) {
+        return std::nullopt;
+    }
 
-    ESP_LOGI(kTag, "M4: next %zu events:", events.size());
+    auto events = collector.takeResults();
+    ESP_LOGI(kTag, "next %zu events:", events.size());
     for (const auto& e : events) {
         time_t start = static_cast<time_t>(e.start);
         struct tm local;
@@ -166,27 +97,11 @@ std::vector<ics::Occurrence> fetchUpcomingEvents() {
     }
     return events;
 }
-}  // namespace
 
-extern "C" void app_main(void)
-{
-    ESP_LOGI(kTag, "M3 time sync: connecting WiFi");
-    WifiManager wifi;
-    esp_err_t wifiResult = wifi.connect(kWifiConnectTimeoutMs);
-    if (wifiResult == ESP_OK) {
-        ESP_LOGI(kTag, "M3 time sync: WiFi connected, syncing NTP");
-        esp_err_t timeResult = time_sync::sync(kNtpSyncTimeoutMs);
-        if (timeResult == ESP_OK) {
-            fetchUpcomingEvents();
-        } else {
-            // TLS certificate checks need a real clock, so no point fetching.
-            ESP_LOGE(kTag, "M3 time sync: NTP sync failed (%s), skipping calendar fetch",
-                     esp_err_to_name(timeResult));
-        }
-    } else {
-        ESP_LOGE(kTag, "M3 time sync: WiFi failed (%s), skipping NTP sync", esp_err_to_name(wifiResult));
-    }
-
+// Brings up the panel (or its simulator stand-in), shows one frame and puts
+// it back to sleep. The code below the backend selection is identical for
+// both -- that's the point of the Display interface.
+void show(std::span<const uint8_t> framebuffer) {
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
     SerialDumpDisplay display(kPanelSize);
 #else
@@ -215,16 +130,40 @@ extern "C" void app_main(void)
     Epd7in5V2 display(epdConfig);
 #endif
 
-    // Everything below is identical regardless of backend -- that's the
-    // point of the Display interface (M2).
-    ESP_LOGI(kTag, "M1 EPD regression: init + clear");
     display.init();
     display.clear();
-
-    ESP_LOGI(kTag, "M1 EPD regression: flushing test pattern");
-    auto pattern = buildCirclePattern(kPanelSize);
-    display.flush(pattern);
-
-    ESP_LOGI(kTag, "M1 EPD regression: sleep");
+    display.flush(framebuffer);
     display.sleep();
+}
+}  // namespace
+
+// One refresh: WiFi -> NTP -> calendars -> render -> panel. If any step
+// before rendering fails, the panel is left alone: e-ink keeps showing the
+// last good calendar, which beats replacing it with a wrong date or an
+// empty list.
+extern "C" void app_main(void)
+{
+    WifiManager wifi;
+    esp_err_t err = wifi.connect(kWifiConnectTimeoutMs);
+    if (err != ESP_OK) {
+        ESP_LOGE(kTag, "WiFi failed (%s), leaving the screen as is", esp_err_to_name(err));
+        return;
+    }
+    // TLS certificate checks and "today" both need a real clock.
+    err = time_sync::sync(kNtpSyncTimeoutMs);
+    if (err != ESP_OK) {
+        ESP_LOGE(kTag, "NTP sync failed (%s), leaving the screen as is", esp_err_to_name(err));
+        return;
+    }
+    auto events = fetchUpcomingEvents();
+    if (!events) {
+        ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
+        return;
+    }
+
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events);
+    ESP_LOGI(kTag, "showing calendar");
+    show(framebuffer);
 }
