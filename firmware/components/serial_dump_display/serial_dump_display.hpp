@@ -19,14 +19,14 @@ class SerialDumpDisplay : public Display {
 public:
     explicit SerialDumpDisplay(FrameSize frame);
 
-    void init() override;
-    void clear() override;
-    void flush(std::span<const uint8_t> framebuffer) override;
+    bool init() override;
+    bool clear() override;
+    bool flush(std::span<const uint8_t> framebuffer) override;
     void sleep() override;
 
 private:
     // An empty span sends an all-white frame without allocating one.
-    void sendFramePacket(std::span<const uint8_t> framebuffer);
+    bool sendFramePacket(std::span<const uint8_t> framebuffer);
 
     FrameSize frame_;
 };

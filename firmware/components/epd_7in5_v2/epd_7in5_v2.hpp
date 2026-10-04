@@ -25,9 +25,9 @@ class Epd7in5V2 : public Display {
 public:
     explicit Epd7in5V2(const EpdConfig& config);
 
-    void init() override;
-    void clear() override;
-    void flush(std::span<const uint8_t> framebuffer) override;
+    bool init() override;
+    bool clear() override;
+    bool flush(std::span<const uint8_t> framebuffer) override;
     void sleep() override;
 
 private:
@@ -36,13 +36,21 @@ private:
     // are willing to wait before giving up and logging an error instead of
     // hanging the boot forever.
     static constexpr uint32_t kBusyTimeoutMs = 10000;
+    // BUSY is pulled down, so with no panel attached it reads "busy"
+    // forever. A present panel drives it high within ~200ms of a hardware
+    // reset (measured), so not seeing that means there's no panel.
+    static constexpr uint32_t kPresenceTimeoutMs = 500;
+    // A real full refresh holds BUSY low for seconds. If it never goes low
+    // after DRF, the panel ignored the command.
+    static constexpr uint32_t kRefreshStartTimeoutMs = 200;
 
     void sendCommand(epd::Command cmd);
     void sendData(uint8_t data);
     void sendData(std::span<const uint8_t> data);
-    // Returns false on timeout.
+    // Both return false on timeout.
     bool waitUntilIdle(uint32_t timeoutMs = kBusyTimeoutMs);
-    void turnOnDisplay();
+    bool waitUntilBusy(uint32_t timeoutMs);
+    bool turnOnDisplay();
     void resetHardware();
 
     void setBoosterSoftStart();

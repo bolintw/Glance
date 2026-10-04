@@ -19,10 +19,17 @@ Epd7in5V2::Epd7in5V2(const EpdConfig& config)
       spi_(config.spiDevice),
       dc_(config.dcPin, Gpio::Direction::output),
       reset_(config.resetPin, Gpio::Direction::output),
-      busy_(config.busyPin, Gpio::Direction::input) {}
+      // Pulled down so a missing panel reads as never idle instead of
+      // always idle (see kPresenceTimeoutMs). There's no external pull on
+      // the board.
+      busy_(config.busyPin, Gpio::Direction::input, Gpio::Pull::down) {}
 
-void Epd7in5V2::init() {
+bool Epd7in5V2::init() {
     resetHardware();
+    if (!waitUntilIdle(kPresenceTimeoutMs)) {
+        ESP_LOGE(kTag, "panel not detected (BUSY stayed low after reset) -- check the FPC cable");
+        return false;
+    }
 
     setBoosterSoftStart();
     setPowerSetting();
@@ -30,7 +37,8 @@ void Epd7in5V2::init() {
     sendCommand(epd::Command::PON);
     delayMs(100);
     if (!waitUntilIdle()) {
-        return;
+        ESP_LOGE(kTag, "panel did not finish powering on");
+        return false;
     }
 
     setPanelSetting();
@@ -41,9 +49,10 @@ void Epd7in5V2::init() {
 
     setVcomAndDataInterval();
     setTconSetting();
+    return true;
 }
 
-void Epd7in5V2::clear() {
+bool Epd7in5V2::clear() {
     std::vector<uint8_t> allOnes(frame_.bytesPerRow(), 0xFF);
     std::vector<uint8_t> allZeros(frame_.bytesPerRow(), 0x00);
 
@@ -57,10 +66,10 @@ void Epd7in5V2::clear() {
         sendData(allZeros);
     }
 
-    turnOnDisplay();
+    return turnOnDisplay();
 }
 
-void Epd7in5V2::flush(std::span<const uint8_t> framebuffer) {
+bool Epd7in5V2::flush(std::span<const uint8_t> framebuffer) {
     size_t bytesPerRow = frame_.bytesPerRow();
 
     sendCommand(epd::Command::DTM1);
@@ -78,7 +87,7 @@ void Epd7in5V2::flush(std::span<const uint8_t> framebuffer) {
         sendData(invertedRow);
     }
 
-    turnOnDisplay();
+    return turnOnDisplay();
 }
 
 void Epd7in5V2::sleep() {
@@ -167,12 +176,30 @@ bool Epd7in5V2::waitUntilIdle(uint32_t timeoutMs) {
     return true;
 }
 
-void Epd7in5V2::turnOnDisplay() {
+bool Epd7in5V2::waitUntilBusy(uint32_t timeoutMs) {
+    int64_t deadlineUs = esp_timer_get_time() + static_cast<int64_t>(timeoutMs) * 1000;
+    while (busy_.read()) {
+        if (esp_timer_get_time() >= deadlineUs) {
+            return false;
+        }
+        delayMs(10);
+    }
+    return true;
+}
+
+bool Epd7in5V2::turnOnDisplay() {
+    int64_t startUs = esp_timer_get_time();
     sendCommand(epd::Command::DRF);
-    delayMs(100);
+    if (!waitUntilBusy(kRefreshStartTimeoutMs)) {
+        ESP_LOGE(kTag, "panel did not start refreshing (BUSY never went low)");
+        return false;
+    }
     if (!waitUntilIdle()) {
         ESP_LOGE(kTag, "display refresh did not complete");
+        return false;
     }
+    ESP_LOGI(kTag, "refresh took %lldms", (esp_timer_get_time() - startUs) / 1000);
+    return true;
 }
 
 void Epd7in5V2::resetHardware() {

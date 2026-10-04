@@ -100,8 +100,9 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents() {
 
 // Brings up the panel (or its simulator stand-in), shows one frame and puts
 // it back to sleep. The code below the backend selection is identical for
-// both -- that's the point of the Display interface.
-void show(std::span<const uint8_t> framebuffer) {
+// both -- that's the point of the Display interface. False if the panel
+// didn't respond.
+bool show(std::span<const uint8_t> framebuffer) {
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
     SerialDumpDisplay display(kPanelSize);
 #else
@@ -130,10 +131,12 @@ void show(std::span<const uint8_t> framebuffer) {
     Epd7in5V2 display(epdConfig);
 #endif
 
-    display.init();
-    display.clear();
-    display.flush(framebuffer);
+    if (!display.init()) {
+        return false;
+    }
+    bool shown = display.clear() && display.flush(framebuffer);
     display.sleep();
+    return shown;
 }
 }  // namespace
 
@@ -165,5 +168,9 @@ extern "C" void app_main(void)
     Canvas canvas(framebuffer, kPanelSize);
     calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events);
     ESP_LOGI(kTag, "showing calendar");
-    show(framebuffer);
+    if (!show(framebuffer)) {
+        ESP_LOGE(kTag, "panel did not respond, calendar not shown");
+        return;
+    }
+    ESP_LOGI(kTag, "calendar shown");
 }

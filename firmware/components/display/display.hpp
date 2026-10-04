@@ -23,12 +23,15 @@ struct FrameSize {
 // Framebuffer format: 1 bit per pixel, packed MSB-first, row-major,
 // size == width * height / 8. Bit value 1 == white, 0 == black (matches
 // LVGL's LV_COLOR_FORMAT_I1 default palette).
+//
+// init/clear/flush return false if the panel didn't respond (the backend
+// logs why). sleep is best effort.
 class Display {
 public:
     virtual ~Display() = default;
 
-    virtual void init() = 0;
-    virtual void clear() = 0;
-    virtual void flush(std::span<const uint8_t> framebuffer) = 0;
+    [[nodiscard]] virtual bool init() = 0;
+    [[nodiscard]] virtual bool clear() = 0;
+    [[nodiscard]] virtual bool flush(std::span<const uint8_t> framebuffer) = 0;
     virtual void sleep() = 0;
 };

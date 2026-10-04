@@ -31,17 +31,18 @@ uint16_t checksum(std::span<const uint8_t> data) {
 
 SerialDumpDisplay::SerialDumpDisplay(FrameSize frame) : frame_(frame) {}
 
-void SerialDumpDisplay::init() {
+bool SerialDumpDisplay::init() {
     ESP_LOGI(kTag, "simulator backend ready (%zux%zu)", frame_.width, frame_.height);
+    return true;
 }
 
-void SerialDumpDisplay::clear() { sendFramePacket({}); }
+bool SerialDumpDisplay::clear() { return sendFramePacket({}); }
 
-void SerialDumpDisplay::flush(std::span<const uint8_t> framebuffer) { sendFramePacket(framebuffer); }
+bool SerialDumpDisplay::flush(std::span<const uint8_t> framebuffer) { return sendFramePacket(framebuffer); }
 
 void SerialDumpDisplay::sleep() { ESP_LOGI(kTag, "simulator backend sleep (no-op)"); }
 
-void SerialDumpDisplay::sendFramePacket(std::span<const uint8_t> framebuffer) {
+bool SerialDumpDisplay::sendFramePacket(std::span<const uint8_t> framebuffer) {
     // [TYPE 1B][LENGTH 4B LE][PAYLOAD][CHECKSUM 2B LE], base64-encoded and
     // sent as a series of small plain-text lines (see display_sim.py for the
     // matching reassembly logic):
@@ -50,7 +51,7 @@ void SerialDumpDisplay::sendFramePacket(std::span<const uint8_t> framebuffer) {
     const bool blank = framebuffer.empty();
     if (!blank && framebuffer.size() != payloadSize) {
         ESP_LOGE(kTag, "framebuffer is %zu bytes, expected %zu", framebuffer.size(), payloadSize);
-        return;
+        return false;
     }
     const uint16_t sum = blank ? static_cast<uint16_t>(0xFF * payloadSize) : checksum(framebuffer);
 
@@ -87,7 +88,7 @@ void SerialDumpDisplay::sendFramePacket(std::span<const uint8_t> framebuffer) {
         int ret = mbedtls_base64_encode(encoded, sizeof(encoded), &written, input, len);
         if (ret != 0) {
             ESP_LOGE(kTag, "base64 encode failed: %d", ret);
-            return;
+            return false;
         }
         printf("GLNC:%u:%u:%.*s\n", static_cast<unsigned>(seq), static_cast<unsigned>(totalChunks),
                static_cast<int>(written), encoded);
@@ -103,4 +104,5 @@ void SerialDumpDisplay::sendFramePacket(std::span<const uint8_t> framebuffer) {
         // that's guaranteed to actually be >=1 tick here.
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+    return true;
 }
