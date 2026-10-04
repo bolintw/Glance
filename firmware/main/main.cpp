@@ -9,9 +9,11 @@
 #include "canvas.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ics_event_collector.hpp"
+#include "refresh_schedule.hpp"
 #include "time_sync.hpp"
 #include "wifi_manager.hpp"
 
@@ -29,6 +31,9 @@ constexpr const char* kTag = "main";
 constexpr FrameSize kPanelSize{.width = 800, .height = 480};
 constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 constexpr uint32_t kNtpSyncTimeoutMs = 10000;
+// A wake-up this close before the daily refresh time counts as that
+// refresh, so waking slightly early doesn't redraw twice in one morning.
+constexpr int64_t kMinRefreshGapSeconds = 3600;
 
 // The layout shows two columns of five (same as the Raspberry Pi version).
 constexpr size_t kMaxEvents = 10;
@@ -131,39 +136,42 @@ bool show(std::span<const uint8_t> framebuffer) {
     Epd7in5V2 display(epdConfig);
 #endif
 
-    if (!display.init()) {
-        return false;
-    }
     // No clear() first: a full refresh already drives every pixel through
     // the whole waveform, so clearing only doubled the time and flicker.
-    bool shown = display.flush(framebuffer);
-    display.sleep();
+    bool ready = display.init();
+    bool shown = ready && display.flush(framebuffer);
+    if (ready) {
+        display.sleep();
+    }
+#ifndef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
+    // Off again before deep sleep: with the external flash powered, its SPI
+    // lines leak ~300uA; with the rail cut the whole board sleeps at ~70uA.
+    peripheralPower.write(false);
+#endif
     return shown;
 }
-}  // namespace
 
 // One refresh: WiFi -> NTP -> calendars -> render -> panel. If any step
 // before rendering fails, the panel is left alone: e-ink keeps showing the
 // last good calendar, which beats replacing it with a wrong date or an
-// empty list.
-extern "C" void app_main(void)
-{
+// empty list. True once the new calendar is on the panel.
+bool refresh() {
     WifiManager wifi;
     esp_err_t err = wifi.connect(kWifiConnectTimeoutMs);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "WiFi failed (%s), leaving the screen as is", esp_err_to_name(err));
-        return;
+        return false;
     }
     // TLS certificate checks and "today" both need a real clock.
     err = time_sync::sync(kNtpSyncTimeoutMs);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "NTP sync failed (%s), leaving the screen as is", esp_err_to_name(err));
-        return;
+        return false;
     }
     auto events = fetchUpcomingEvents();
     if (!events) {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
-        return;
+        return false;
     }
 
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
@@ -172,7 +180,39 @@ extern "C" void app_main(void)
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");
-        return;
+        return false;
     }
     ESP_LOGI(kTag, "calendar shown");
+    return true;
+}
+}  // namespace
+
+// Refresh once, then sleep until the next daily refresh -- or retry sooner
+// if this one failed. A failed refresh may not even have a synced clock, so
+// its retry is a plain delay rather than a time of day.
+extern "C" void app_main(void)
+{
+    ESP_LOGI(kTag, "woke by %s", (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
+    bool refreshed = refresh();
+    int64_t now = time(nullptr);
+    int64_t wakeAt = refreshed ? refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds,
+                                                             CONFIG_GLANCE_REFRESH_HOUR, 0, kMinRefreshGapSeconds)
+                               : now + CONFIG_GLANCE_RETRY_MINUTES * 60;
+    int64_t sleepSeconds = wakeAt - now;
+
+    time_t wakeTime = static_cast<time_t>(wakeAt);
+    struct tm local;
+    localtime_r(&wakeTime, &local);
+    char when[24];
+    strftime(when, sizeof(when), "%Y-%m-%d %H:%M", &local);
+    ESP_LOGI(kTag, "next %s at %s (in %lldh%02lldm)", refreshed ? "refresh" : "retry", when, sleepSeconds / 3600,
+             sleepSeconds % 3600 / 60);
+#if CONFIG_GLANCE_DEEP_SLEEP
+    // Give the USB serial port a moment to send the last log lines; deep
+    // sleep cuts it off mid-buffer otherwise.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_deep_sleep(static_cast<uint64_t>(sleepSeconds) * 1000000);
+#else
+    ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), press RST to refresh again");
+#endif
 }

@@ -16,3 +16,31 @@ menu "Glance Display Backend"
     endchoice
 
 endmenu
+
+menu "Glance Refresh"
+
+    config GLANCE_REFRESH_HOUR
+        int "Daily refresh hour (local time)"
+        range 0 23
+        default 7
+        help
+            The panel is redrawn once a day at this hour (minute 0). Press
+            RST to redraw it right away.
+
+    config GLANCE_RETRY_MINUTES
+        int "Retry after a failed refresh (minutes)"
+        range 5 1440
+        default 60
+        help
+            If WiFi, NTP, every calendar or the panel fails, the screen is
+            left as is and the device tries again after this long.
+
+    config GLANCE_DEEP_SLEEP
+        bool "Deep sleep until the next refresh"
+        default y
+        help
+            Turn off during development: in deep sleep the USB serial port
+            disappears, so flashing needs BOOT+RST by hand. When off, the
+            device logs when it would have woken up and just idles.
+
+endmenu

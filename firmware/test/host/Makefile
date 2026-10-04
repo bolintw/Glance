@@ -8,7 +8,7 @@ CXX ?= c++
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g
 COMPONENTS := ../../components
 
-HOST_COMPONENTS := ics canvas display calendar_view fonts
+HOST_COMPONENTS := ics canvas display calendar_view fonts refresh_schedule
 INCLUDES := $(foreach c,$(HOST_COMPONENTS),-I$(COMPONENTS)/$(c))
 HDRS := $(foreach c,$(HOST_COMPONENTS),$(wildcard $(COMPONENTS)/$(c)/*.hpp))
 DEFINES := -DFIXTURE_DIR=\"$(CURDIR)/fixtures\"
@@ -18,7 +18,7 @@ DEFINES := -DFIXTURE_DIR=\"$(CURDIR)/fixtures\"
 COMPONENT_SRCS := $(foreach c,$(HOST_COMPONENTS),$(wildcard $(COMPONENTS)/$(c)/*.cpp))
 COMPONENT_OBJS := $(patsubst $(COMPONENTS)/%.cpp,build/obj/%.o,$(COMPONENT_SRCS))
 
-TESTS := test_ics_line_reader test_ics_events test_canvas
+TESTS := test_ics_line_reader test_ics_events test_canvas test_refresh_schedule
 
 .PHONY: test preview clean
 # Keep the per-component objects between runs (make deletes pattern-rule

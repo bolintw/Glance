@@ -26,3 +26,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # bundle, but without this the handshake fails with -0x3000
 # (MBEDTLS_ERR_X509_FATAL_ERROR). Costs ~700 bytes of heap.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
+
+# The board has a 32.768kHz crystal on GPIO15/16 (U2). The default internal
+# RC oscillator drifts noticeably with temperature, which adds up over a
+# day of deep sleep between refreshes.
+CONFIG_RTC_CLK_SRC_EXT_CRYS=y
