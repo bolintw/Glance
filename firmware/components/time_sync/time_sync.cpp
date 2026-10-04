@@ -30,6 +30,8 @@ int64_t wallClockUs() {
 
 namespace time_sync {
 
+bool clockIsPlausible() { return time(nullptr) >= kPlausibleEpoch; }
+
 esp_err_t sync(uint32_t timeoutMs) {
     setenv("TZ", kTaiwanTz, 1);
     tzset();

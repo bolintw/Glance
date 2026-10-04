@@ -100,6 +100,20 @@ void Canvas::fillRect(int x, int y, int width, int height, Color color) {
     }
 }
 
+void Canvas::drawBitmap(int x, int y, const Bitmap& bitmap) {
+    if (bitmap.width <= 0 || bitmap.height <= 0 || bitmap.bits.size() < Bitmap::sizeFor(bitmap.width, bitmap.height)) {
+        return;
+    }
+    const size_t stride = Bitmap::rowBytes(bitmap.width);
+    for (int row = 0; row < bitmap.height; row++) {
+        const uint8_t* bits = bitmap.bits.data() + static_cast<size_t>(row) * stride;
+        for (int col = 0; col < bitmap.width; col++) {
+            bool white = bits[col / 8] & (0x80 >> (col % 8));
+            setPixel(x + col, y + row, white ? Color::white : Color::black);
+        }
+    }
+}
+
 void Canvas::roundedRect(int x, int y, int width, int height, int radius, int thickness, Color color) {
     radius = std::clamp(radius, 0, std::min(width, height) / 2);
     thickness = std::clamp(thickness, 1, std::min(width, height) / 2);

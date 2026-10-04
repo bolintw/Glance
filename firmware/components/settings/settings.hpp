@@ -17,4 +17,9 @@ esp_err_t initStorage();
 Settings load();
 esp_err_t save(const Settings& settings);
 
+// Privacy mode, toggled by the button. Kept apart from Settings so saving
+// the setup page never touches it. Off if never saved.
+bool loadPrivacyMode();
+esp_err_t savePrivacyMode(bool on);
+
 }  // namespace settings

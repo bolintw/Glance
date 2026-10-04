@@ -15,6 +15,7 @@ constexpr const char* kIcsUrlKeys[Settings::kMaxCalendars] = {"ics_url_1", "ics_
                                                               "ics_url_5"};
 constexpr const char* kCwaApiKeyKey = "cwa_key";
 constexpr const char* kWeatherLocationKey = "wx_location";
+constexpr const char* kPrivacyModeKey = "privacy";
 
 constexpr const char* kIcsUrlFallbacks[Settings::kMaxCalendars] = {
     CONFIG_GLANCE_ICS_URL_1, CONFIG_GLANCE_ICS_URL_2, CONFIG_GLANCE_ICS_URL_3,
@@ -50,6 +51,12 @@ public:
     }
 
     esp_err_t write(const char* key, const std::string& value) { return nvs_set_str(handle_, key, value.c_str()); }
+
+    uint8_t readU8(const char* key, uint8_t fallback) const {
+        uint8_t value;
+        return open_ && nvs_get_u8(handle_, key, &value) == ESP_OK ? value : fallback;
+    }
+    esp_err_t writeU8(const char* key, uint8_t value) { return nvs_set_u8(handle_, key, value); }
     esp_err_t commit() { return nvs_commit(handle_); }
 
 private:
@@ -111,6 +118,17 @@ esp_err_t save(const Settings& s) {
         ESP_LOGE(kTag, "save failed: %s", esp_err_to_name(err));
     }
     return err;
+}
+
+bool loadPrivacyMode() { return Nvs(NVS_READONLY).readU8(kPrivacyModeKey, 0) != 0; }
+
+esp_err_t savePrivacyMode(bool on) {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs.writeU8(kPrivacyModeKey, on ? 1 : 0);
+    return err == ESP_OK ? nvs.commit() : err;
 }
 
 }  // namespace settings

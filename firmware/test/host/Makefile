@@ -2,14 +2,14 @@
 # Fast iteration without flashing:
 #
 #   make -C firmware/test/host                                  # unit tests
-#   make -C firmware/test/host preview [NOW=2026-11-25T12:00] [SCREEN=setup|notice]   # build/preview.png
+#   make -C firmware/test/host preview [NOW=2026-11-25T12:00] [SCREEN=setup|notice|privacy|privacy1]   # build/preview.png
 
 CXX ?= c++
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g
 COMPONENTS := ../../components
 
 HOST_COMPONENTS := ics canvas display calendar_view fonts refresh_schedule json weather icons setup_page \
-                   setup_view qrcodegen captive_dns
+                   setup_view qrcodegen captive_dns photos
 # Only their ESP-free headers are used on the host (settings: device_settings.hpp).
 HOST_HEADER_COMPONENTS := settings
 INCLUDES := $(foreach c,$(HOST_COMPONENTS) $(HOST_HEADER_COMPONENTS),-I$(COMPONENTS)/$(c))

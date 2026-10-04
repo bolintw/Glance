@@ -13,6 +13,17 @@
 
 enum class Color : uint8_t { black, white };
 
+// A 1bpp image in the framebuffer's format: MSB-first, each row padded to a
+// whole byte, 1 = white.
+struct Bitmap {
+    int width;
+    int height;
+    std::span<const uint8_t> bits;
+
+    static constexpr size_t rowBytes(int width) { return static_cast<size_t>(width + 7) / 8; }
+    static constexpr size_t sizeFor(int width, int height) { return rowBytes(width) * static_cast<size_t>(height); }
+};
+
 // Draws into a Display-format framebuffer (1bpp, MSB-first, 1 = white).
 // Everything clips to the frame, so callers can draw partly off-screen.
 class Canvas {
@@ -30,6 +41,10 @@ public:
     // missing glyph is visible instead of silently vanishing. Returns the
     // width drawn.
     int drawText(int x, int y, std::string_view utf8, const Font& font, Color color);
+
+    // Copies the bitmap (both colors) with its top-left corner at (x, y).
+    // Draws nothing if `bits` is shorter than the dimensions need.
+    void drawBitmap(int x, int y, const Bitmap& bitmap);
 
     const FrameSize& frame() const { return frame_; }
 

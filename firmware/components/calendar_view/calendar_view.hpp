@@ -18,4 +18,10 @@ namespace calendar_view {
 void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
             const std::optional<weather::Forecast>& forecast);
 
+// Privacy mode: the same header and weather, with a photo in the event box
+// instead of the events. `photo` should be photos::kWidth x photos::kHeight;
+// without a clock (`now` nullopt) the date is left out.
+void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo);
+
 }  // namespace calendar_view

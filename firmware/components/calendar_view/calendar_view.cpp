@@ -5,6 +5,7 @@
 
 #include "fonts.hpp"
 #include "icons.hpp"
+#include "photos.hpp"
 #include "ics_datetime.hpp"
 
 namespace calendar_view {
@@ -53,6 +54,9 @@ constexpr int kFirstRowY = 165;
 constexpr int kRowPitch = 48;
 constexpr int kRowsPerColumn = 5;
 constexpr int kMaxTextWidth = 331;
+// The photo sits inside the box's 2px border with a 2px gap.
+constexpr int kPhotoX = kBoxX + 4, kPhotoY = kBoxY + 4;
+static_assert(photos::kWidth == kBoxWidth - 8 && photos::kHeight == kBoxHeight - 8);
 
 constexpr const char* kMonths[] = {"Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.",
                                    "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."};
@@ -119,8 +123,10 @@ void drawWeather(Canvas& canvas, const weather::Forecast& forecast) {
     drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20);
 }
 
+void drawBox(Canvas& canvas) { canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, kInk); }
+
 void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events) {
-    canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, kInk);
+    drawBox(canvas);
     canvas.fillRect(kColumnDividerX, kBoxY, 2, kBoxHeight, kInk);
     for (int column = 0; column < 2; column++) {
         for (int row = 1; row <= kRowsPerColumn; row++) {  // a rule under every row
@@ -156,6 +162,19 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
         drawWeather(canvas, *forecast);
     }
     drawEventBox(canvas, utcOffset, events);
+}
+
+void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo) {
+    canvas.fill(kBackground);
+    if (now) {
+        drawHeader(canvas, localDate(*now, utcOffset));
+    }
+    if (forecast) {
+        drawWeather(canvas, *forecast);
+    }
+    drawBox(canvas);
+    canvas.drawBitmap(kPhotoX, kPhotoY, photo);
 }
 
 }  // namespace calendar_view

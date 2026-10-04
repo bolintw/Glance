@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Headless counterpart to display_sim.py: reset the board, read the console
-until the run finishes, and save the last frame the SerialDumpDisplay backend
+until the run finishes (the next wake-up is scheduled), and save the last frame the SerialDumpDisplay backend
 sent as a PNG. No GUI and no button presses, so a script (or an agent that
 can't see the Tk window) can drive a full render cycle on its own.
 
     source firmware/env.sh            # esptool comes from the ESP-IDF env
-    .venv/bin/python capture.py /dev/cu.usbmodem3101 [--out frame.png] [--seconds 60]
+    .venv/bin/python capture.py /dev/cu.usbmodem3101 [--out frame.png] [--seconds 60] [--no-reset]
+
+--no-reset just listens, for when the board has to be reset by hand (esptool
+sometimes can't reach it; tap RST once this is running).
 
 Log lines are echoed (frame chunks aren't). Exits non-zero if no complete,
 checksum-valid frame arrived.
@@ -57,11 +60,13 @@ def main():
     parser.add_argument("--seconds", type=float, default=60, help="give up after this long")
     parser.add_argument("--width", type=int, default=800)
     parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--no-reset", action="store_true", help="don't reset the board, just listen")
     args = parser.parse_args()
 
-    reset_board(args.port)
-    time.sleep(0.3)  # USB-Serial-JTAG re-enumerates on reset
-    ser = serial.Serial(args.port, 115200, timeout=0.2)
+    if not args.no_reset:
+        reset_board(args.port)
+        time.sleep(0.3)  # USB-Serial-JTAG re-enumerates on reset
+    ser = None
 
     buf = bytearray()
     chunks, total = {}, None
@@ -69,14 +74,26 @@ def main():
     deadline = time.time() + args.seconds
     done = False
     while time.time() < deadline and not done:
-        buf.extend(ser.read(4096))
+        # (Re)open as needed: a hand reset makes the port vanish and return.
+        try:
+            if ser is None:
+                ser = serial.Serial(args.port, 115200, timeout=0.2)
+            buf.extend(ser.read(4096))
+        except (serial.SerialException, OSError):
+            ser = None
+            time.sleep(0.2)
+            continue
         while (idx := buf.find(b"\n")) != -1:
             line = bytes(buf[:idx]).rstrip(b"\r")
             del buf[: idx + 1]
             if not line.startswith(FRAME_PREFIX):
                 text = line.decode("utf-8", errors="replace")
                 print(text)
-                done |= "Returned from app_main()" in text
+                # The run is over once the next wake-up is scheduled (deep sleep
+                # or, in development builds, waiting awake -- app_main no
+                # longer returns). Exiting matters: a lingering reader on the
+                # port makes the next esptool run fail to connect.
+                done |= "Returned from app_main()" in text or "main: next " in text
                 continue
             try:
                 seq_s, total_s, chunk = line[len(FRAME_PREFIX):].split(b":", 2)
@@ -93,7 +110,8 @@ def main():
                     image.save(args.out)
                     frames += 1
                     print(f"[capture] frame {frames} saved to {args.out}")
-    ser.close()
+    if ser is not None:
+        ser.close()
     if frames == 0:
         sys.exit("[capture] no complete frame received")
 

@@ -148,12 +148,44 @@ void testEllipsize() {
 
 }  // namespace
 
+void testDrawBitmap() {
+    // 10x2: row 0 is 1010101011, row 1 all black; 10 wide pads rows to 2 bytes.
+    const uint8_t bits[] = {0xAA, 0xC0, 0x00, 0x00};
+    TestCanvas t;
+    t.canvas.fill(Color::white);
+    t.canvas.drawBitmap(3, 4, {10, 2, bits});
+    CHECK(!t.black(3, 4) && t.black(4, 4) && !t.black(5, 4) && t.black(10, 4));
+    CHECK(!t.black(11, 4) && !t.black(12, 4));  // last two columns white
+    CHECK(t.black(3, 5) && t.black(12, 5));
+    CHECK(!t.black(13, 5) && !t.black(2, 5));   // nothing outside it
+    CHECK(t.blackCount() == 4 + 10);
+
+    // White pixels are drawn too, not skipped.
+    TestCanvas dark;
+    dark.canvas.fill(Color::black);
+    dark.canvas.drawBitmap(0, 0, {10, 2, bits});
+    CHECK(!dark.black(0, 0));
+
+    // Clipped at the frame edge without touching anything else.
+    TestCanvas clipped;
+    clipped.canvas.fill(Color::white);
+    clipped.canvas.drawBitmap(28, 15, {10, 2, bits});
+    CHECK(clipped.black(29, 15) && clipped.blackCount() == 2);
+
+    // Too few bytes for the stated size: draws nothing.
+    TestCanvas shortBits;
+    shortBits.canvas.fill(Color::white);
+    shortBits.canvas.drawBitmap(0, 0, {10, 3, bits});
+    CHECK(shortBits.blackCount() == 0);
+}
+
 int main() {
     testPixelsAndClipping();
     testRoundedRect();
     testDrawText();
     testMissingAndMalformed();
     testEllipsize();
+    testDrawBitmap();
 
     if (failures == 0) {
         std::printf("all canvas tests passed\n");

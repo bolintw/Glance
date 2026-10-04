@@ -18,4 +18,9 @@ inline constexpr int32_t kUtcOffsetSeconds = 8 * 3600;
 // interface (see WifiManager).
 esp_err_t sync(uint32_t timeoutMs);
 
+// Whether the clock holds a real date: synced on this boot, or kept by the
+// RTC through a restart or deep sleep since an earlier sync. False after a
+// power loss until the next sync.
+bool clockIsPlausible();
+
 }  // namespace time_sync

@@ -17,7 +17,9 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_random.h"
 #include "ics_event_collector.hpp"
+#include "photos.hpp"
 #include "refresh_schedule.hpp"
 #include "settings.hpp"
 #include "setup_mode.hpp"
@@ -44,7 +46,7 @@ constexpr uint32_t kNtpSyncTimeoutMs = 10000;
 // refresh, so waking slightly early doesn't redraw twice in one morning.
 constexpr int64_t kMinRefreshGapSeconds = 3600;
 
-// IO1: short press refreshes now, long press enters setup mode.
+// IO1: short press toggles privacy mode, long press enters setup mode.
 constexpr int kButtonPin = 1;
 constexpr uint32_t kLongPressMs = 3000;
 // IO48: status LED, powered from the peripheral rail (GPIO14). Lights when
@@ -67,6 +69,7 @@ struct BootState {
     bool enterSetup;      // a long press asked for setup mode
     bool justConfigured;  // setup mode just saved; report WiFi trouble at once
     uint8_t wifiFailures;
+    uint8_t lastPhoto;  // privacy mode's last photo, so the next one differs
 };
 RTC_NOINIT_ATTR BootState gBoot;
 
@@ -91,9 +94,10 @@ void statusLedOn() {
 
 // Watches the button from boot on, so a press is timed from when it really
 // started even while a refresh keeps app_main busy.
-//   refreshing: long -> setup mode; short is ignored (already refreshing)
-//   waiting:    long -> setup mode; short -> refresh now
-//   setup:      any press leaves setup mode
+//   short: toggle privacy mode and redraw at once (cutting short any
+//          refresh in progress: a guest at the door shouldn't wait for it)
+//   long:  setup mode
+//   in setup mode, any press leaves it
 void buttonTask(void*) {
     Button button(kButtonPin);
     while (true) {
@@ -111,21 +115,36 @@ void buttonTask(void*) {
         if (phase == Phase::setup) {
             restartInto(false);
         }
+        statusLedOn();
         if (isLong) {
-            statusLedOn();
             while (button.isDown()) {
                 vTaskDelay(pdMS_TO_TICKS(20));
             }
             restartInto(true);
         }
-        if (phase == Phase::waiting) {
-            restartInto(false);
-        }
-        ESP_LOGI(kTag, "already refreshing, short press ignored");
-        while (button.isDown()) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
+        bool privacy = !settings::loadPrivacyMode();
+        settings::savePrivacyMode(privacy);
+        ESP_LOGI(kTag, "privacy mode %s", privacy ? "on" : "off");
+        vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
+        restartInto(false);
     }
+}
+
+// A built-in photo, never the same one twice in a row.
+const Bitmap& pickPhoto() {
+    std::span<const Bitmap> choices = photos::kBuiltIn;
+    size_t count = choices.size();
+    size_t index;
+    if (count > 1 && gBoot.lastPhoto < count) {
+        index = esp_random() % (count - 1);
+        if (index >= gBoot.lastPhoto) {
+            index++;
+        }
+    } else {
+        index = esp_random() % count;
+    }
+    gBoot.lastPhoto = static_cast<uint8_t>(index);
+    return choices[index];
 }
 
 // The layout shows two columns of five (same as the Raspberry Pi version).
@@ -276,6 +295,43 @@ void reportWifiFailure() {
     }
 }
 
+// Privacy mode's refresh: date, weather and a photo, no calendars fetched at
+// all. Unlike the calendar it always redraws, even without WiFi or a synced
+// clock -- the point is that the events come off the screen. True if it
+// got everything; false means retry later for the date and weather.
+bool refreshPrivate(const Settings& settings) {
+    std::optional<weather::Forecast> forecast;
+    bool online = false;
+    {
+        WifiManager wifi;
+        esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
+        if (err == ESP_OK) {
+            gBoot.wifiFailures = 0;
+            err = time_sync::sync(kNtpSyncTimeoutMs);
+            online = err == ESP_OK;
+        }
+        if (online) {
+            forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
+        } else {
+            ESP_LOGE(kTag, "offline (%s), drawing privacy mode without weather", esp_err_to_name(err));
+        }
+    }
+    std::optional<int64_t> now;
+    if (time_sync::clockIsPlausible()) {
+        now = time(nullptr);
+    }
+
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, pickPhoto());
+    ESP_LOGI(kTag, "showing privacy mode");
+    if (!show(framebuffer)) {
+        ESP_LOGE(kTag, "panel did not respond");
+        return false;
+    }
+    return online;
+}
+
 // One refresh: WiFi -> NTP -> calendars + weather -> render -> panel. If any
 // step before rendering fails, the panel is left alone: e-ink keeps showing
 // the last good calendar, which beats replacing it with a wrong date or an
@@ -325,17 +381,21 @@ extern "C" void app_main(void)
 {
     ESP_LOGI(kTag, "woke by %s", (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
     if (gBoot.magic != BootState::kMagic) {
-        gBoot = {.magic = BootState::kMagic, .enterSetup = false, .justConfigured = false, .wifiFailures = 0};
+        gBoot = {.magic = BootState::kMagic,
+                 .enterSetup = false,
+                 .justConfigured = false,
+                 .wifiFailures = 0,
+                 .lastPhoto = UINT8_MAX};
     }
-    xTaskCreate(buttonTask, "button", 3072, nullptr, 5, nullptr);
     ESP_ERROR_CHECK(settings::initStorage());
+    xTaskCreate(buttonTask, "button", 3072, nullptr, 5, nullptr);  // after NVS: a press writes to it
     Settings settings = settings::load();
     if (gBoot.enterSetup || settings.wifiSsid.empty()) {
         gBoot.enterSetup = false;
         runSetupMode(settings);
     }
 
-    bool refreshed = refresh(settings);
+    bool refreshed = settings::loadPrivacyMode() ? refreshPrivate(settings) : refresh(settings);
     gBoot.justConfigured = false;
     int64_t now = time(nullptr);
     int64_t wakeAt = refreshed ? refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds,

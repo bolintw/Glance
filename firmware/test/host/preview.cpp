@@ -4,7 +4,7 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or SCREEN=notice
+//   make -C firmware/test/host preview SCREEN=setup         # or notice, privacy, privacy1
 //
 // produces build/preview.png.
 
@@ -19,6 +19,7 @@
 #include "ics_datetime.hpp"
 #include "ics_event_collector.hpp"
 #include "ics_line_reader.hpp"
+#include "photos.hpp"
 #include "setup_page.hpp"
 #include "setup_view.hpp"
 #include "weather.hpp"
@@ -61,6 +62,9 @@ int main(int argc, char** argv) {
     if (screen == "setup") {
         setup_view::render(canvas, setup_page::wifiQrPayload("Glance-AB12", "k7m2qx9p"), "Glance-AB12", "k7m2qx9p",
                            "http://192.168.4.1");
+    } else if (screen.starts_with("privacy")) {
+        size_t index = screen == "privacy1" ? 1 : 0;
+        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index]);
     } else if (screen == "notice") {
         const std::string_view lines[] = {"每小時會自動重試", "長按按鈕可以重新設定"};
         setup_view::renderNotice(canvas, "WiFi 連線失敗", lines);
