@@ -134,7 +134,9 @@ bool show(std::span<const uint8_t> framebuffer) {
     if (!display.init()) {
         return false;
     }
-    bool shown = display.clear() && display.flush(framebuffer);
+    // No clear() first: a full refresh already drives every pixel through
+    // the whole waveform, so clearing only doubled the time and flicker.
+    bool shown = display.flush(framebuffer);
     display.sleep();
     return shown;
 }
