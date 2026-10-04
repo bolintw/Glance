@@ -20,13 +20,13 @@ jobs:
     # Same ESP-IDF as development (v6.0).
     container: espressif/idf:v6.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the tag
         shell: bash
         run: |
           if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tag must look like v1.2.3, got $GITHUB_REF_NAME" >&2
+            echo "::error::Release tag must look like v1.2.3 (devices only install vX.Y.Z), got $GITHUB_REF_NAME"
             exit 1
           fi
 
@@ -52,7 +52,7 @@ jobs:
             "$GITHUB_REF_NAME" "$url" "$size" "$sha" > manifest.json
           cat manifest.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware
           path: |
@@ -65,7 +65,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: firmware
       - name: Attach to the release
