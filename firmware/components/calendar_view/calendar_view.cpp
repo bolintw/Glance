@@ -177,4 +177,6 @@ void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset
     canvas.drawBitmap(kPhotoX, kPhotoY, photo);
 }
 
+GrayOverlay photoOverlay(const GrayBitmap& photo) { return {kPhotoX, kPhotoY, photo}; }
+
 }  // namespace calendar_view

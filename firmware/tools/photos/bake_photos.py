@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bakes the built-in privacy-mode photos into components/photos/: each one
-cropped to the photo frame, dithered to 1bpp and emitted as a Bitmap.
+cropped to the photo frame and dithered twice -- to 1bpp (a Bitmap) and to
+four gray levels for panels with a 4-gray mode (a GrayBitmap).
 
     ../font_subset/.venv/bin/python bake_photos.py
 
@@ -10,6 +11,7 @@ photos go through the same steps in the browser (setup page), so keep the
 two in step: fit-crop, autocontrast (1% cutoff), Atkinson dithering.
 """
 import hashlib
+import math
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,34 +67,54 @@ def fetch(photo):
     return path
 
 
-def atkinson(img):
-    """1bpp rows (MSB first, 1 = white) via Atkinson dithering: 6/8 of the
-    error spreads to nearby pixels, the rest is dropped, which keeps
-    highlights and shadows clean on a 1-bit panel."""
+def atkinson_levels(img, levels):
+    """Each pixel quantized to 0..levels-1 (0 = black) by Atkinson
+    dithering: 6/8 of the error spreads to nearby pixels, the rest is
+    dropped, which keeps highlights and shadows clean on e-paper."""
     w, h = img.size
     px = [float(v) for v in img.tobytes()]
-    rows = bytearray()
+    step = 255.0 / (levels - 1)
+    out = []
     for y in range(h):
-        row = bytearray((w + 7) // 8)
         for x in range(w):
             i = y * w + x
             old = px[i]
-            white = old >= 128
-            if white:
-                row[x // 8] |= 0x80 >> (x % 8)
-            err = (old - (255.0 if white else 0.0)) / 8
+            # floor(x + 0.5), not round(): matches JavaScript's Math.round, for the upload page.
+            level = min(levels - 1, max(0, math.floor(old / step + 0.5)))
+            out.append(level)
+            err = (old - level * step) / 8
             for dx, dy in ((1, 0), (2, 0), (-1, 1), (0, 1), (1, 1), (0, 2)):
                 xx, yy = x + dx, y + dy
                 if 0 <= xx < w and yy < h:
                     px[yy * w + xx] += err
+    return out
+
+
+def pack(levels, w, h, bits):
+    """Rows of `bits`-per-pixel values, MSB first, each row padded to a byte."""
+    per_byte = 8 // bits
+    rows = bytearray()
+    for y in range(h):
+        row = bytearray((w + per_byte - 1) // per_byte)
+        for x in range(w):
+            row[x // per_byte] |= levels[y * w + x] << (8 - bits - bits * (x % per_byte))
         rows += row
     return bytes(rows)
 
 
 def bake(photo):
+    """(1bpp bits, 2bpp bits) for the photo."""
     img = Image.open(fetch(photo)).convert("L")
     img = ImageOps.fit(img, (WIDTH, HEIGHT), Image.LANCZOS, centering=(0.5, photo.center_y))
-    return atkinson(ImageOps.autocontrast(img, cutoff=1))
+    img = ImageOps.autocontrast(img, cutoff=1)
+    return pack(atkinson_levels(img, 2), WIDTH, HEIGHT, 1), pack(atkinson_levels(img, 4), WIDTH, HEIGHT, 2)
+
+
+def emit_array(lines, name, bits):
+    lines.append(f"constexpr uint8_t {name}[] = {{")
+    for i in range(0, len(bits), 24):
+        lines.append("    " + ", ".join(f"0x{b:02x}" for b in bits[i : i + 24]) + ",")
+    lines += ["};", ""]
 
 
 def main():
@@ -106,18 +128,20 @@ def main():
         "",
     ]
     for photo in PHOTOS:
-        bits = bake(photo)
+        mono, gray = bake(photo)
         lines.append(f"// {photo.credit}")
         lines.append(f"// {photo.url}")
-        lines.append(f"constexpr uint8_t k{photo.name}[] = {{")
-        for i in range(0, len(bits), 24):
-            lines.append("    " + ", ".join(f"0x{b:02x}" for b in bits[i : i + 24]) + ",")
-        lines += ["};", ""]
+        emit_array(lines, f"k{photo.name}", mono)
+        emit_array(lines, f"k{photo.name}Gray", gray)
     lines.append("constexpr Bitmap kPhotos[] = {")
     for photo in PHOTOS:
         lines.append(f"    {{photos::kWidth, photos::kHeight, k{photo.name}}},")
-    lines += ["};", "", "}  // namespace", "", "namespace photos {", "", "const std::span<const Bitmap> kBuiltIn{kPhotos};",
-              "", "}  // namespace photos", ""]
+    lines += ["};", "", "constexpr GrayBitmap kGrayPhotos[] = {"]
+    for photo in PHOTOS:
+        lines.append(f"    {{photos::kWidth, photos::kHeight, k{photo.name}Gray}},")
+    lines += ["};", "", "}  // namespace", "", "namespace photos {", "",
+              "const std::span<const Bitmap> kBuiltIn{kPhotos};",
+              "const std::span<const GrayBitmap> kBuiltInGray{kGrayPhotos};", "", "}  // namespace photos", ""]
     (OUT_DIR / "default_photos.cpp").write_text("\n".join(lines), encoding="utf-8")
 
     header = f"""#pragma once
@@ -135,7 +159,10 @@ namespace photos {{
 inline constexpr int kWidth = {WIDTH};
 inline constexpr int kHeight = {HEIGHT};
 
+// The same photos twice: dithered to black and white, and to four gray
+// levels for panels with a 4-gray mode. Same order in both.
 extern const std::span<const Bitmap> kBuiltIn;
+extern const std::span<const GrayBitmap> kBuiltInGray;
 
 }}  // namespace photos
 """
@@ -146,7 +173,8 @@ extern const std::span<const Bitmap> kBuiltIn;
         "                    REQUIRES canvas)\n",
         encoding="utf-8",
     )
-    print(f"{len(PHOTOS)} photos, {len(PHOTOS) * HEIGHT * ((WIDTH + 7) // 8) / 1024:.0f} KB")
+    size = len(PHOTOS) * HEIGHT * ((WIDTH + 7) // 8 + (WIDTH + 3) // 4)
+    print(f"{len(PHOTOS)} photos, {size / 1024:.0f} KB")
 
 
 if __name__ == "__main__":

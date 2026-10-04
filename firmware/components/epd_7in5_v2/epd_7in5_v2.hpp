@@ -28,6 +28,9 @@ public:
     bool init() override;
     bool clear() override;
     bool flush(std::span<const uint8_t> framebuffer) override;
+    // 4-gray mode. Only panels sold after 2023-10 have its waveform (see
+    // Waveshare's EPD_7IN5_V2_Init_4Gray); older ones show it wrong.
+    bool flushGray(std::span<const uint8_t> framebuffer, const GrayOverlay& overlay) override;
     void sleep() override;
 
 private:
@@ -52,6 +55,9 @@ private:
     bool waitUntilBusy(uint32_t timeoutMs);
     bool turnOnDisplay();
     void resetHardware();
+    void initGrayMode();
+    // Sends one of the two RAM planes for 4-gray mode; `second` picks DTM2.
+    void sendGrayPlane(std::span<const uint8_t> framebuffer, const GrayOverlay& overlay, bool second);
 
     void setBoosterSoftStart();
     void setPowerSetting();

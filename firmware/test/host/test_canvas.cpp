@@ -179,6 +179,33 @@ void testDrawBitmap() {
     CHECK(shortBits.blackCount() == 0);
 }
 
+void testGrayOverlay() {
+    // 6x2 2bpp image: row 0 = levels 0 1 2 3 3 2, row 1 = all 1. Rows pad to 2 bytes.
+    const uint8_t bits[] = {0b00011011, 0b11100000, 0b01010101, 0b01010000};
+    GrayBitmap gray{6, 2, bits};
+    CHECK(gray.level(0, 0) == 0 && gray.level(1, 0) == 1 && gray.level(2, 0) == 2 && gray.level(3, 0) == 3);
+    CHECK(gray.level(4, 0) == 3 && gray.level(5, 0) == 2);
+    CHECK(gray.level(0, 1) == 1 && gray.level(5, 1) == 1);
+
+    TestCanvas t;
+    t.canvas.fill(Color::white);
+    t.canvas.setPixel(0, 0, Color::black);
+    t.canvas.setPixel(9, 3, Color::black);  // under the overlay: the overlay wins
+    GrayOverlay overlay{8, 3, gray};
+    CHECK(overlay.composedLevel(t.fb, kFrame, 0, 0) == 0);   // framebuffer black
+    CHECK(overlay.composedLevel(t.fb, kFrame, 1, 0) == 3);   // framebuffer white
+    CHECK(overlay.composedLevel(t.fb, kFrame, 8, 3) == 0);
+    CHECK(overlay.composedLevel(t.fb, kFrame, 9, 3) == 1);
+    CHECK(overlay.composedLevel(t.fb, kFrame, 11, 3) == 3);
+    CHECK(overlay.composedLevel(t.fb, kFrame, 13, 4) == 1);
+    CHECK(overlay.composedLevel(t.fb, kFrame, 14, 3) == 3);  // just right of it
+    CHECK(overlay.composedLevel(t.fb, kFrame, 8, 5) == 3);   // just below it
+
+    // Too few bytes for the stated size: ignored, the framebuffer shows.
+    GrayOverlay truncated{8, 3, {6, 3, bits}};
+    CHECK(truncated.composedLevel(t.fb, kFrame, 9, 3) == 0);
+}
+
 int main() {
     testPixelsAndClipping();
     testRoundedRect();
@@ -186,6 +213,7 @@ int main() {
     testMissingAndMalformed();
     testEllipsize();
     testDrawBitmap();
+    testGrayOverlay();
 
     if (failures == 0) {
         std::printf("all canvas tests passed\n");

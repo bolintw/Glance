@@ -42,6 +42,7 @@ from serial.tools import list_ports
 
 FRAME_PREFIX = b"GLNC:"
 TYPE_FRAME = 0x01
+TYPE_GRAY_FRAME = 0x02  # 2bpp, 0 = black ... 3 = white
 HEADER_LEN = 1 + 4  # type + length
 CHECKSUM_LEN = 2
 DEFAULT_DUMP_PATH = Path(__file__).parent / "latest_frame.png"
@@ -49,6 +50,27 @@ DEFAULT_DUMP_PATH = Path(__file__).parent / "latest_frame.png"
 
 def checksum(payload: bytes) -> int:
     return sum(payload) & 0xFFFF
+
+
+def unpack_2bpp(payload: bytes, width: int, height: int) -> Image.Image:
+    image = Image.new("L", (width, height))
+    pixels = image.load()
+    bytes_per_row = (width + 3) // 4
+    for y in range(height):
+        row_offset = y * bytes_per_row
+        for x in range(width):
+            level = (payload[row_offset + x // 4] >> (6 - 2 * (x % 4))) & 0x03
+            pixels[x, y] = level * 85
+    return image
+
+
+def unpack_frame(pkt_type: int, payload: bytes, width: int, height: int):
+    """The frame image, or None if the type or size is wrong."""
+    if pkt_type == TYPE_FRAME and len(payload) == width * height // 8:
+        return unpack_1bpp(payload, width, height)
+    if pkt_type == TYPE_GRAY_FRAME and len(payload) == (width + 3) // 4 * height:
+        return unpack_2bpp(payload, width, height)
+    return None
 
 
 def unpack_1bpp(payload: bytes, width: int, height: int) -> Image.Image:
@@ -255,19 +277,14 @@ class DisplaySimApp:
         payload = packet[HEADER_LEN : HEADER_LEN + length]
         received_checksum = int.from_bytes(packet[HEADER_LEN + length : expected_total], "little")
 
-        if pkt_type != TYPE_FRAME:
-            self._emit_log(f"[display_sim] unknown packet type 0x{pkt_type:02x}\n")
-            return
         if checksum(payload) != received_checksum:
             self._emit_log("[display_sim] checksum mismatch, dropping frame\n")
             return
-        if length != self.width * self.height // 8:
-            self._emit_log(
-                f"[display_sim] unexpected payload size {length}, "
-                f"expected {self.width * self.height // 8}\n"
-            )
+        image = unpack_frame(pkt_type, payload, self.width, self.height)
+        if image is None:
+            self._emit_log(f"[display_sim] unexpected packet: type 0x{pkt_type:02x}, {length} bytes\n")
             return
-        self._render_frame(payload)
+        self._render_frame(image)
 
     def _emit_log(self, text: str):
         self.log_widget.after(0, self._append_log_text, text)
@@ -278,8 +295,7 @@ class DisplaySimApp:
         self.log_widget.see(tk.END)
         self.log_widget.configure(state=tk.DISABLED)
 
-    def _render_frame(self, payload: bytes):
-        image = unpack_1bpp(payload, self.width, self.height)
+    def _render_frame(self, image: Image.Image):
         image.save(self.dump_path)
         self._emit_log(f"[display_sim] frame written to {self.dump_path}\n")
         self.image_label.after(0, self._show_image, image)

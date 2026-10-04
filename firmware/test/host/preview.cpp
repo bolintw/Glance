@@ -1,16 +1,18 @@
 // Renders the calendar screen on the Mac with the same code the firmware
 // runs (calendar_view + Canvas + baked fonts), fed from the test calendar
-// and CWA forecast fixtures, and writes it as a PBM.
+// and CWA forecast fixtures, and writes it as a PGM (8-bit gray, so the
+// 4-gray privacy screen can be previewed too).
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or notice, privacy, privacy1
+//   make -C firmware/test/host preview SCREEN=setup         # or notice, privacy[1], gray[1]
 //
 // produces build/preview.png.
 
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string_view>
 #include <string>
 #include <vector>
@@ -40,7 +42,7 @@ int64_t parseNow(const char* text) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    const char* out = argc > 1 ? argv[1] : "build/preview.pbm";
+    const char* out = argc > 1 ? argv[1] : "build/preview.pgm";
     const int64_t now = parseNow(argc > 2 ? argv[2] : "2026-10-04T15:30");
     const std::string_view screen = argc > 3 ? argv[3] : "calendar";
 
@@ -59,12 +61,16 @@ int main(int argc, char** argv) {
     constexpr FrameSize kFrame{.width = 800, .height = 480};
     std::vector<uint8_t> fb(kFrame.framebufferSize());
     Canvas canvas(fb, kFrame);
+    std::optional<GrayOverlay> overlay;
     if (screen == "setup") {
         setup_view::render(canvas, setup_page::wifiQrPayload("Glance-AB12", "k7m2qx9p"), "Glance-AB12", "k7m2qx9p",
                            "http://192.168.4.1");
-    } else if (screen.starts_with("privacy")) {
-        size_t index = screen == "privacy1" ? 1 : 0;
+    } else if (screen.starts_with("privacy") || screen.starts_with("gray")) {
+        size_t index = screen.ends_with("1") ? 1 : 0;
         calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index]);
+        if (screen.starts_with("gray")) {
+            overlay = calendar_view::photoOverlay(photos::kBuiltInGray[index]);
+        }
     } else if (screen == "notice") {
         const std::string_view lines[] = {"每小時會自動重試", "長按按鈕可以重新設定"};
         setup_view::renderNotice(canvas, "WiFi 連線失敗", lines);
@@ -77,10 +83,15 @@ int main(int argc, char** argv) {
         std::perror(out);
         return 1;
     }
-    // PBM uses 1 = black, the opposite of the framebuffer.
-    std::fprintf(f, "P4\n%zu %zu\n", kFrame.width, kFrame.height);
-    for (uint8_t b : fb) {
-        std::fputc(static_cast<uint8_t>(~b), f);
+    // What the panel shows: the overlay's 4 levels where it covers (0 black
+    // .. 3 white, as 0/85/170/255), the framebuffer elsewhere.
+    GrayOverlay none{0, 0, {0, 0, {}}};
+    const GrayOverlay& shown = overlay ? *overlay : none;
+    std::fprintf(f, "P5\n%zu %zu\n255\n", kFrame.width, kFrame.height);
+    for (int y = 0; y < static_cast<int>(kFrame.height); y++) {
+        for (int x = 0; x < static_cast<int>(kFrame.width); x++) {
+            std::fputc(shown.composedLevel(fb, kFrame, x, y) * 85, f);
+        }
     }
     std::fclose(f);
     return 0;

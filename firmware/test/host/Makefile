@@ -2,7 +2,7 @@
 # Fast iteration without flashing:
 #
 #   make -C firmware/test/host                                  # unit tests
-#   make -C firmware/test/host preview [NOW=2026-11-25T12:00] [SCREEN=setup|notice|privacy|privacy1]   # build/preview.png
+#   make -C firmware/test/host preview [NOW=2026-11-25T12:00] [SCREEN=setup|notice|privacy[1]|gray[1]]   # build/preview.png
 
 CXX ?= c++
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g
@@ -51,8 +51,8 @@ PYTHON := ../../tools/font_subset/.venv/bin/python
 NOW ?= 2026-10-04T15:30
 SCREEN ?= calendar
 preview: build/preview
-	./build/preview build/preview.pbm $(NOW) $(SCREEN)
-	$(PYTHON) -c "from PIL import Image; Image.open('build/preview.pbm').save('build/preview.png')"
+	./build/preview build/preview.pgm $(NOW) $(SCREEN)
+	$(PYTHON) -c "from PIL import Image; Image.open('build/preview.pgm').save('build/preview.png')"
 	@echo "wrote build/preview.png"
 
 clean:

@@ -17,6 +17,19 @@ menu "Glance Display Backend"
 
 endmenu
 
+menu "Glance Privacy Mode"
+
+    config GLANCE_PHOTO_4GRAY
+        bool "Show photos in four gray levels"
+        default n
+        help
+            Use the panel's 4-gray mode for privacy mode's photo instead of
+            black-and-white dithering. Only Waveshare 7.5" V2 panels sold
+            after 2023-10 carry the 4-gray waveform (see Waveshare's
+            EPD_7IN5_V2_Init_4Gray); older ones show it wrong.
+
+endmenu
+
 menu "Glance Refresh"
 
     config GLANCE_REFRESH_HOUR

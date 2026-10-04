@@ -22,7 +22,7 @@ import time
 
 import serial
 
-from display_sim import CHECKSUM_LEN, FRAME_PREFIX, HEADER_LEN, TYPE_FRAME, checksum, unpack_1bpp
+from display_sim import CHECKSUM_LEN, FRAME_PREFIX, HEADER_LEN, checksum, unpack_frame
 
 
 def reset_board(port):
@@ -43,14 +43,14 @@ def reset_board(port):
 
 def decode_frame(b64, width, height):
     packet = base64.b64decode(b64)
-    if len(packet) < HEADER_LEN + CHECKSUM_LEN or packet[0] != TYPE_FRAME:
+    if len(packet) < HEADER_LEN + CHECKSUM_LEN:
         return None
     length = int.from_bytes(packet[1:5], "little")
     payload = packet[HEADER_LEN:HEADER_LEN + length]
     received = int.from_bytes(packet[HEADER_LEN + length:HEADER_LEN + length + CHECKSUM_LEN], "little")
-    if len(payload) != width * height // 8 or checksum(payload) != received:
+    if len(payload) != length or checksum(payload) != received:
         return None
-    return unpack_1bpp(payload, width, height)
+    return unpack_frame(packet[0], payload, width, height)
 
 
 def main():

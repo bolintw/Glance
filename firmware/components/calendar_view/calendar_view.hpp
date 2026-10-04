@@ -24,4 +24,9 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
                    const std::optional<weather::Forecast>& forecast, const Bitmap& photo);
 
+// The 4-gray version of renderPrivate's photo, placed over the same frame,
+// for Display::flushGray. Draw the 1bpp photo underneath anyway: backends
+// without a 4-gray mode show only that.
+GrayOverlay photoOverlay(const GrayBitmap& photo);
+
 }  // namespace calendar_view

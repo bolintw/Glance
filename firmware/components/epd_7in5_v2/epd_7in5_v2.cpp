@@ -90,6 +90,68 @@ bool Epd7in5V2::flush(std::span<const uint8_t> framebuffer) {
     return turnOnDisplay();
 }
 
+bool Epd7in5V2::flushGray(std::span<const uint8_t> framebuffer, const GrayOverlay& overlay) {
+    // 4-gray mode needs its own register setup, so start over from a reset.
+    resetHardware();
+    if (!waitUntilIdle(kPresenceTimeoutMs)) {
+        ESP_LOGE(kTag, "panel not detected (BUSY stayed low after reset) -- check the FPC cable");
+        return false;
+    }
+    initGrayMode();
+    sendGrayPlane(framebuffer, overlay, false);
+    sendGrayPlane(framebuffer, overlay, true);
+    return turnOnDisplay();
+}
+
+// Waveshare's EPD_7IN5_V2_Init_4Gray. The 0x5F "forced temperature" selects
+// the 4-gray waveform stored in the panel's OTP.
+void Epd7in5V2::initGrayMode() {
+    setPanelSetting();
+    setResolutionSetting();  // not in Waveshare's sequence, but it's what the reset default should be anyway
+    sendCommand(epd::Command::CDI);
+    sendData(epd::Config::Border::kBlack);
+    sendData(0x07);
+    sendCommand(epd::Command::PON);
+    delayMs(100);
+    if (!waitUntilIdle()) {
+        ESP_LOGE(kTag, "panel did not finish powering on");
+    }
+    sendCommand(epd::Command::BTST);
+    sendData(0x27);
+    sendData(0x27);
+    sendData(0x18);
+    sendData(0x17);
+    sendCommand(epd::Command::CCSET);
+    sendData(0x02);
+    sendCommand(epd::Command::TSSET);
+    sendData(0x5F);
+}
+
+// Each pixel's level is split across the two planes (from Waveshare's
+// EPD_7IN5_V2_Display_4Gray; a set bit drives toward black):
+//   level      3 white   2 light   1 dark   0 black
+//   DTM1         0         1         0        1
+//   DTM2         0         0         1        1
+void Epd7in5V2::sendGrayPlane(std::span<const uint8_t> framebuffer, const GrayOverlay& overlay, bool second) {
+    sendCommand(second ? epd::Command::DTM2 : epd::Command::DTM1);
+    std::vector<uint8_t> row(frame_.bytesPerRow());
+    for (size_t y = 0; y < frame_.height; y++) {
+        for (size_t byte = 0; byte < row.size(); byte++) {
+            uint8_t bits = 0;
+            for (int bit = 0; bit < 8; bit++) {
+                int x = static_cast<int>(byte * 8) + bit;
+                uint8_t level = overlay.composedLevel(framebuffer, frame_, x, static_cast<int>(y));
+                bool set = second ? level <= 1 : level % 2 == 0;
+                if (set) {
+                    bits |= 0x80 >> bit;
+                }
+            }
+            row[byte] = bits;
+        }
+        sendData(row);
+    }
+}
+
 void Epd7in5V2::sleep() {
     sendCommand(epd::Command::CDI);
     sendData(epd::Config::Border::kFloating);

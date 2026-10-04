@@ -132,8 +132,8 @@ void buttonTask(void*) {
     }
 }
 
-// A built-in photo, never the same one twice in a row.
-const Bitmap& pickPhoto() {
+// Index of a built-in photo, never the same one twice in a row.
+size_t pickPhoto() {
     std::span<const Bitmap> choices = photos::kBuiltIn;
     size_t count = choices.size();
     size_t index;
@@ -146,7 +146,7 @@ const Bitmap& pickPhoto() {
         index = esp_random() % count;
     }
     gBoot.lastPhoto = static_cast<uint8_t>(index);
-    return choices[index];
+    return index;
 }
 
 // The layout shows two columns of five (same as the Raspberry Pi version).
@@ -216,7 +216,7 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
 // it back to sleep. The code below the backend selection is identical for
 // both -- that's the point of the Display interface. False if the panel
 // didn't respond.
-bool show(std::span<const uint8_t> framebuffer) {
+bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nullptr) {
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
     SerialDumpDisplay display(kPanelSize);
 #else
@@ -248,7 +248,7 @@ bool show(std::span<const uint8_t> framebuffer) {
     // No clear() first: a full refresh already drives every pixel through
     // the whole waveform, so clearing only doubled the time and flicker.
     bool ready = display.init();
-    bool shown = ready && display.flush(framebuffer);
+    bool shown = ready && (overlay ? display.flushGray(framebuffer, *overlay) : display.flush(framebuffer));
     if (ready) {
         display.sleep();
     }
@@ -333,9 +333,16 @@ bool refreshPrivate(const Settings& settings) {
 
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
-    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, pickPhoto());
-    ESP_LOGI(kTag, "showing privacy mode");
-    if (!show(framebuffer)) {
+    size_t photo = pickPhoto();
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photos::kBuiltIn[photo]);
+#if CONFIG_GLANCE_PHOTO_4GRAY
+    GrayOverlay overlay = calendar_view::photoOverlay(photos::kBuiltInGray[photo]);
+    const GrayOverlay* gray = &overlay;
+#else
+    const GrayOverlay* gray = nullptr;
+#endif
+    ESP_LOGI(kTag, "showing privacy mode (photo %zu%s)", photo, gray ? ", 4-gray" : "");
+    if (!show(framebuffer, gray)) {
         ESP_LOGE(kTag, "panel did not respond");
         return false;
     }

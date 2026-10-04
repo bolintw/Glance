@@ -13,6 +13,9 @@ namespace photos {
 inline constexpr int kWidth = 730;
 inline constexpr int kHeight = 280;
 
+// The same photos twice: dithered to black and white, and to four gray
+// levels for panels with a 4-gray mode. Same order in both.
 extern const std::span<const Bitmap> kBuiltIn;
+extern const std::span<const GrayBitmap> kBuiltInGray;
 
 }  // namespace photos
