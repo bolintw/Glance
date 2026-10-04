@@ -57,7 +57,7 @@ void render(Canvas& canvas, std::string_view qrPayload, std::string_view ssid, s
         "",
         "1. 先複製好 ICS 網址",
         "2. 相機掃描 QR code",
-        "3. 在跳出的頁面填寫",
+        "3. 稍等設定頁跳出",
         "",
         "沒有跳出來的話請開啟",
         std::string(url),

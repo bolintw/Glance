@@ -1,3 +1,4 @@
+#include <atomic>
 #include <ctime>
 #include <optional>
 #include <span>
@@ -11,6 +12,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -45,6 +47,10 @@ constexpr int64_t kMinRefreshGapSeconds = 3600;
 // IO1: short press refreshes now, long press enters setup mode.
 constexpr int kButtonPin = 1;
 constexpr uint32_t kLongPressMs = 3000;
+// IO48: status LED, powered from the peripheral rail (GPIO14). Lights when
+// a press has become a long press, so you know when to let go.
+constexpr gpio_num_t kStatusLedPin = GPIO_NUM_48;
+constexpr gpio_num_t kPeripheralRailPin = GPIO_NUM_14;
 // Setup mode gives up (and goes back to the calendar) after this long
 // without anyone loading its page.
 constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
@@ -67,6 +73,59 @@ RTC_NOINIT_ATTR BootState gBoot;
 [[noreturn]] void restartInto(bool enterSetup) {
     gBoot.enterSetup = enterSetup;
     esp_restart();
+}
+
+// What the device is doing, for the button task to decide what a press means.
+enum class Phase { refreshing, waiting, setup };
+std::atomic<Phase> gPhase{Phase::refreshing};
+
+// Raw driver calls rather than Gpio: Gpio's constructor resets the pin,
+// which would cut the rail under a panel refresh in progress.
+void statusLedOn() {
+    gpio_set_direction(kPeripheralRailPin, GPIO_MODE_OUTPUT);
+    gpio_set_level(kPeripheralRailPin, 1);
+    gpio_reset_pin(kStatusLedPin);
+    gpio_set_direction(kStatusLedPin, GPIO_MODE_OUTPUT);
+    gpio_set_level(kStatusLedPin, 1);
+}
+
+// Watches the button from boot on, so a press is timed from when it really
+// started even while a refresh keeps app_main busy.
+//   refreshing: long -> setup mode; short is ignored (already refreshing)
+//   waiting:    long -> setup mode; short -> refresh now
+//   setup:      any press leaves setup mode
+void buttonTask(void*) {
+    Button button(kButtonPin);
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        if (!button.isDown()) {
+            continue;
+        }
+        Button::Press press = button.readPress(kLongPressMs);
+        if (press == Button::Press::none) {
+            continue;
+        }
+        bool isLong = press == Button::Press::longPress;
+        Phase phase = gPhase;
+        ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
+        if (phase == Phase::setup) {
+            restartInto(false);
+        }
+        if (isLong) {
+            statusLedOn();
+            while (button.isDown()) {
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+            restartInto(true);
+        }
+        if (phase == Phase::waiting) {
+            restartInto(false);
+        }
+        ESP_LOGI(kTag, "already refreshing, short press ignored");
+        while (button.isDown()) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
 }
 
 // The layout shows two columns of five (same as the Raspberry Pi version).
@@ -200,6 +259,7 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
     Canvas canvas(framebuffer, kPanelSize);
     setup_view::render(canvas, ap.qrPayload, ap.ssid, ap.password, ap.url);
     show(framebuffer);
+    gPhase = Phase::setup;
 
     gBoot.justConfigured = setup_mode::waitForSave(kSetupIdleTimeoutMs);
     ESP_LOGI(kTag, "leaving setup mode (%s)", gBoot.justConfigured ? "saved" : "idle");
@@ -267,6 +327,7 @@ extern "C" void app_main(void)
     if (gBoot.magic != BootState::kMagic) {
         gBoot = {.magic = BootState::kMagic, .enterSetup = false, .justConfigured = false, .wifiFailures = 0};
     }
+    xTaskCreate(buttonTask, "button", 3072, nullptr, 5, nullptr);
     ESP_ERROR_CHECK(settings::initStorage());
     Settings settings = settings::load();
     if (gBoot.enterSetup || settings.wifiSsid.empty()) {
@@ -296,20 +357,13 @@ extern "C" void app_main(void)
     esp_deep_sleep(static_cast<uint64_t>(sleepSeconds) * 1000000);
 #else
     // Development mode: stay awake (USB serial stays reachable for flashing
-    // and logs) and reboot at the same time deep sleep would have woken, or
-    // when the button is pressed.
+    // and logs) and reboot at the same time deep sleep would have woken. The
+    // button task handles presses meanwhile.
     // TODO(M9): wake from deep sleep on the button too.
     ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), waiting awake instead");
-    Button button(kButtonPin);
+    gPhase = Phase::waiting;
     while (time(nullptr) < wakeAt) {
-        if (button.isDown()) {
-            Button::Press press = button.readPress(kLongPressMs);
-            if (press != Button::Press::none) {
-                ESP_LOGI(kTag, "button: %s press", press == Button::Press::longPress ? "long" : "short");
-                restartInto(press == Button::Press::longPress);
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(60 * 1000));
     }
     restartInto(false);
 #endif
