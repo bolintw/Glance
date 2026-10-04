@@ -10,3 +10,9 @@ CONFIG_SPIRAM=n
 # Module's embedded flash is 8MB. Unrelated to the external 16MB W25Q128 SPI
 # flash on FLS_CS/GPIO21.
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# Two 3MB OTA app slots + on-chip storage (see partitions.csv). The default
+# single-app table only gives a 1MB app, which WiFi + NTP alone already
+# fills to ~78% -- no room for TLS or CJK fonts.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

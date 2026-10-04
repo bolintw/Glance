@@ -42,9 +42,12 @@ idf.py build flash -p <PORT>
 ## Structure
 
 - `main/` — app entry point (`app_main`), kept as a thin bootstrap.
-- `components/` — project-local components go here, one directory per module
-  (e.g. future `display`, `wifi_manager`, `epd_driver`). Empty for now — M0 is
-  toolchain/skeleton only, no feature code yet.
+- `components/` — project-local components, one directory per module
+  (`display`, `epd_7in5_v2`, `serial_dump_display`, `wifi_manager`,
+  `time_sync`, ...).
 - `sdkconfig.defaults` — board-specific config baked in (PSRAM disabled per
-  the known GPIO35-37 conflict on this module, 16MB flash size). Run
-  `idf.py set-target esp32s3` once after a fresh clone to generate `sdkconfig`.
+  the known GPIO35-37 conflict on this module, 8MB flash, custom partition
+  table). Run `idf.py set-target esp32s3` once after a fresh clone to
+  generate `sdkconfig`.
+- `partitions.csv` — two 3MB OTA app slots plus on-chip `storage`. Changing
+  it means a USB reflash (`idf.py erase-flash flash`), not an OTA update.
