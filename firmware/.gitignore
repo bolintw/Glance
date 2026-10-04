@@ -8,3 +8,6 @@ dependencies.lock
 .venv/
 __pycache__/
 latest_frame.png
+
+# tools/font_subset: downloaded source font
+.cache/

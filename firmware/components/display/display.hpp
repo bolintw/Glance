@@ -15,8 +15,8 @@ struct FrameSize {
     constexpr size_t framebufferSize() const { return width * height / 8; }
 };
 
-// Backend-agnostic interface for the panel. Upper layers (rendering,
-// eventually LVGL) only ever talk to this -- swapping the real EPD for a
+// Backend-agnostic interface for the panel. Upper layers (Canvas-based
+// rendering) only ever talk to this -- swapping the real EPD for a
 // PC-side simulator backend (M2) is just injecting a different
 // implementation, nothing above this interface changes.
 //
