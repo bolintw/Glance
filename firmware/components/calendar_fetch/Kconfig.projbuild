@@ -1,0 +1,36 @@
+menu "Glance Calendar"
+
+    config GLANCE_ICS_URL_1
+        string "ICS URL 1"
+        default ""
+        help
+            Private iCal URL of a calendar to show. Treat it as a secret --
+            anyone with it can read the calendar. Local to sdkconfig
+            (gitignored) until provisioning (M7) replaces this. Leave unused
+            slots empty.
+
+    config GLANCE_ICS_URL_2
+        string "ICS URL 2"
+        default ""
+        help
+            See ICS URL 1.
+
+    config GLANCE_ICS_URL_3
+        string "ICS URL 3"
+        default ""
+        help
+            See ICS URL 1.
+
+    config GLANCE_ICS_URL_4
+        string "ICS URL 4"
+        default ""
+        help
+            See ICS URL 1.
+
+    config GLANCE_ICS_URL_5
+        string "ICS URL 5"
+        default ""
+        help
+            See ICS URL 1.
+
+endmenu

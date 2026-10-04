@@ -16,3 +16,13 @@ CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 # fills to ~78% -- no room for TLS or CJK fonts.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# app_main runs the TLS handshake for the calendar fetch directly; the
+# default 3.5KB main task stack isn't enough for mbedtls.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# calendar.google.com sends a cross-signed GTS Root R4 (issued by GlobalSign
+# Root CA, which is no longer in the bundle). GTS Root R4 itself is in the
+# bundle, but without this the handshake fails with -0x3000
+# (MBEDTLS_ERR_X509_FATAL_ERROR). Costs ~700 bytes of heap.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
