@@ -4,18 +4,22 @@
 #include <string_view>
 #include <vector>
 
+#include "button.hpp"
 #include "calendar_fetch.hpp"
 #include "calendar_view.hpp"
 #include "canvas.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_attr.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ics_event_collector.hpp"
 #include "refresh_schedule.hpp"
 #include "settings.hpp"
+#include "setup_mode.hpp"
+#include "setup_view.hpp"
 #include "time_sync.hpp"
 #include "weather_fetch.hpp"
 #include "wifi_manager.hpp"
@@ -37,6 +41,33 @@ constexpr uint32_t kNtpSyncTimeoutMs = 10000;
 // A wake-up this close before the daily refresh time counts as that
 // refresh, so waking slightly early doesn't redraw twice in one morning.
 constexpr int64_t kMinRefreshGapSeconds = 3600;
+
+// IO1: short press refreshes now, long press enters setup mode.
+constexpr int kButtonPin = 1;
+constexpr uint32_t kLongPressMs = 3000;
+// Setup mode gives up (and goes back to the calendar) after this long
+// without anyone loading its page.
+constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
+// Consecutive WiFi failures (an hour apart) before the screen says so. A
+// router rebooting at 07:00 shouldn't wipe the calendar off the screen.
+constexpr uint8_t kWifiFailuresBeforeNotice = 3;
+
+// What one boot tells the next. Kept in RTC memory, which survives restarts
+// and deep sleep but not power loss -- the magic tells a valid state from
+// power-on garbage.
+struct BootState {
+    static constexpr uint32_t kMagic = 0x474C4E43;  // "GLNC"
+    uint32_t magic;
+    bool enterSetup;      // a long press asked for setup mode
+    bool justConfigured;  // setup mode just saved; report WiFi trouble at once
+    uint8_t wifiFailures;
+};
+RTC_NOINIT_ATTR BootState gBoot;
+
+[[noreturn]] void restartInto(bool enterSetup) {
+    gBoot.enterSetup = enterSetup;
+    esp_restart();
+}
 
 // The layout shows two columns of five (same as the Raspberry Pi version).
 constexpr size_t kMaxEvents = 10;
@@ -149,6 +180,42 @@ bool show(std::span<const uint8_t> framebuffer) {
     return shown;
 }
 
+void showNotice(std::string_view title, std::span<const std::string_view> lines) {
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    setup_view::renderNotice(canvas, title, lines);
+    show(framebuffer);
+}
+
+// Setup mode: access point + setup page, QR code on the panel. Ends in a
+// restart either way -- after a save, or when nobody used it -- so the next
+// boot starts clean and draws the calendar.
+[[noreturn]] void runSetupMode(const Settings& current) {
+    ESP_LOGI(kTag, "entering setup mode");
+    setup_mode::AccessPoint ap;
+    if (setup_mode::start(current, ap) != ESP_OK) {
+        restartInto(false);
+    }
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    setup_view::render(canvas, ap.qrPayload, ap.ssid, ap.password, ap.url);
+    show(framebuffer);
+
+    gBoot.justConfigured = setup_mode::waitForSave(kSetupIdleTimeoutMs);
+    ESP_LOGI(kTag, "leaving setup mode (%s)", gBoot.justConfigured ? "saved" : "idle");
+    restartInto(false);
+}
+
+// Called after a WiFi failure: says so on the panel right after setup (most
+// likely a mistyped password) or once failures keep piling up.
+void reportWifiFailure() {
+    gBoot.wifiFailures++;
+    if (gBoot.justConfigured || gBoot.wifiFailures == kWifiFailuresBeforeNotice) {
+        const std::string_view lines[] = {"每小時會自動重試", "長按按鈕可以重新設定"};
+        showNotice("WiFi 連線失敗", lines);
+    }
+}
+
 // One refresh: WiFi -> NTP -> calendars + weather -> render -> panel. If any
 // step before rendering fails, the panel is left alone: e-ink keeps showing
 // the last good calendar, which beats replacing it with a wrong date or an
@@ -160,8 +227,10 @@ bool refresh(const Settings& settings) {
     esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "WiFi failed (%s), leaving the screen as is", esp_err_to_name(err));
+        reportWifiFailure();
         return false;
     }
+    gBoot.wifiFailures = 0;
     // TLS certificate checks and "today" both need a real clock.
     err = time_sync::sync(kNtpSyncTimeoutMs);
     if (err != ESP_OK) {
@@ -190,12 +259,23 @@ bool refresh(const Settings& settings) {
 
 // Refresh once, then sleep until the next daily refresh -- or retry sooner
 // if this one failed. A failed refresh may not even have a synced clock, so
-// its retry is a plain delay rather than a time of day.
+// its retry is a plain delay rather than a time of day. Setup mode instead,
+// if a long press asked for it or there's no WiFi to connect to.
 extern "C" void app_main(void)
 {
     ESP_LOGI(kTag, "woke by %s", (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
+    if (gBoot.magic != BootState::kMagic) {
+        gBoot = {.magic = BootState::kMagic, .enterSetup = false, .justConfigured = false, .wifiFailures = 0};
+    }
     ESP_ERROR_CHECK(settings::initStorage());
-    bool refreshed = refresh(settings::load());
+    Settings settings = settings::load();
+    if (gBoot.enterSetup || settings.wifiSsid.empty()) {
+        gBoot.enterSetup = false;
+        runSetupMode(settings);
+    }
+
+    bool refreshed = refresh(settings);
+    gBoot.justConfigured = false;
     int64_t now = time(nullptr);
     int64_t wakeAt = refreshed ? refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds,
                                                              CONFIG_GLANCE_REFRESH_HOUR, 0, kMinRefreshGapSeconds)
@@ -216,11 +296,21 @@ extern "C" void app_main(void)
     esp_deep_sleep(static_cast<uint64_t>(sleepSeconds) * 1000000);
 #else
     // Development mode: stay awake (USB serial stays reachable for flashing
-    // and logs) and reboot at the same time deep sleep would have woken.
+    // and logs) and reboot at the same time deep sleep would have woken, or
+    // when the button is pressed.
+    // TODO(M9): wake from deep sleep on the button too.
     ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), waiting awake instead");
+    Button button(kButtonPin);
     while (time(nullptr) < wakeAt) {
-        vTaskDelay(pdMS_TO_TICKS(60 * 1000));
+        if (button.isDown()) {
+            Button::Press press = button.readPress(kLongPressMs);
+            if (press != Button::Press::none) {
+                ESP_LOGI(kTag, "button: %s press", press == Button::Press::longPress ? "long" : "short");
+                restartInto(press == Button::Press::longPress);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
-    esp_restart();
+    restartInto(false);
 #endif
 }

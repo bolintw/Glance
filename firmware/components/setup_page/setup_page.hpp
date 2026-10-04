@@ -1,0 +1,51 @@
+#pragma once
+
+#include <cstdint>
+#include <functional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "device_settings.hpp"
+
+// The setup page served in setup mode: the HTML form, and turning a
+// submitted form back into Settings. Pure C++, tested on the host; the
+// access point and HTTP server around it are in components/setup_mode.
+namespace setup_page {
+
+// CWA's names for the counties and cities its forecast covers.
+extern const std::span<const char* const> kCounties;
+
+// The form, pre-filled with `current`. Secrets (WiFi password, calendar
+// URLs, API key) are never sent back to the browser -- a set one shows as
+// "已設定" and is kept unless replaced or explicitly removed.
+// `nearbySsids` feeds the WiFi name suggestions; `errors` are shown on top.
+std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
+                       std::span<const std::string> errors);
+
+// Shown after a successful save, just before the device restarts.
+std::string renderSaved();
+
+struct FormResult {
+    Settings settings;
+    std::vector<std::string> errors;  // empty = valid, safe to save
+};
+
+// Applies an application/x-www-form-urlencoded submission of renderForm's
+// form on top of `current`.
+FormResult applyForm(const Settings& current, std::string_view body);
+
+// The standard WiFi QR code payload ("WIFI:T:WPA;S:...;P:...;;") that phone
+// cameras join directly.
+std::string wifiQrPayload(std::string_view ssid, std::string_view password);
+
+// A WPA2 password (8 characters, no look-alikes like 0/O or 1/l) for the
+// setup access point, drawn from `random`.
+std::string makeAccessPointPassword(const std::function<uint32_t()>& random);
+
+// Exposed for tests.
+std::string urlDecode(std::string_view encoded);
+std::string htmlEscape(std::string_view text);
+
+}  // namespace setup_page
