@@ -9,7 +9,7 @@ CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g
 COMPONENTS := ../../components
 
 HOST_COMPONENTS := ics canvas display calendar_view fonts refresh_schedule json weather icons setup_page \
-                   setup_view qrcodegen captive_dns photos
+                   setup_view qrcodegen captive_dns photos ota_manifest
 # Only their ESP-free headers are used on the host (settings: device_settings.hpp).
 HOST_HEADER_COMPONENTS := settings
 INCLUDES := $(foreach c,$(HOST_COMPONENTS) $(HOST_HEADER_COMPONENTS),-I$(COMPONENTS)/$(c))
@@ -23,7 +23,7 @@ COMPONENT_C_SRCS := $(foreach c,$(HOST_COMPONENTS),$(wildcard $(COMPONENTS)/$(c)
 COMPONENT_OBJS := $(patsubst $(COMPONENTS)/%.cpp,build/obj/%.o,$(COMPONENT_SRCS)) \
                   $(patsubst $(COMPONENTS)/%.c,build/obj/%.o,$(COMPONENT_C_SRCS))
 
-TESTS := test_ics_line_reader test_ics_events test_canvas test_refresh_schedule test_json test_weather test_setup_page test_captive_dns
+TESTS := test_ics_line_reader test_ics_events test_canvas test_refresh_schedule test_json test_weather test_setup_page test_captive_dns test_ota_manifest
 
 .PHONY: test preview clean
 # Keep the per-component objects between runs (make deletes pattern-rule

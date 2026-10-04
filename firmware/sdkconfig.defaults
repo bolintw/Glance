@@ -31,3 +31,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
 # RC oscillator drifts noticeably with temperature, which adds up over a
 # day of deep sleep between refreshes.
 CONFIG_RTC_CLK_SRC_EXT_CRYS=y
+
+# OTA updates (components/ota_update): a fresh update must mark itself valid
+# after a successful run, or the bootloader rolls back to the previous one.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

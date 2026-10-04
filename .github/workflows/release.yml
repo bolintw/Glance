@@ -1,0 +1,74 @@
+# Builds the firmware for a published release and attaches it, so devices
+# can update themselves over the air (firmware/components/ota_update).
+#
+# Release tags must be vX.Y.Z: the tag becomes the firmware version
+# (firmware/version.txt), and only such versions ever install updates.
+# Devices read releases/latest/download/manifest.json, so drafts and
+# pre-releases are never picked up.
+name: Release firmware
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Same ESP-IDF as development (v6.0).
+    container: espressif/idf:v6.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must look like v1.2.3, got $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+      # No sdkconfig in the repo (it holds local secrets), so this builds
+      # from sdkconfig.defaults: the product configuration, with WiFi and
+      # calendars left for the device's setup page.
+      - name: Build
+        shell: bash
+        working-directory: firmware
+        run: |
+          echo "$GITHUB_REF_NAME" > version.txt
+          . "$IDF_PATH/export.sh"
+          idf.py build
+
+      - name: Write the manifest
+        shell: bash
+        working-directory: firmware/build
+        run: |
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/glance.bin"
+          size=$(stat -c %s glance.bin)
+          sha=$(sha256sum glance.bin | cut -d' ' -f1)
+          printf '{"version":"%s","url":"%s","size":%s,"sha256":"%s"}\n' \
+            "$GITHUB_REF_NAME" "$url" "$size" "$sha" > manifest.json
+          cat manifest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            firmware/build/glance.bin
+            firmware/build/manifest.json
+
+  # Attaching runs outside the ESP-IDF container, where the gh CLI is
+  # preinstalled.
+  attach:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" glance.bin manifest.json --clobber --repo "$GITHUB_REPOSITORY"

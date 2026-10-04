@@ -1,0 +1,12 @@
+menu "Glance Updates"
+
+    config GLANCE_OTA_MANIFEST_URL
+        string "Update manifest URL"
+        default "https://github.com/bolintw/Glance/releases/latest/download/manifest.json"
+        help
+            Where to look for a newer release (published by
+            .github/workflows/release.yml). Only release builds -- version
+            vX.Y.Z, from firmware/version.txt -- ever update themselves; a
+            development build never does.
+
+endmenu

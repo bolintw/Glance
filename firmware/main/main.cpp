@@ -19,6 +19,7 @@
 #include "freertos/task.h"
 #include "esp_random.h"
 #include "ics_event_collector.hpp"
+#include "ota_update.hpp"
 #include "photos.hpp"
 #include "refresh_schedule.hpp"
 #include "settings.hpp"
@@ -74,6 +75,7 @@ struct BootState {
 RTC_NOINIT_ATTR BootState gBoot;
 
 [[noreturn]] void restartInto(bool enterSetup) {
+    ota_update::markRunningAppValid();  // a deliberate restart isn't a failed update
     gBoot.enterSetup = enterSetup;
     esp_restart();
 }
@@ -295,6 +297,14 @@ void reportWifiFailure() {
     }
 }
 
+// Last thing a successful online refresh does: the screen is already up to
+// date, so a download (only when there's a new release) costs nothing
+// visible. Restarts into the update if one is installed.
+void installUpdateIfAny() {
+    ota_update::markRunningAppValid();
+    ota_update::checkAndInstall(CONFIG_GLANCE_OTA_MANIFEST_URL);
+}
+
 // Privacy mode's refresh: date, weather and a photo, no calendars fetched at
 // all. Unlike the calendar it always redraws, even without WiFi or a synced
 // clock -- the point is that the events come off the screen. True if it
@@ -328,6 +338,9 @@ bool refreshPrivate(const Settings& settings) {
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond");
         return false;
+    }
+    if (online) {
+        installUpdateIfAny();
     }
     return online;
 }
@@ -369,6 +382,7 @@ bool refresh(const Settings& settings) {
         return false;
     }
     ESP_LOGI(kTag, "calendar shown");
+    installUpdateIfAny();
     return true;
 }
 }  // namespace
@@ -379,7 +393,8 @@ bool refresh(const Settings& settings) {
 // if a long press asked for it or there's no WiFi to connect to.
 extern "C" void app_main(void)
 {
-    ESP_LOGI(kTag, "woke by %s", (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
+    ESP_LOGI(kTag, "firmware %s, woke by %s", ota_update::runningVersion(),
+             (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
     if (gBoot.magic != BootState::kMagic) {
         gBoot = {.magic = BootState::kMagic,
                  .enterSetup = false,
@@ -397,6 +412,9 @@ extern "C" void app_main(void)
 
     bool refreshed = settings::loadPrivacyMode() ? refreshPrivate(settings) : refresh(settings);
     gBoot.justConfigured = false;
+    // Got through a whole run without crashing: a fresh update has proven
+    // itself even if the network was down.
+    ota_update::markRunningAppValid();
     int64_t now = time(nullptr);
     int64_t wakeAt = refreshed ? refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds,
                                                              CONFIG_GLANCE_REFRESH_HOUR, 0, kMinRefreshGapSeconds)

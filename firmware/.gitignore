@@ -11,3 +11,6 @@ latest_frame.png
 
 # tools/font_subset: downloaded source font
 .cache/
+
+# Written by the release workflow from the tag; absent in development builds
+version.txt
