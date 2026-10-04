@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "ics_event_collector.hpp"
 #include "refresh_schedule.hpp"
+#include "settings.hpp"
 #include "time_sync.hpp"
 #include "weather_fetch.hpp"
 #include "wifi_manager.hpp"
@@ -40,12 +41,6 @@ constexpr int64_t kMinRefreshGapSeconds = 3600;
 // The layout shows two columns of five (same as the Raspberry Pi version).
 constexpr size_t kMaxEvents = 10;
 
-// Empty slots are skipped. See components/calendar_fetch/Kconfig.projbuild.
-constexpr const char* kIcsUrls[] = {
-    CONFIG_GLANCE_ICS_URL_1, CONFIG_GLANCE_ICS_URL_2, CONFIG_GLANCE_ICS_URL_3,
-    CONFIG_GLANCE_ICS_URL_4, CONFIG_GLANCE_ICS_URL_5,
-};
-
 #ifndef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
 // GPIO14: switches the V33_2 rail that powers the EPD, external flash, and
 // LED. It's off by default to save power in deep sleep -- must be driven
@@ -66,7 +61,7 @@ constexpr uint32_t kEpdSpiClockHz = 1'000'000;
 // calendars are configured but none could be fetched -- an empty list would
 // wrongly read as "nothing coming up". Logs the slot number, never the URL,
 // since the URL is a secret.
-std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents() {
+std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& settings) {
     ics::EventCollector collector({
         .now = time(nullptr),
         .displayUtcOffset = time_sync::kUtcOffsetSeconds,
@@ -76,13 +71,14 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents() {
     size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
     size_t configured = 0;
     size_t fetched = 0;
-    for (size_t slot = 0; slot < std::size(kIcsUrls); slot++) {
-        const char* url = kIcsUrls[slot];
-        if (url[0] == '\0') {
+    for (size_t slot = 0; slot < settings.icsUrls.size(); slot++) {
+        const std::string& url = settings.icsUrls[slot];
+        if (url.empty()) {
             continue;
         }
         configured++;
-        esp_err_t err = calendar_fetch::fetchLines(url, [&](std::string_view line) { collector.onLine(line); });
+        esp_err_t err =
+            calendar_fetch::fetchLines(url.c_str(), [&](std::string_view line) { collector.onLine(line); });
         ESP_LOGI(kTag, "calendar %zu: %s", slot + 1, esp_err_to_name(err));
         fetched += err == ESP_OK;
     }
@@ -159,9 +155,9 @@ bool show(std::span<const uint8_t> framebuffer) {
 // empty list. Weather is the exception -- without it the calendar is still
 // worth showing, just with the weather spot left blank. True once the new
 // calendar is on the panel.
-bool refresh() {
+bool refresh(const Settings& settings) {
     WifiManager wifi;
-    esp_err_t err = wifi.connect(kWifiConnectTimeoutMs);
+    esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "WiFi failed (%s), leaving the screen as is", esp_err_to_name(err));
         return false;
@@ -172,12 +168,12 @@ bool refresh() {
         ESP_LOGE(kTag, "NTP sync failed (%s), leaving the screen as is", esp_err_to_name(err));
         return false;
     }
-    auto events = fetchUpcomingEvents();
+    auto events = fetchUpcomingEvents(settings);
     if (!events) {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
         return false;
     }
-    auto forecast = weather_fetch::fetchForecast(time(nullptr));
+    auto forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
 
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
@@ -198,7 +194,8 @@ bool refresh() {
 extern "C" void app_main(void)
 {
     ESP_LOGI(kTag, "woke by %s", (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
-    bool refreshed = refresh();
+    ESP_ERROR_CHECK(settings::initStorage());
+    bool refreshed = refresh(settings::load());
     int64_t now = time(nullptr);
     int64_t wakeAt = refreshed ? refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds,
                                                              CONFIG_GLANCE_REFRESH_HOUR, 0, kMinRefreshGapSeconds)

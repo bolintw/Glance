@@ -1,15 +1,15 @@
 #pragma once
 
+#include <string>
+
 #include "esp_err.h"
 #include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
-// M1 regression test: connect to WiFi using credentials from Kconfig
-// (menuconfig -> Glance WiFi) and block until connected or timed out.
-// Provisioning (M4) will replace the Kconfig credentials with a proper
-// setup flow; this class only needs to prove the radio still works with
-// PSRAM disabled.
+// Station-mode WiFi: connect and block until connected or timed out. NVS
+// must already be initialized (settings::initStorage) -- the WiFi driver
+// keeps its calibration data there.
 class WifiManager {
 public:
     WifiManager();
@@ -18,7 +18,7 @@ public:
     WifiManager(const WifiManager&) = delete;
     WifiManager& operator=(const WifiManager&) = delete;
 
-    esp_err_t connect(uint32_t timeoutMs);
+    esp_err_t connect(const std::string& ssid, const std::string& password, uint32_t timeoutMs);
 
 private:
     static constexpr int kMaxRetries = 5;

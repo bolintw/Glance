@@ -87,17 +87,15 @@ const char* conditionName(weather::Condition condition) {
 
 namespace weather_fetch {
 
-std::optional<weather::Forecast> fetchForecast(int64_t now) {
-    std::string_view key = CONFIG_GLANCE_CWA_API_KEY;
-    std::string_view location = CONFIG_GLANCE_WEATHER_LOCATION;
-    if (key.empty() || location.empty()) {
+std::optional<weather::Forecast> fetchForecast(int64_t now, const std::string& apiKey, const std::string& location) {
+    if (apiKey.empty() || location.empty()) {
         ESP_LOGI(kTag, "weather not configured, skipping");
         return std::nullopt;
     }
 
     std::string url = kEndpoint;
     url += "?Authorization=";
-    appendEncoded(url, key);
+    appendEncoded(url, apiKey);
     url += "&locationName=";
     appendEncoded(url, location);
     url += "&elementName=Wx,PoP,MinT,MaxT";

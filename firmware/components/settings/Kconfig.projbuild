@@ -1,0 +1,68 @@
+# Development fallbacks. The device's own settings (entered on its setup
+# page, stored in NVS) win; these only fill in what was never set there.
+# Values live in sdkconfig, which is gitignored -- never in
+# sdkconfig.defaults.
+
+menu "Glance WiFi"
+
+    config GLANCE_WIFI_SSID
+        string "WiFi SSID"
+        default ""
+
+    config GLANCE_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+
+endmenu
+
+menu "Glance Calendar"
+
+    config GLANCE_ICS_URL_1
+        string "ICS URL 1"
+        default ""
+        help
+            Private iCal URL of a calendar to show. Treat it as a secret --
+            anyone with it can read the calendar. Leave unused slots empty.
+
+    config GLANCE_ICS_URL_2
+        string "ICS URL 2"
+        default ""
+        help
+            See ICS URL 1.
+
+    config GLANCE_ICS_URL_3
+        string "ICS URL 3"
+        default ""
+        help
+            See ICS URL 1.
+
+    config GLANCE_ICS_URL_4
+        string "ICS URL 4"
+        default ""
+        help
+            See ICS URL 1.
+
+    config GLANCE_ICS_URL_5
+        string "ICS URL 5"
+        default ""
+        help
+            See ICS URL 1.
+
+endmenu
+
+menu "Glance Weather"
+
+    config GLANCE_CWA_API_KEY
+        string "CWA open data API key"
+        default ""
+        help
+            Authorization key from opendata.cwa.gov.tw (member page). Treat
+            it as a secret. Leave empty to show no weather.
+
+    config GLANCE_WEATHER_LOCATION
+        string "County or city"
+        default ""
+        help
+            Exactly as CWA writes it, e.g. 臺北市 or 新竹縣 (臺, not 台).
+
+endmenu

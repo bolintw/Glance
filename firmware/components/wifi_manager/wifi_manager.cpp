@@ -5,7 +5,6 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
-#include "nvs_flash.h"
 
 namespace {
 constexpr const char* kTag = "wifi_manager";
@@ -13,13 +12,6 @@ constexpr const char* kTag = "wifi_manager";
 
 WifiManager::WifiManager() {
     events_ = xEventGroupCreate();
-
-    esp_err_t nvsResult = nvs_flash_init();
-    if (nvsResult == ESP_ERR_NVS_NO_FREE_PAGES || nvsResult == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        nvsResult = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(nvsResult);
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -63,12 +55,15 @@ void WifiManager::handleEvent(esp_event_base_t base, int32_t id, void* data) {
     }
 }
 
-esp_err_t WifiManager::connect(uint32_t timeoutMs) {
+esp_err_t WifiManager::connect(const std::string& ssid, const std::string& password, uint32_t timeoutMs) {
+    if (ssid.empty()) {
+        ESP_LOGE(kTag, "no WiFi configured");
+        return ESP_ERR_INVALID_ARG;
+    }
     wifi_config_t wifiConfig = {};
-    std::snprintf(reinterpret_cast<char*>(wifiConfig.sta.ssid), sizeof(wifiConfig.sta.ssid), "%s",
-                  CONFIG_GLANCE_WIFI_SSID);
-    std::snprintf(reinterpret_cast<char*>(wifiConfig.sta.password), sizeof(wifiConfig.sta.password),
-                  "%s", CONFIG_GLANCE_WIFI_PASSWORD);
+    std::snprintf(reinterpret_cast<char*>(wifiConfig.sta.ssid), sizeof(wifiConfig.sta.ssid), "%s", ssid.c_str());
+    std::snprintf(reinterpret_cast<char*>(wifiConfig.sta.password), sizeof(wifiConfig.sta.password), "%s",
+                  password.c_str());
     wifiConfig.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
