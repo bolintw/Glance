@@ -1,3 +1,7 @@
+# The target lives in sdkconfig, which isn't in git; without this line a
+# fresh checkout (the release workflow) builds for the plain ESP32.
+CONFIG_IDF_TARGET="esp32s3"
+
 # Board: eCalendar V2.1, ESP32-S3-WROOM-1-N8R8 (8MB flash, Octal PSRAM).
 # Confirmed 2026-08-26 during M0 bring-up (esptool flash-size probe + chip
 # markings); refs/private docs previously had this as N16R8.
