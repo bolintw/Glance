@@ -60,6 +60,7 @@ CALENDAR_TEXT = ASCII + BIG5_SYMBOLS + BIG5_COMMON_HANZI + EXTRA_PUNCTUATION
 DIGITS = "0123456789"
 WEEKDAYS = "一二三四五六日"
 MONTH_ABBREVIATIONS = "Jan.Feb.Mar.Apr.May.Jun.Jul.Aug.Sep.Oct.Nov.Dec."
+WEATHER_TEXT = DIGITS + "°-% "  # "24° - 28°", "50%"
 
 
 @dataclass
@@ -77,6 +78,7 @@ FONTS = [
     FontSpec("noto_sans_tc_bold_40", 700, 40, DIGITS + WEEKDAYS, "year, weekday"),
     FontSpec("noto_sans_tc_medium_50", 500, 50, MONTH_ABBREVIATIONS, "month"),
     FontSpec("noto_sans_tc_regular_100", 400, 100, DIGITS, "day of month"),
+    FontSpec("noto_sans_tc_bold_20", 700, 20, WEATHER_TEXT, "temperature, chance of rain"),
 ]
 
 

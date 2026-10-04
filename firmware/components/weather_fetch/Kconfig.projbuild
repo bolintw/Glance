@@ -1,0 +1,17 @@
+menu "Glance Weather"
+
+    config GLANCE_CWA_API_KEY
+        string "CWA open data API key"
+        default ""
+        help
+            Authorization key from opendata.cwa.gov.tw (member page). Treat
+            it as a secret. Leave empty to show no weather. Local to sdkconfig
+            (gitignored) until provisioning (M7) replaces this.
+
+    config GLANCE_WEATHER_LOCATION
+        string "County or city"
+        default ""
+        help
+            Exactly as CWA writes it, e.g. 臺北市 or 新竹縣 (臺, not 台).
+
+endmenu

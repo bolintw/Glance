@@ -1,6 +1,6 @@
 // Renders the calendar screen on the Mac with the same code the firmware
 // runs (calendar_view + Canvas + baked fonts), fed from the test calendar
-// fixture, and writes it as a PBM.
+// and CWA forecast fixtures, and writes it as a PBM.
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
@@ -17,6 +17,7 @@
 #include "ics_datetime.hpp"
 #include "ics_event_collector.hpp"
 #include "ics_line_reader.hpp"
+#include "weather.hpp"
 
 namespace {
 
@@ -45,10 +46,14 @@ int main(int argc, char** argv) {
     reader.finish();
     auto events = collector.takeResults();
 
+    std::ifstream weatherIn(FIXTURE_DIR "/cwa_f-c0032-001_hsinchu.json", std::ios::binary);
+    std::string weatherJson{std::istreambuf_iterator<char>(weatherIn), std::istreambuf_iterator<char>()};
+    auto forecast = weather::parseCwa36Hour(weatherJson, now);
+
     constexpr FrameSize kFrame{.width = 800, .height = 480};
     std::vector<uint8_t> fb(kFrame.framebufferSize());
     Canvas canvas(fb, kFrame);
-    calendar_view::render(canvas, now, kTaipei, events);
+    calendar_view::render(canvas, now, kTaipei, events, forecast);
 
     std::FILE* f = std::fopen(out, "wb");
     if (!f) {

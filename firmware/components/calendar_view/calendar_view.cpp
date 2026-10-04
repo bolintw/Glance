@@ -4,6 +4,7 @@
 #include <string>
 
 #include "fonts.hpp"
+#include "icons.hpp"
 #include "ics_datetime.hpp"
 
 namespace calendar_view {
@@ -33,6 +34,15 @@ constexpr int kWeekdayX = 500;
 constexpr int kWeekdayBaseline = kHeaderBaseline - 4;
 constexpr int kHeaderDividerX[] = {357, 494};
 constexpr int kHeaderDividerTop = 69, kHeaderDividerBottom = 126;
+
+// Weather, top right. The icon box and raindrop are where the Pi's
+// background images had them (see tools/icons/); the text sits on the
+// raindrop's baseline.
+constexpr int kWeatherIconX = 615, kWeatherIconBaseline = 110;
+constexpr int kRaindropX = 716, kRaindropBaseline = 130;
+constexpr int kWeatherTextBaseline = 127;
+constexpr int kTemperatureCenter = 668;
+constexpr int kRainChanceX = 735;
 
 constexpr int kBoxX = 32, kBoxY = 160, kBoxWidth = 738, kBoxHeight = 288, kBoxRadius = 15;
 constexpr int kColumnDividerX = 401;
@@ -85,6 +95,30 @@ void drawHeader(Canvas& canvas, ics::Date today) {
     }
 }
 
+const char* iconFor(weather::Condition condition) {
+    switch (condition) {
+        case weather::Condition::sunny: return icons::kSunny;
+        case weather::Condition::partlyCloudy: return icons::kPartlyCloudy;
+        case weather::Condition::cloudy: return icons::kCloudy;
+        case weather::Condition::windy: return icons::kWindy;
+        case weather::Condition::rainy: return icons::kRainy;
+    }
+    return icons::kPartlyCloudy;
+}
+
+void drawWeather(Canvas& canvas, const weather::Forecast& forecast) {
+    drawOnBaseline(canvas, kWeatherIconX, kWeatherIconBaseline, iconFor(forecast.condition), kWeatherIcons);
+
+    char text[24];
+    std::snprintf(text, sizeof(text), "%d° - %d°", forecast.minTemp, forecast.maxTemp);
+    drawOnBaseline(canvas, kTemperatureCenter - measureText(text, kNotoSansTcBold20) / 2, kWeatherTextBaseline, text,
+                   kNotoSansTcBold20);
+
+    drawOnBaseline(canvas, kRaindropX, kRaindropBaseline, icons::kRaindrop, kWeatherIcons);
+    std::snprintf(text, sizeof(text), "%d%%", forecast.rainChance);
+    drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20);
+}
+
 void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events) {
     canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, kInk);
     canvas.fillRect(kColumnDividerX, kBoxY, 2, kBoxHeight, kInk);
@@ -114,9 +148,13 @@ void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurr
 
 }  // namespace
 
-void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events) {
+void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
+            const std::optional<weather::Forecast>& forecast) {
     canvas.fill(kBackground);
     drawHeader(canvas, localDate(now, utcOffset));
+    if (forecast) {
+        drawWeather(canvas, *forecast);
+    }
     drawEventBox(canvas, utcOffset, events);
 }
 

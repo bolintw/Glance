@@ -10,11 +10,13 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ics_event_collector.hpp"
 #include "refresh_schedule.hpp"
 #include "time_sync.hpp"
+#include "weather_fetch.hpp"
 #include "wifi_manager.hpp"
 
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
@@ -151,10 +153,12 @@ bool show(std::span<const uint8_t> framebuffer) {
     return shown;
 }
 
-// One refresh: WiFi -> NTP -> calendars -> render -> panel. If any step
-// before rendering fails, the panel is left alone: e-ink keeps showing the
-// last good calendar, which beats replacing it with a wrong date or an
-// empty list. True once the new calendar is on the panel.
+// One refresh: WiFi -> NTP -> calendars + weather -> render -> panel. If any
+// step before rendering fails, the panel is left alone: e-ink keeps showing
+// the last good calendar, which beats replacing it with a wrong date or an
+// empty list. Weather is the exception -- without it the calendar is still
+// worth showing, just with the weather spot left blank. True once the new
+// calendar is on the panel.
 bool refresh() {
     WifiManager wifi;
     esp_err_t err = wifi.connect(kWifiConnectTimeoutMs);
@@ -173,10 +177,11 @@ bool refresh() {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
         return false;
     }
+    auto forecast = weather_fetch::fetchForecast(time(nullptr));
 
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
-    calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events);
+    calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast);
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");
@@ -213,6 +218,12 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_deep_sleep(static_cast<uint64_t>(sleepSeconds) * 1000000);
 #else
-    ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), press RST to refresh again");
+    // Development mode: stay awake (USB serial stays reachable for flashing
+    // and logs) and reboot at the same time deep sleep would have woken.
+    ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), waiting awake instead");
+    while (time(nullptr) < wakeAt) {
+        vTaskDelay(pdMS_TO_TICKS(60 * 1000));
+    }
+    esp_restart();
 #endif
 }

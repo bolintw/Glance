@@ -40,7 +40,8 @@ menu "Glance Refresh"
         default y
         help
             Turn off during development: in deep sleep the USB serial port
-            disappears, so flashing needs BOOT+RST by hand. When off, the
-            device logs when it would have woken up and just idles.
+            disappears, so flashing needs RST by hand. When off, the device
+            stays awake until the next refresh time and then reboots, so it
+            keeps refreshing on schedule (without the power savings).
 
 endmenu
