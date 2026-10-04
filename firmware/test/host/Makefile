@@ -5,14 +5,16 @@ CXX ?= c++
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g
 COMPONENTS := ../../components
 
-ICS_SRCS := $(COMPONENTS)/ics/ics_line_reader.cpp
+ICS_SRCS := $(wildcard $(COMPONENTS)/ics/*.cpp)
+ICS_HDRS := $(wildcard $(COMPONENTS)/ics/*.hpp)
+TESTS := test_ics_line_reader test_ics_events
 
 .PHONY: test clean
-test: build/test_ics_line_reader
-	./build/test_ics_line_reader
+test: $(addprefix build/,$(TESTS))
+	@for t in $^; do ./$$t || exit 1; done
 
-build/test_ics_line_reader: test_ics_line_reader.cpp $(ICS_SRCS) | build
-	$(CXX) $(CXXFLAGS) -I$(COMPONENTS)/ics -DFIXTURE_DIR=\"$(CURDIR)/fixtures\" $^ -o $@
+build/%: %.cpp $(ICS_SRCS) $(ICS_HDRS) | build
+	$(CXX) $(CXXFLAGS) -I$(COMPONENTS)/ics -DFIXTURE_DIR=\"$(CURDIR)/fixtures\" $< $(ICS_SRCS) -o $@
 
 build:
 	mkdir -p build

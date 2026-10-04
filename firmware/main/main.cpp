@@ -2,8 +2,11 @@
 #include <string_view>
 #include <vector>
 
+#include <ctime>
+
 #include "calendar_fetch.hpp"
 #include "esp_heap_caps.h"
+#include "ics_event_collector.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -24,6 +27,9 @@ constexpr const char* kTag = "main";
 constexpr FrameSize kPanelSize{.width = 800, .height = 480};
 constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 constexpr uint32_t kNtpSyncTimeoutMs = 10000;
+
+// The layout shows two columns of five (same as the Raspberry Pi version).
+constexpr size_t kMaxEvents = 10;
 
 // Empty slots are skipped. See components/calendar_fetch/Kconfig.projbuild.
 constexpr const char* kIcsUrls[] = {
@@ -125,35 +131,40 @@ std::vector<uint8_t> buildCirclePattern(const FrameSize& frame) {
     return framebuffer;
 }
 
-// M4a: prove HTTPS streaming + unfolding works and measure what TLS costs in
-// heap. Doesn't parse events yet -- just counts them and echoes SUMMARY lines
-// so unfolding and UTF-8 can be eyeballed. Logs the slot number, never the
-// URL, since the URL is a secret.
-void fetchCalendars() {
+// M4: fetch every configured calendar into one EventCollector and log the
+// next events. Logs the slot number, never the URL, since the URL is a secret.
+std::vector<ics::Occurrence> fetchUpcomingEvents() {
+    ics::EventCollector collector({
+        .now = time(nullptr),
+        .displayUtcOffset = time_sync::kUtcOffsetSeconds,
+        .maxResults = kMaxEvents,
+    });
+
+    size_t freeBefore = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+    size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
     for (size_t slot = 0; slot < std::size(kIcsUrls); slot++) {
         const char* url = kIcsUrls[slot];
         if (url[0] == '\0') {
             continue;
         }
-
-        size_t freeBefore = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-        size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
-        size_t lines = 0;
-        size_t events = 0;
-        esp_err_t err = calendar_fetch::fetchLines(url, [&](std::string_view line) {
-            lines++;
-            if (line == "BEGIN:VEVENT") {
-                events++;
-            } else if (line.starts_with("SUMMARY:")) {
-                ESP_LOGI(kTag, "  %.*s", static_cast<int>(line.size()), line.data());
-            }
-        });
-        ESP_LOGI(kTag, "M4a: calendar %zu: %s, %zu lines, %zu VEVENTs", slot + 1, esp_err_to_name(err), lines,
-                 events);
-        ESP_LOGI(kTag, "M4a: heap free before fetch %zu, after %zu; lowest since boot before fetch %zu, after %zu",
-                 freeBefore, heap_caps_get_free_size(MALLOC_CAP_DEFAULT), lowestBefore,
-                 heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
+        esp_err_t err = calendar_fetch::fetchLines(url, [&](std::string_view line) { collector.onLine(line); });
+        ESP_LOGI(kTag, "M4: calendar %zu: %s", slot + 1, esp_err_to_name(err));
     }
+    auto events = collector.takeResults();
+    ESP_LOGI(kTag, "M4: heap free before %zu, after %zu; lowest since boot before %zu, after %zu", freeBefore,
+             heap_caps_get_free_size(MALLOC_CAP_DEFAULT), lowestBefore,
+             heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
+
+    ESP_LOGI(kTag, "M4: next %zu events:", events.size());
+    for (const auto& e : events) {
+        time_t start = static_cast<time_t>(e.start);
+        struct tm local;
+        localtime_r(&start, &local);  // TZ was set by time_sync
+        char when[24];
+        strftime(when, sizeof(when), e.allDay ? "%m/%d (all day)" : "%m/%d %H:%M", &local);
+        ESP_LOGI(kTag, "  %-16s %s", when, e.summary.empty() ? "(no title)" : e.summary.c_str());
+    }
+    return events;
 }
 }  // namespace
 
@@ -166,7 +177,7 @@ extern "C" void app_main(void)
         ESP_LOGI(kTag, "M3 time sync: WiFi connected, syncing NTP");
         esp_err_t timeResult = time_sync::sync(kNtpSyncTimeoutMs);
         if (timeResult == ESP_OK) {
-            fetchCalendars();
+            fetchUpcomingEvents();
         } else {
             // TLS certificate checks need a real clock, so no point fetching.
             ESP_LOGE(kTag, "M3 time sync: NTP sync failed (%s), skipping calendar fetch",

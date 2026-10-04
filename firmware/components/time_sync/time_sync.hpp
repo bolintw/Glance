@@ -9,6 +9,10 @@
 // wrapping it in a class would just be a class around nothing.
 namespace time_sync {
 
+// The device's display zone (Taiwan, no DST), for code that does its own
+// calendar math instead of going through libc's TZ.
+inline constexpr int32_t kUtcOffsetSeconds = 8 * 3600;
+
 // Sets the local timezone to Taiwan (UTC+8, no DST) and blocks until NTP
 // sync completes or timeoutMs elapses. Requires an already-connected network
 // interface (see WifiManager).
