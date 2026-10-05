@@ -39,3 +39,9 @@ CONFIG_RTC_CLK_SRC_EXT_CRYS=y
 # OTA updates (components/ota_update): a fresh update must mark itself valid
 # after a successful run, or the bootloader rolls back to the previous one.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# The board's only serial port is the chip's native USB (no UART bridge),
+# so make it the primary console: output is the same, and stdin reads from
+# it too (the development serial commands, GLANCE_DEV_SERIAL_COMMANDS). As
+# the default secondary console it could only write.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

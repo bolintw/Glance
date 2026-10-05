@@ -1,4 +1,7 @@
 #include <atomic>
+#include <unistd.h>
+#include <string>
+#include <functional>
 #include <ctime>
 #include <optional>
 #include <span>
@@ -96,12 +99,32 @@ void statusLedOn() {
     gpio_set_level(kStatusLedPin, 0);  // active low
 }
 
-// Watches the button from boot on, so a press is timed from when it really
-// started even while a refresh keeps app_main busy.
+// What a press does (from the button, or a serial command in development):
 //   short: toggle privacy mode and redraw at once (cutting short any
 //          refresh in progress: a guest at the door shouldn't wait for it)
 //   long:  setup mode
 //   in setup mode, any press leaves it
+// `waitForRelease` runs once a long press has lit the LED: setup mode starts
+// when the button is let go.
+[[noreturn]] void actOnPress(bool isLong, const std::function<void()>& waitForRelease) {
+    ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
+    if (gPhase == Phase::setup) {
+        restartInto(false);
+    }
+    statusLedOn();
+    if (isLong) {
+        waitForRelease();
+        restartInto(true);
+    }
+    bool privacy = !settings::loadPrivacyMode();
+    settings::savePrivacyMode(privacy);
+    ESP_LOGI(kTag, "privacy mode %s", privacy ? "on" : "off");
+    vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
+    restartInto(false);
+}
+
+// Watches the button from boot on, so a press is timed from when it really
+// started even while a refresh keeps app_main busy.
 void buttonTask(void*) {
     Button button(kButtonPin);
     while (true) {
@@ -114,26 +137,58 @@ void buttonTask(void*) {
             ESP_LOGI(kTag, "button: released within the debounce time, ignored");
             continue;
         }
-        bool isLong = press == Button::Press::longPress;
-        Phase phase = gPhase;
-        ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
-        if (phase == Phase::setup) {
-            restartInto(false);
-        }
-        statusLedOn();
-        if (isLong) {
+        actOnPress(press == Button::Press::longPress, [&] {
             while (button.isDown()) {
                 vTaskDelay(pdMS_TO_TICKS(20));
             }
-            restartInto(true);
-        }
-        bool privacy = !settings::loadPrivacyMode();
-        settings::savePrivacyMode(privacy);
-        ESP_LOGI(kTag, "privacy mode %s", privacy ? "on" : "off");
-        vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
-        restartInto(false);
+        });
     }
 }
+
+#if CONFIG_GLANCE_DEV_SERIAL_COMMANDS
+// Development aid: lines typed on the USB serial console that stand in for
+// the button, so tests can drive it without anyone there.
+//   glance press short | glance press long
+//   glance privacy on | glance privacy off
+//   glance refresh
+// Polls stdin: without the USB-Serial-JTAG driver installed, reads don't
+// block, and installing it would change how the console output flows.
+void serialCommandTask(void*) {
+    std::string line;
+    char chunk[32];
+    while (true) {
+        ssize_t n = read(fileno(stdin), chunk, sizeof(chunk));
+        if (n <= 0) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        for (ssize_t i = 0; i < n; i++) {
+            char c = chunk[i];
+            if (c != '\n' && c != '\r') {
+                if (line.size() < 64) {
+                    line += c;
+                }
+                continue;
+            }
+            if (line.empty()) {
+                continue;
+            }
+            ESP_LOGW(kTag, "serial command: %s", line.c_str());
+            if (line == "glance press short" || line == "glance press long") {
+                actOnPress(line.ends_with("long"), [] {});
+            } else if (line == "glance privacy on" || line == "glance privacy off") {
+                settings::savePrivacyMode(line.ends_with("on"));
+                restartInto(false);
+            } else if (line == "glance refresh") {
+                restartInto(false);
+            } else {
+                ESP_LOGW(kTag, "unknown command");
+            }
+            line.clear();
+        }
+    }
+}
+#endif
 
 // Privacy mode's photo, both ways (1bpp, and 2bpp for 4-gray panels). When
 // it's an upload, `mapping` keeps it readable from flash.
@@ -459,6 +514,9 @@ extern "C" void app_main(void)
     }
     ESP_ERROR_CHECK(settings::initStorage());
     xTaskCreate(buttonTask, "button", 3072, nullptr, 5, nullptr);  // after NVS: a press writes to it
+#if CONFIG_GLANCE_DEV_SERIAL_COMMANDS
+    xTaskCreate(serialCommandTask, "serial_cmd", 3072, nullptr, 5, nullptr);
+#endif
     Settings settings = settings::load();
     if (gBoot.enterSetup || settings.wifiSsid.empty()) {
         gBoot.enterSetup = false;

@@ -61,6 +61,14 @@ menu "Glance Refresh"
             the setup access point). No password protects them -- never
             enable this on a device in use.
 
+    config GLANCE_DEV_SERIAL_COMMANDS
+        bool "Development: accept button commands on the USB serial console"
+        default n
+        help
+            Lines like "glance press short", "glance press long",
+            "glance privacy on|off" and "glance refresh" act as the button
+            does, so tests can drive it without anyone pressing it.
+
     config GLANCE_DEEP_SLEEP
         bool "Deep sleep until the next refresh"
         default y

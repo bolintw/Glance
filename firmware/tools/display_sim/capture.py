@@ -10,6 +10,10 @@ can't see the Tk window) can drive a full render cycle on its own.
 --no-reset just listens, for when the board has to be reset by hand (esptool
 sometimes can't reach it; tap RST once this is running).
 
+--command "glance press short" sends a line to a development build with
+GLANCE_DEV_SERIAL_COMMANDS instead of resetting, then captures the run it
+starts (see main.cpp for the commands).
+
 Log lines are echoed (frame chunks aren't). Exits non-zero if no complete,
 checksum-valid frame arrived.
 """
@@ -61,9 +65,15 @@ def main():
     parser.add_argument("--width", type=int, default=800)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--no-reset", action="store_true", help="don't reset the board, just listen")
+    parser.add_argument("--command", help="send this serial command instead of resetting")
     args = parser.parse_args()
 
-    if not args.no_reset:
+    if args.command:
+        with serial.Serial(args.port, 115200, timeout=0.2) as port:
+            port.write(args.command.encode() + b"\n")
+            port.flush()
+            time.sleep(0.5)  # let the device read it before the port closes
+    elif not args.no_reset:
         reset_board(args.port)
         time.sleep(0.3)  # USB-Serial-JTAG re-enumerates on reset
     ser = None
