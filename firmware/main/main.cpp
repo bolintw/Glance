@@ -399,9 +399,33 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
     show(framebuffer);
     gPhase = Phase::setup;
 
-    gBoot.justConfigured = setup_mode::waitForSave(kSetupIdleTimeoutMs);
-    ESP_LOGI(kTag, "leaving setup mode (%s)", gBoot.justConfigured ? "saved" : "idle");
-    restartInto(false);
+    while (true) {
+        switch (setup_mode::waitForEvent(kSetupIdleTimeoutMs)) {
+            case setup_mode::Event::saved:
+                ESP_LOGI(kTag, "leaving setup mode (saved)");
+                gBoot.justConfigured = true;
+                restartInto(false);
+            case setup_mode::Event::idle:
+                ESP_LOGI(kTag, "leaving setup mode (idle)");
+                restartInto(false);
+            case setup_mode::Event::joined: {
+                // The phone is in: take the QR code and password off the
+                // screen so nobody else can read them.
+                const std::string url = "沒有跳出來的話請開啟 " + ap.url;
+                const std::string_view lines[] = {"請在手機上完成設定", url};
+                showNotice("手機已連上", lines);
+                break;
+            }
+            case setup_mode::Event::intruder: {
+                // A second device has the password: close up. Setting up
+                // again makes a new password.
+                setup_mode::closeAccessPoint();
+                const std::string_view lines[] = {"已關閉熱點", "請長按按鈕重新設定"};
+                showNotice("偵測到第二台裝置連線", lines);
+                break;  // stays here until a press, or the idle timeout
+            }
+        }
+    }
 }
 
 // Called after a WiFi failure: says so on the panel right after setup (most

@@ -23,9 +23,18 @@ struct AccessPoint {
 // access point and both servers.
 esp_err_t start(const Settings& current, AccessPoint& out);
 
-// Blocks until settings were saved (true) or nobody has loaded a page for
-// idleTimeoutMs (false).
-bool waitForSave(uint32_t idleTimeoutMs);
+enum class Event {
+    saved,     // valid settings were saved
+    idle,      // nobody loaded a page for idleTimeoutMs
+    joined,    // the first device joined the access point: hide the QR code
+    intruder,  // a second device joined: close the access point
+};
+
+// Blocks until something happens in setup mode (see Event).
+Event waitForEvent(uint32_t idleTimeoutMs);
+
+// Drops every station and stops the access point.
+void closeAccessPoint();
 
 // Development aid (GLANCE_DEV_SETUP_ON_LAN): the same pages served on the
 // home network the device is already connected to, so a computer on that

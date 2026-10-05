@@ -5,7 +5,7 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or notice, privacy[1], gray[1]
+//   make -C firmware/test/host preview SCREEN=setup         # or notice, joined, intruder, privacy[1], gray[1]
 //
 // produces build/preview.png.
 
@@ -71,6 +71,12 @@ int main(int argc, char** argv) {
         if (screen.starts_with("gray")) {
             overlay = calendar_view::photoOverlay(photos::kBuiltInGray[index]);
         }
+    } else if (screen == "joined") {
+        const std::string_view lines[] = {"請在手機上完成設定", "沒有跳出來的話請開啟 http://192.168.4.1"};
+        setup_view::renderNotice(canvas, "手機已連上", lines);
+    } else if (screen == "intruder") {
+        const std::string_view lines[] = {"已關閉熱點", "請長按按鈕重新設定"};
+        setup_view::renderNotice(canvas, "偵測到第二台裝置連線", lines);
     } else if (screen == "notice") {
         const std::string_view lines[] = {"每小時會自動重試", "長按按鈕可以重新設定"};
         setup_view::renderNotice(canvas, "WiFi 連線失敗", lines);

@@ -27,6 +27,7 @@
 #include "photos.hpp"
 #include "settings.hpp"
 #include "setup_page.hpp"
+#include "station_watch.hpp"
 
 namespace {
 constexpr const char* kTag = "setup_mode";
@@ -36,12 +37,33 @@ constexpr size_t kMaxNearby = 15;
 constexpr size_t kMaxFormBytes = 8 * 1024;
 constexpr size_t kMaxPhotoBytes = 128 * 1024;  // one upload is ~75KB
 constexpr int kSavedBit = BIT0;
+constexpr int kJoinedBit = BIT1;    // first station joined: take the QR code down
+constexpr int kIntruderBit = BIT2;  // a second station joined: close the access point
 
 // Shared with the HTTP handlers and the DNS task. One setup session per boot.
 Settings gCurrent;
 std::vector<std::string> gNearby;
 EventGroupHandle_t gEvents = nullptr;
 std::atomic<int64_t> gLastActivityUs{0};
+StationWatch gStations;  // only touched from the event loop task
+
+void onStationJoined(void*, esp_event_base_t, int32_t, void* data) {
+    auto* event = static_cast<wifi_event_ap_staconnected_t*>(data);
+    StationWatch::Mac mac;
+    std::copy(std::begin(event->mac), std::end(event->mac), mac.begin());
+    switch (gStations.onJoined(mac)) {
+        case StationWatch::Action::hideQr:
+            ESP_LOGI(kTag, "a device joined the access point");
+            xEventGroupSetBits(gEvents, kJoinedBit);
+            break;
+        case StationWatch::Action::shutDown:
+            ESP_LOGW(kTag, "a second device joined the access point");
+            xEventGroupSetBits(gEvents, kIntruderBit);
+            break;
+        case StationWatch::Action::none:
+            break;
+    }
+}
 
 void touch() { gLastActivityUs = esp_timer_get_time(); }
 
@@ -302,6 +324,8 @@ esp_err_t start(const Settings& current, AccessPoint& out) {
     ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
     ap.ap.max_connection = 2;
     ap.ap.channel = 1;
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED, onStationJoined,
+                                                        nullptr, nullptr));
     ESP_ERROR_CHECK(esp_wifi_stop());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
@@ -334,17 +358,30 @@ esp_err_t startOnLan(const Settings& current) {
 
 bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & kSavedBit); }
 
-bool waitForSave(uint32_t idleTimeoutMs) {
+Event waitForEvent(uint32_t idleTimeoutMs) {
     while (true) {
-        EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit, pdFALSE, pdFALSE, pdMS_TO_TICKS(1000));
+        EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit, pdTRUE, pdFALSE,
+                                               pdMS_TO_TICKS(1000));
+        if (bits & kIntruderBit) {
+            return Event::intruder;
+        }
         if (bits & kSavedBit) {
             vTaskDelay(pdMS_TO_TICKS(1500));  // let the "saved" page reach the phone
-            return true;
+            return Event::saved;
+        }
+        if (bits & kJoinedBit) {
+            return Event::joined;
         }
         if (esp_timer_get_time() - gLastActivityUs > static_cast<int64_t>(idleTimeoutMs) * 1000) {
-            return false;
+            return Event::idle;
         }
     }
+}
+
+void closeAccessPoint() {
+    esp_wifi_deauth_sta(0);  // everyone
+    esp_wifi_stop();
+    ESP_LOGW(kTag, "access point closed");
 }
 
 }  // namespace setup_mode
