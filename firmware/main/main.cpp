@@ -175,6 +175,7 @@ void buttonTask(void*) {
 //   glance press short | glance press long
 //   glance privacy on | glance privacy off
 //   glance refresh
+//   glance refresh configured    (as if setup had just saved: WiFi fallback, offline screen at once)
 //   glance wifi <network name>   (keeps the saved password)
 //   glance wifi default          (back to the menuconfig network and password)
 // Polls stdin: without the USB-Serial-JTAG driver installed, reads don't
@@ -206,6 +207,9 @@ void serialCommandTask(void*) {
                 settings::savePrivacyMode(line.ends_with("on"));
                 restartInto(false);
             } else if (line == "glance refresh") {
+                restartInto(false);
+            } else if (line == "glance refresh configured") {
+                gBoot.justConfigured = true;
                 restartInto(false);
             } else if (line == "glance wifi default") {
                 if (settings::forgetWifi() == ESP_OK) {
