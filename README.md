@@ -75,6 +75,35 @@ This table maps critical signals to their corresponding GPIO pins on the ESP32-S
 
 ---
 
+## Security Notes
+
+Glance is a personal project, not a hardened product. This is what it protects and where it is known to fall short.
+
+### Setup
+-   **Step 1, WiFi (access point):** a WPA2 access point whose random 8-character password is shown only on the panel. Anyone who can see the panel while setup mode is open can join. The first device to join takes the QR code and password off the screen, and a second device closes the access point. If someone else joins before the owner does, they get the page; the owner's phone then counts as the second device and closes the access point, so the owner notices and starts over.
+-   **Step 2, calendars, weather and photos (home network):** served over plain HTTP. The pages are gated by a 128-bit one-time token from the panel's QR code and bound to the first device that uses it. Anyone else who presents the token or that session closes the pages. Not protected against:
+    -   Someone on the same WiFi capturing the traffic. It is not encrypted, so calendar URLs and the API key travel in the clear, and members of a WPA2-PSK network can decrypt each other's traffic.
+    -   Someone on the network spoofing the bound device's IP address.
+-   Both steps close after 10 minutes without use. Neither protects against physical access: pressing the button and setting the device up again is the intended way in.
+
+### Stored Secrets
+-   The WiFi password, the private calendar URLs (each one grants read access to its calendar) and the CWA API key are stored in NVS **without flash encryption**. Anyone with the device and a USB cable can read them out with `esptool`. Flash encryption and secure boot would close this, but neither is configured.
+-   The setup pages never send stored secrets back to the browser; a saved value shows only as "已設定".
+
+### Updates
+-   OTA installs any newer `vX.Y.Z` release of this GitHub repository over certificate-checked HTTPS. Images are **not signed**, so whoever can publish a release here can update every device. App signing is not set up.
+-   Rollback protects against an update that crashes, not against a malicious one.
+
+### Logs
+-   The USB serial console is always on. Logs avoid WiFi passwords, calendar URLs and the API key (calendars appear by slot number). They do include **upcoming event titles** and the WiFi network name.
+
+### Development Options
+These are for development boards only. They are off by default, and release builds (`.github/workflows/release.yml`) use the defaults.
+-   `GLANCE_DEV_SETUP_ON_LAN` serves the setup and photo pages on the home network with **no token at all**.
+-   `GLANCE_DEV_SERIAL_COMMANDS` accepts button and WiFi commands on the USB serial console, and logs step 2's URL **including its token**.
+
+---
+
 ## License
 
 Copyright (c) 2025 Bo Lin
