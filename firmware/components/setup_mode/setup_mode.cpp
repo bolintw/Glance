@@ -206,7 +206,7 @@ esp_err_t handleForm(httpd_req_t* req) {
         return ESP_OK;
     }
     return sendHtml(req, gMode == Mode::accessPoint ? setup_page::renderWifiForm(gCurrent, gNearby, gWifiErrors)
-                                                    : setup_page::renderForm(gCurrent, {}));
+                                                    : setup_page::renderForm(gCurrent, gNearby, {}));
 }
 
 // The whole request body, or nullopt (after answering) if it's too big or
@@ -329,7 +329,8 @@ esp_err_t handleSave(httpd_req_t* req) {
 
     bool wifiStep = gMode == Mode::accessPoint;
     auto render = [&](const Settings& s, std::span<const std::string> errors) {
-        return wifiStep ? setup_page::renderWifiForm(s, gNearby, errors) : setup_page::renderForm(s, errors);
+        return wifiStep ? setup_page::renderWifiForm(s, gNearby, errors)
+                        : setup_page::renderForm(s, gNearby, errors);
     };
     setup_page::FormResult result =
         wifiStep ? setup_page::applyWifiForm(gCurrent, *body) : setup_page::applyForm(gCurrent, *body);
@@ -476,6 +477,8 @@ esp_err_t startHome(const Settings& current, HomeNetwork& out) {
     }
     gMode = Mode::home;
     gCurrent = current;
+    gNearby = scanNearby();  // for the WiFi name suggestions
+    ESP_LOGI(kTag, "%zu networks nearby", gNearby.size());
     gEvents = xEventGroupCreate();
     touch();
     std::string token = randomHex(16);  // 128 bits

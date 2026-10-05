@@ -20,7 +20,9 @@ extern const std::span<const char* const> kCounties;
 // Setup happens in two steps, so the phone has internet while it matters:
 // on the access point only WiFi is set (renderWifiForm/applyWifiForm);
 // calendars, weather and photos come after, from the home network
-// (renderForm/applyForm), where the phone can still look up the URLs.
+// (renderForm/applyForm), where the phone can still look up the URLs. The
+// home-network form can change WiFi too, for moving to another network
+// while the current one still works.
 //
 // Both forms come pre-filled with `current`. Secrets (WiFi password,
 // calendar URLs, API key) are never sent back to the browser -- a set one
@@ -28,7 +30,8 @@ extern const std::span<const char* const> kCounties;
 // `errors` are shown on top; `nearbySsids` feeds the WiFi name suggestions.
 std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
                            std::span<const std::string> errors);
-std::string renderForm(const Settings& current, std::span<const std::string> errors);
+std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
+                       std::span<const std::string> errors);
 
 // Shown after a successful save, just before the device restarts.
 std::string renderSaved();
@@ -46,6 +49,8 @@ struct FormResult {
 
 // Apply an application/x-www-form-urlencoded submission of the matching
 // form on top of `current`; fields the form doesn't have stay as they are.
+// A changed WiFi name drops the stored password: blank then means an open
+// network.
 FormResult applyWifiForm(const Settings& current, std::string_view body);
 FormResult applyForm(const Settings& current, std::string_view body);
 

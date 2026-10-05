@@ -167,14 +167,10 @@ void errorBox(std::string& html, std::span<const std::string> errors) {
 }
 }  // namespace
 
-std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
-                           std::span<const std::string> errors) {
-    std::string html = kPageHead;
-    html += "<h1>Glance 設定：WiFi</h1>\n";
-    errorBox(html, errors);
-    html += "<p class=\"note\">儲存後裝置會連上這個 WiFi，並在螢幕上顯示另一個 QR code。"
-            "手機切回同一個 WiFi 後掃描它，就能在有網路的情況下設定行事曆和天氣。</p>\n";
-    html += "<form method=\"post\" action=\"/save\">\n<label for=\"ssid\">網路名稱</label>";
+namespace {
+// The WiFi fields, on both steps.
+void wifiFields(std::string& html, const Settings& current, std::span<const std::string> nearbySsids) {
+    html += "<label for=\"ssid\">網路名稱</label>";
     html += "<input type=\"text\" id=\"ssid\" name=\"ssid\" list=\"nearby\" autocomplete=\"off\" value=\"" +
             htmlEscape(current.wifiSsid) + "\">";
     html += "<datalist id=\"nearby\">";
@@ -183,11 +179,46 @@ std::string renderWifiForm(const Settings& current, std::span<const std::string>
     }
     html += "</datalist>\n<label>密碼</label>";
     secretInput(html, "password", "wifi_pass", !current.wifiPassword.empty(), "");
-    html += "\n<button type=\"submit\">儲存並重新啟動</button>\n</form></body></html>\n";
+    html += "\n<p class=\"note\">換網路時請重新輸入密碼（開放網路留空）。</p>\n";
+}
+
+void applyWifi(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
+    std::string previousSsid = s.wifiSsid;
+    if (const std::string* ssid = find(fields, "ssid")) {
+        s.wifiSsid = trim(*ssid);
+    }
+    if (s.wifiSsid != previousSsid) {
+        s.wifiPassword.clear();  // the old network's password is no use on a new one
+    }
+    // Passwords may legitimately start or end with spaces; keep them as typed.
+    applySecret(fields, "wifi_pass", s.wifiPassword, [](std::string_view v) { return std::string(v); });
+
+    if (s.wifiSsid.empty()) {
+        errors.push_back("請填寫 WiFi 網路名稱");
+    } else if (s.wifiSsid.size() > kMaxSsidBytes) {
+        errors.push_back("WiFi 網路名稱太長");
+    }
+    if (!s.wifiPassword.empty() && (s.wifiPassword.size() < 8 || s.wifiPassword.size() > 63)) {
+        errors.push_back("WiFi 密碼應為 8 到 63 個字元");
+    }
+}
+}  // namespace
+
+std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
+                           std::span<const std::string> errors) {
+    std::string html = kPageHead;
+    html += "<h1>Glance 設定：WiFi</h1>\n";
+    errorBox(html, errors);
+    html += "<p class=\"note\">儲存後裝置會連上這個 WiFi，並在螢幕上顯示另一個 QR code。"
+            "手機切回同一個 WiFi 後掃描它，就能在有網路的情況下設定行事曆和天氣。</p>\n";
+    html += "<form method=\"post\" action=\"/save\">\n";
+    wifiFields(html, current, nearbySsids);
+    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form></body></html>\n";
     return html;
 }
 
-std::string renderForm(const Settings& current, std::span<const std::string> errors) {
+std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
+                       std::span<const std::string> errors) {
     std::string html = kPageHead;
     html += "<h1>Glance 設定</h1>\n";
     errorBox(html, errors);
@@ -223,9 +254,12 @@ std::string renderForm(const Settings& current, std::span<const std::string> err
     secretInput(html, "text", "cwa_key", !current.cwaApiKey.empty(), "CWA-XXXXXXXX-...");
     html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得。</p>\n";
 
+    html += "<h2>WiFi</h2>\n";
+    wifiFields(html, current, nearbySsids);
+    html += "<p class=\"note\">新的 WiFi 連不上時，螢幕會顯示通知；長按按鈕會開啟設定熱點重新設定。</p>\n";
+
     html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
-    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\">管理照片</a>（不會重新啟動）</p>\n";
-    html += "<p class=\"note\">要換 WiFi 的話：裝置連不上 WiFi 時，長按按鈕會開啟設定熱點。</p>\n</body></html>\n";
+    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\">管理照片</a>（不會重新啟動）</p>\n</body></html>\n";
     return html;
 }
 
@@ -235,24 +269,8 @@ std::string renderSaved() {
 }
 
 FormResult applyWifiForm(const Settings& current, std::string_view body) {
-    std::vector<Field> fields = parseForm(body);
     FormResult result{current, {}};
-    Settings& s = result.settings;
-    if (const std::string* ssid = find(fields, "ssid")) {
-        s.wifiSsid = trim(*ssid);
-    }
-    // Passwords may legitimately start or end with spaces; keep them as typed.
-    applySecret(fields, "wifi_pass", s.wifiPassword, [](std::string_view v) { return std::string(v); });
-
-    auto& errors = result.errors;
-    if (s.wifiSsid.empty()) {
-        errors.push_back("請填寫 WiFi 網路名稱");
-    } else if (s.wifiSsid.size() > kMaxSsidBytes) {
-        errors.push_back("WiFi 網路名稱太長");
-    }
-    if (!s.wifiPassword.empty() && (s.wifiPassword.size() < 8 || s.wifiPassword.size() > 63)) {
-        errors.push_back("WiFi 密碼應為 8 到 63 個字元");
-    }
+    applyWifi(parseForm(body), result.settings, result.errors);
     return result;
 }
 
@@ -269,6 +287,9 @@ FormResult applyForm(const Settings& current, std::string_view body) {
     }
 
     auto& errors = result.errors;
+    if (find(fields, "ssid")) {
+        applyWifi(fields, s, errors);
+    }
     bool anyCalendar = false;
     for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
         const std::string& url = s.icsUrls[i];

@@ -61,11 +61,13 @@ void testFormsNeverLeakSecrets() {
     CHECK(contains(wifi, "已設定"));
     CHECK(!contains(wifi, "ics1"));  // the WiFi step is only WiFi
 
-    std::string html = setup_page::renderForm(configured(), {});
+    std::string html = setup_page::renderForm(configured(), nearby, {});
     CHECK(!contains(html, "SECRET1"));
     CHECK(!contains(html, "SECRET3"));
     CHECK(!contains(html, "CWA-SECRET-KEY"));
-    CHECK(!contains(html, "name=\"ssid\""));  // and the home-network step has no WiFi
+    CHECK(!contains(html, "secret-wifi-pass"));
+    CHECK(contains(html, "value=\"Home &quot;5G&quot; &lt;net&gt;\""));  // WiFi can change here too
+    CHECK(contains(html, "<option value=\"Neighbor&lt;1&gt;\">"));
     CHECK(contains(html, "<option selected>新竹縣</option>"));
     CHECK(contains(html, "name=\"ics1_remove\""));   // set slots can be removed
     CHECK(!contains(html, "name=\"ics2_remove\""));  // empty ones can't
@@ -73,7 +75,7 @@ void testFormsNeverLeakSecrets() {
     CHECK(contains(html, "已設定"));
 
     std::vector<std::string> errors = {"bad <thing>"};
-    CHECK(contains(setup_page::renderForm(Settings{}, errors), "bad &lt;thing&gt;"));
+    CHECK(contains(setup_page::renderForm(Settings{}, {}, errors), "bad &lt;thing&gt;"));
     CHECK(contains(setup_page::renderWifiForm(Settings{}, {}, errors), "bad &lt;thing&gt;"));
 }
 
@@ -89,14 +91,33 @@ void testBlankSecretsAreKept() {
     CHECK(r.settings.weatherLocation == "新竹縣");
 }
 
-void testEachFormKeepsToItsFields() {
-    // Even if a request carries the other form's fields, they're ignored.
+void testWifiStepKeepsToWifi() {
+    // Even if a request carries the home-network form's fields, they're ignored.
     auto w = setup_page::applyWifiForm(configured(), "ssid=Office&ics1=https%3A%2F%2Fevil.example%2F&cwa_key=X");
     CHECK(w.settings.icsUrls[0] == configured().icsUrls[0]);
     CHECK(w.settings.cwaApiKey == "CWA-SECRET-KEY");
-    auto r = setup_page::applyForm(configured(), "ssid=Evil&wifi_pass=evilevil&ics1=");
-    CHECK(r.settings.wifiSsid == configured().wifiSsid);
-    CHECK(r.settings.wifiPassword == "secret-wifi-pass");
+}
+
+void testHomeFormChangesWifi() {
+    auto r = setup_page::applyForm(configured(), "ssid=Office&wifi_pass=officepass&ics1=");
+    CHECK(r.errors.empty());
+    CHECK(r.settings.wifiSsid == "Office");
+    CHECK(r.settings.wifiPassword == "officepass");
+    CHECK(r.settings.icsUrls[0] == configured().icsUrls[0]);
+    auto untouched = setup_page::applyForm(configured(), "ics1=");  // no WiFi fields at all
+    CHECK(untouched.settings.wifiSsid == configured().wifiSsid);
+    CHECK(untouched.settings.wifiPassword == "secret-wifi-pass");
+    CHECK(hasError(setup_page::applyForm(configured(), "ssid=&ics1="), "網路名稱"));
+}
+
+void testNewNetworkDropsOldPassword() {
+    for (auto apply : {setup_page::applyWifiForm, setup_page::applyForm}) {
+        auto open = apply(configured(), "ssid=Cafe&wifi_pass=");
+        CHECK(open.errors.empty());
+        CHECK(open.settings.wifiPassword.empty());  // blank on a new network: open network
+        auto same = apply(configured(), "ssid=Home+%225G%22+%3Cnet%3E&wifi_pass=");
+        CHECK(same.settings.wifiPassword == "secret-wifi-pass");  // same network: kept
+    }
 }
 
 void testReplaceAndRemove() {
@@ -165,7 +186,7 @@ void testPhotosPage() {
     CHECK(contains(page, "fetch('/photos/list')"));
     CHECK(contains(page, "fetch('/photos/add'"));
     CHECK(contains(page, "// --- dither begin ---") && contains(page, "// --- dither end ---"));
-    CHECK(contains(setup_page::renderForm(Settings{}, {}), "href=\"/photos\""));
+    CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/photos\""));
 }
 
 int main() {
@@ -173,7 +194,9 @@ int main() {
     testHtmlEscape();
     testFormsNeverLeakSecrets();
     testBlankSecretsAreKept();
-    testEachFormKeepsToItsFields();
+    testWifiStepKeepsToWifi();
+    testHomeFormChangesWifi();
+    testNewNetworkDropsOldPassword();
     testReplaceAndRemove();
     testValidation();
     testWifiQrPayload();
