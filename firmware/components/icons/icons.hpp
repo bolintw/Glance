@@ -4,8 +4,9 @@
 
 #include "font.hpp"
 
-// Weather icons as glyphs. Draw one with drawText; the pen position is
-// the icon box's bottom-left corner (weather icons share a 101x80 box).
+// Weather and status icons as glyphs. Draw one with drawText; the pen
+// position is the icon box's bottom-left corner (weather icons share a
+// 101x80 box, status icons a 24x24 one).
 extern const Font kWeatherIcons;
 
 namespace icons {
@@ -15,4 +16,5 @@ inline constexpr const char* kCloudy = "\xEE\x80\x82";  // U+E002
 inline constexpr const char* kWindy = "\xEE\x80\x83";  // U+E003
 inline constexpr const char* kRainy = "\xEE\x80\x84";  // U+E004
 inline constexpr const char* kRaindrop = "\xEE\x80\x85";  // U+E005
+inline constexpr const char* kWifiOff = "\xEE\x80\x86";  // U+E006
 }  // namespace icons

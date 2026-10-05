@@ -26,6 +26,8 @@ input[type=text],input[type=password],input[type=url],select{width:100%;box-sizi
 .remove{font-weight:400;display:inline;margin-left:.5rem}
 .note{color:#555;font-size:.9rem}
 .errors{background:#fde8e8;border:1px solid #c00;padding:.5rem 1rem}
+.notice{background:#fff6dc;border:1px solid #b80;padding:.5rem 1rem}
+.danger{color:#b00}
 button{margin-top:1.6rem;width:100%;padding:.8rem;font-size:1.1rem}
 </style></head><body>
 )";
@@ -165,6 +167,22 @@ void errorBox(std::string& html, std::span<const std::string> errors) {
     }
     html += "</ul></div>\n";
 }
+
+void revertNotice(std::string& html, const Settings& current, std::string_view revertedFrom) {
+    if (revertedFrom.empty()) {
+        return;
+    }
+    html += "<p class=\"notice\">上次改的「" + htmlEscape(revertedFrom) + "」連不上，已改回「" +
+            htmlEscape(current.wifiSsid) + "」。</p>\n";
+}
+
+void resetForm(std::string& html) {
+    html += "<h2>清除所有資料</h2>\n<p class=\"note\">WiFi、行事曆、授權碼和上傳的照片都會刪除，"
+            "裝置會回到第一次設定的狀態。</p>\n"
+            "<form method=\"post\" action=\"/reset\" onsubmit=\"return confirm('確定要清除所有資料嗎？')\">"
+            "<input type=\"hidden\" name=\"confirm\" value=\"yes\">"
+            "<button type=\"submit\" class=\"danger\">清除所有資料</button></form>\n";
+}
 }  // namespace
 
 namespace {
@@ -205,23 +223,27 @@ void applyWifi(const std::vector<Field>& fields, Settings& s, std::vector<std::s
 }  // namespace
 
 std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
-                           std::span<const std::string> errors) {
+                           std::span<const std::string> errors, std::string_view revertedFrom) {
     std::string html = kPageHead;
     html += "<h1>Glance 設定：WiFi</h1>\n";
     errorBox(html, errors);
+    revertNotice(html, current, revertedFrom);
     html += "<p class=\"note\">儲存後裝置會連上這個 WiFi，並在螢幕上顯示另一個 QR code。"
             "手機切回同一個 WiFi 後掃描它，就能在有網路的情況下設定行事曆和天氣。</p>\n";
     html += "<form method=\"post\" action=\"/save\">\n";
     wifiFields(html, current, nearbySsids);
-    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form></body></html>\n";
+    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
+    resetForm(html);
+    html += "</body></html>\n";
     return html;
 }
 
 std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
-                       std::span<const std::string> errors) {
+                       std::span<const std::string> errors, std::string_view revertedFrom) {
     std::string html = kPageHead;
     html += "<h1>Glance 設定</h1>\n";
     errorBox(html, errors);
+    revertNotice(html, current, revertedFrom);
     html += "<form method=\"post\" action=\"/save\">\n";
 
     html += "<h2>行事曆</h2>\n<p class=\"note\">Google 日曆：設定 → 選擇日曆 → 「iCal 格式的私人網址」。</p>\n";
@@ -259,13 +281,26 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
     html += "<p class=\"note\">新的 WiFi 連不上時，螢幕會顯示通知；長按按鈕會開啟設定熱點重新設定。</p>\n";
 
     html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
-    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\">管理照片</a>（不會重新啟動）</p>\n</body></html>\n";
+    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\">管理照片</a>（不會重新啟動）</p>\n";
+    resetForm(html);
+    html += "</body></html>\n";
     return html;
 }
 
 std::string renderSaved() {
     return std::string(kPageHead) +
            "<h1>已儲存</h1><p>裝置正在重新啟動並更新畫面，大約一分鐘。手機可以切回原本的 WiFi 了。</p></body></html>\n";
+}
+
+std::string renderErased() {
+    return std::string(kPageHead) +
+           "<h1>已清除</h1><p>所有資料都已刪除，裝置正在重新啟動，接著會進入第一次設定。</p></body></html>\n";
+}
+
+bool confirmsReset(std::string_view body) {
+    std::vector<Field> fields = parseForm(body);
+    const std::string* confirm = find(fields, "confirm");
+    return confirm && *confirm == "yes";
 }
 
 FormResult applyWifiForm(const Settings& current, std::string_view body) {

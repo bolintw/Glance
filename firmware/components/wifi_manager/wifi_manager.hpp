@@ -7,7 +7,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
-// Station-mode WiFi: connect and block until connected or timed out. NVS
+// Station-mode WiFi: connect and block until connected or timed out. May be
+// called again to try another network (e.g. falling back to one that
+// worked before). NVS
 // must already be initialized (settings::initStorage) -- the WiFi driver
 // keeps its calibration data there.
 class WifiManager {
@@ -30,6 +32,7 @@ private:
 
     EventGroupHandle_t events_;
     int retryCount_ = 0;
+    bool started_ = false;
     esp_event_handler_instance_t wifiHandler_ = nullptr;
     esp_event_handler_instance_t ipHandler_ = nullptr;
 };

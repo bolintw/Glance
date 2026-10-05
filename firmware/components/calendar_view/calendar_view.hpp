@@ -20,9 +20,11 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 
 // Privacy mode: the same header and weather, with a photo in the event box
 // instead of the events. `photo` should be photos::kWidth x photos::kHeight;
-// without a clock (`now` nullopt) the date is left out.
+// without a clock (`now` nullopt) the date is left out. `offline` puts a
+// crossed-out WiFi icon in the top-right corner -- status icons show only
+// when something is wrong.
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo);
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, bool offline = false);
 
 // The 4-gray version of renderPrivate's photo, placed over the same frame,
 // for Display::flushGray. Draw the 1bpp photo underneath anyway: backends

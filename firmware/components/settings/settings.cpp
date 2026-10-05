@@ -18,6 +18,9 @@ constexpr const char* kWeatherLocationKey = "wx_location";
 constexpr const char* kPrivacyModeKey = "privacy";
 constexpr const char* kPhotoNextKey = "photo_next";    // u8, 0xFF = none
 constexpr const char* kPhotoShownKey = "photo_shown";  // u32 bitmask
+constexpr const char* kWorkingSsidKey = "wifi_ok_ssid";
+constexpr const char* kWorkingPasswordKey = "wifi_ok_pass";
+constexpr const char* kWifiRevertKey = "wifi_reverted";  // the network that didn't connect
 
 constexpr const char* kIcsUrlFallbacks[Settings::kMaxCalendars] = {
     CONFIG_GLANCE_ICS_URL_1, CONFIG_GLANCE_ICS_URL_2, CONFIG_GLANCE_ICS_URL_3,
@@ -66,6 +69,7 @@ public:
     }
     esp_err_t writeU32(const char* key, uint32_t value) { return nvs_set_u32(handle_, key, value); }
     esp_err_t commit() { return nvs_commit(handle_); }
+    nvs_handle_t handle() const { return handle_; }
     esp_err_t erase(const char* key) {
         esp_err_t err = nvs_erase_key(handle_, key);
         return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
@@ -142,6 +146,69 @@ esp_err_t forgetWifi() {
         err = nvs.erase(kWifiPasswordKey);
     }
     return err == ESP_OK ? nvs.commit() : err;
+}
+
+std::optional<WifiNetwork> loadWorkingWifi() {
+    Nvs nvs(NVS_READONLY);
+    WifiNetwork network{nvs.read(kWorkingSsidKey, ""), nvs.read(kWorkingPasswordKey, "")};
+    if (network.ssid.empty()) {
+        return std::nullopt;
+    }
+    return network;
+}
+
+esp_err_t rememberWorkingWifi(const WifiNetwork& network) {
+    if (auto known = loadWorkingWifi(); known && known->ssid == network.ssid && known->password == network.password) {
+        return ESP_OK;
+    }
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs.write(kWorkingSsidKey, network.ssid);
+    if (err == ESP_OK) {
+        err = nvs.write(kWorkingPasswordKey, network.password);
+    }
+    return err == ESP_OK ? nvs.commit() : err;
+}
+
+esp_err_t revertWifi(const std::string& failedSsid, const WifiNetwork& working) {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs.write(kWifiSsidKey, working.ssid);
+    if (err == ESP_OK) {
+        err = nvs.write(kWifiPasswordKey, working.password);
+    }
+    if (err == ESP_OK) {
+        err = nvs.write(kWifiRevertKey, failedSsid);
+    }
+    return err == ESP_OK ? nvs.commit() : err;
+}
+
+std::string takeWifiRevertNote() {
+    std::string note = Nvs(NVS_READONLY).read(kWifiRevertKey, "");
+    if (!note.empty()) {
+        Nvs nvs(NVS_READWRITE);
+        if (nvs.ok() && nvs.erase(kWifiRevertKey) == ESP_OK) {
+            nvs.commit();
+        }
+    }
+    return note;
+}
+
+esp_err_t eraseAll() {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs_erase_all(nvs.handle());
+    if (err == ESP_OK) {
+        err = nvs.commit();
+    }
+    ESP_LOGW(kTag, "all settings erased: %s", esp_err_to_name(err));
+    return err;
 }
 
 bool loadPrivacyMode() { return Nvs(NVS_READONLY).readU8(kPrivacyModeKey, 0) != 0; }

@@ -40,6 +40,7 @@ constexpr size_t kMaxPhotoBytes = 128 * 1024;  // one upload is ~75KB
 constexpr int kSavedBit = BIT0;
 constexpr int kJoinedBit = BIT1;    // first station joined: take the QR code down
 constexpr int kIntruderBit = BIT2;  // a second device got in: close up
+constexpr int kErasedBit = BIT3;
 constexpr const char* kSessionCookie = "glance_session";
 
 constexpr const char* kDeniedPage = R"(<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
@@ -57,6 +58,7 @@ httpd_handle_t gServer = nullptr;
 Settings gCurrent;
 std::vector<std::string> gNearby;
 std::vector<std::string> gWifiErrors;  // shown on the WiFi form, e.g. that the last network didn't work
+std::string gRevertedFrom;             // a new WiFi that didn't connect (see settings::revertWifi)
 std::optional<LanAccess> gAccess;      // home mode's gate
 std::string gCookieHeader;             // outlives the response it's set on (handlers run one at a time)
 EventGroupHandle_t gEvents = nullptr;
@@ -205,8 +207,9 @@ esp_err_t handleForm(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
-    return sendHtml(req, gMode == Mode::accessPoint ? setup_page::renderWifiForm(gCurrent, gNearby, gWifiErrors)
-                                                    : setup_page::renderForm(gCurrent, gNearby, {}));
+    return sendHtml(req, gMode == Mode::accessPoint
+                             ? setup_page::renderWifiForm(gCurrent, gNearby, gWifiErrors, gRevertedFrom)
+                             : setup_page::renderForm(gCurrent, gNearby, {}, gRevertedFrom));
 }
 
 // The whole request body, or nullopt (after answering) if it's too big or
@@ -317,6 +320,30 @@ esp_err_t handleRestart(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// POST /reset: erases every setting and photo, then restarts into a first
+// setup.
+esp_err_t handleReset(httpd_req_t* req) {
+    touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    auto body = readBody<std::string>(req, kMaxFormBytes);
+    if (!body) {
+        return ESP_FAIL;
+    }
+    if (!setup_page::confirmsReset(*body)) {
+        return sendText(req, "400 Bad Request", "text/plain", "not confirmed");
+    }
+    for (int slot : photo_store::list()) {
+        photo_store::remove(slot);
+    }
+    settings::eraseAll();
+    ESP_LOGW(kTag, "everything erased");
+    esp_err_t err = sendHtml(req, setup_page::renderErased());
+    xEventGroupSetBits(gEvents, kErasedBit);
+    return err;
+}
+
 esp_err_t handleSave(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
@@ -368,13 +395,15 @@ esp_err_t startHttp() {
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
     config.stack_size = 8192;        // the form is built with std::string
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 13;
     esp_err_t err = httpd_start(&gServer, &config);
     if (err != ESP_OK) {
         return err;
     }
     static const httpd_uri_t form = {.uri = "/", .method = HTTP_GET, .handler = handleForm, .user_ctx = nullptr};
     static const httpd_uri_t save = {.uri = "/save", .method = HTTP_POST, .handler = handleSave, .user_ctx = nullptr};
+    static const httpd_uri_t reset = {
+        .uri = "/reset", .method = HTTP_POST, .handler = handleReset, .user_ctx = nullptr};
     static const httpd_uri_t photosPage = {
         .uri = "/photos", .method = HTTP_GET, .handler = handlePhotosPage, .user_ctx = nullptr};
     static const httpd_uri_t photosList = {
@@ -390,6 +419,7 @@ esp_err_t startHttp() {
         .uri = "/restart", .method = HTTP_POST, .handler = handleRestart, .user_ctx = nullptr};
     httpd_register_uri_handler(gServer, &form);
     httpd_register_uri_handler(gServer, &save);
+    httpd_register_uri_handler(gServer, &reset);
     if (gMode == Mode::accessPoint) {
         httpd_register_uri_handler(gServer, &other);
         return ESP_OK;
@@ -410,6 +440,7 @@ namespace setup_mode {
 esp_err_t start(const Settings& current, AccessPoint& out, std::string_view wifiError) {
     gMode = Mode::accessPoint;
     gCurrent = current;
+    gRevertedFrom = settings::takeWifiRevertNote();
     if (!wifiError.empty()) {
         gWifiErrors = {std::string(wifiError)};
     }
@@ -477,6 +508,7 @@ esp_err_t startHome(const Settings& current, HomeNetwork& out) {
     }
     gMode = Mode::home;
     gCurrent = current;
+    gRevertedFrom = settings::takeWifiRevertNote();
     gNearby = scanNearby();  // for the WiFi name suggestions
     ESP_LOGI(kTag, "%zu networks nearby", gNearby.size());
     gEvents = xEventGroupCreate();
@@ -496,20 +528,24 @@ esp_err_t startHome(const Settings& current, HomeNetwork& out) {
 
 esp_err_t startOnLan(const Settings& current) {
     gMode = Mode::devLan;
-    gCurrent = current;
+    gCurrent = current;  // leaves the revert note for a real setup session
     gEvents = xEventGroupCreate();
     touch();
     return startHttp();
 }
 
-bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & kSavedBit); }
+bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & (kSavedBit | kErasedBit)); }
 
 Event waitForEvent(uint32_t idleTimeoutMs) {
     while (true) {
-        EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit, pdTRUE, pdFALSE,
-                                               pdMS_TO_TICKS(1000));
+        EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit | kErasedBit, pdTRUE,
+                                               pdFALSE, pdMS_TO_TICKS(1000));
         if (bits & kIntruderBit) {
             return Event::intruder;
+        }
+        if (bits & kErasedBit) {
+            vTaskDelay(pdMS_TO_TICKS(1500));  // let the page reach the phone
+            return Event::erased;
         }
         if (bits & kSavedBit) {
             vTaskDelay(pdMS_TO_TICKS(1500));  // let the "saved" page reach the phone

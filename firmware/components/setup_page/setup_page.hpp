@@ -28,13 +28,20 @@ extern const std::span<const char* const> kCounties;
 // calendar URLs, API key) are never sent back to the browser -- a set one
 // shows as "已設定" and is kept unless replaced or explicitly removed.
 // `errors` are shown on top; `nearbySsids` feeds the WiFi name suggestions.
+// `revertedFrom` (if any) names a newly saved WiFi that didn't connect, so
+// the device went back to the current one -- the page says so. Both end
+// with a button that erases everything (POST /reset, confirm=yes).
 std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
-                           std::span<const std::string> errors);
+                           std::span<const std::string> errors, std::string_view revertedFrom = {});
 std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
-                       std::span<const std::string> errors);
+                       std::span<const std::string> errors, std::string_view revertedFrom = {});
 
 // Shown after a successful save, just before the device restarts.
 std::string renderSaved();
+// Shown after everything was erased, just before the device restarts.
+std::string renderErased();
+// Whether a POST /reset body confirms it (the button's hidden field).
+bool confirmsReset(std::string_view body);
 
 // The privacy-mode photos page (static; its script loads the list from
 // /photos/list and does all the image processing).

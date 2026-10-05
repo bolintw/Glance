@@ -69,9 +69,19 @@ esp_err_t WifiManager::connect(const std::string& ssid, const std::string& passw
                   password.c_str());
     wifiConfig.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifiConfig));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    xEventGroupClearBits(events_, kConnectedBit | kFailBit);
+    if (started_) {
+        esp_wifi_disconnect();  // a no-op once the last attempt gave up
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifiConfig));
+        retryCount_ = 0;
+        ESP_ERROR_CHECK(esp_wifi_connect());
+    } else {
+        retryCount_ = 0;
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifiConfig));
+        ESP_ERROR_CHECK(esp_wifi_start());  // connects on WIFI_EVENT_STA_START
+        started_ = true;
+    }
 
     EventBits_t bits = xEventGroupWaitBits(events_, kConnectedBit | kFailBit, pdFALSE, pdFALSE,
                                             pdMS_TO_TICKS(timeoutMs));

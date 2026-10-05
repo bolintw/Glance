@@ -5,7 +5,7 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or lan, notice, joined, intruder, privacy[1], gray[1]
+//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, intruder, privacy[1], gray[1], offline
 //
 // produces build/preview.png.
 
@@ -65,6 +65,9 @@ int main(int argc, char** argv) {
     if (screen == "setup") {
         setup_view::render(canvas, setup_page::wifiQrPayload("Glance-AB12", "k7m2qx9p"), "Glance-AB12", "k7m2qx9p",
                            "http://192.168.4.1");
+    } else if (screen == "offline") {  // no WiFi: no weather, the status icon
+        calendar_view::renderPrivate(canvas, now, kTaipei, std::nullopt, photos::kBuiltIn[0], true);
+        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
     } else if (screen.starts_with("privacy") || screen.starts_with("gray")) {
         size_t index = screen.ends_with("1") ? 1 : 0;
         calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index]);
@@ -79,9 +82,6 @@ int main(int argc, char** argv) {
     } else if (screen == "intruder") {
         const std::string_view lines[] = {"已關閉熱點", "請長按按鈕重新設定"};
         setup_view::renderNotice(canvas, "偵測到第二台裝置連線", lines);
-    } else if (screen == "notice") {
-        const std::string_view lines[] = {"每小時會自動重試", "長按按鈕可以重新設定"};
-        setup_view::renderNotice(canvas, "WiFi 連線失敗", lines);
     } else {
         calendar_view::render(canvas, now, kTaipei, events, forecast);
     }

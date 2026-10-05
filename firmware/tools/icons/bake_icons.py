@@ -28,6 +28,7 @@ ICONS = [
     ("windy.png", 0xE003, "kWindy"),
     ("rainy.png", 0xE004, "kRainy"),
     ("raindrop.png", 0xE005, "kRaindrop"),
+    ("wifi_off.png", 0xE006, "kWifiOff"),  # drawn by draw_status_icons.py
 ]
 
 
@@ -99,8 +100,9 @@ def main():
         "",
         '#include "font.hpp"',
         "",
-        "// Weather icons as glyphs. Draw one with drawText; the pen position is",
-        "// the icon box's bottom-left corner (weather icons share a 101x80 box).",
+        "// Weather and status icons as glyphs. Draw one with drawText; the pen",
+        "// position is the icon box's bottom-left corner (weather icons share a",
+        "// 101x80 box, status icons a 24x24 one).",
         "extern const Font kWeatherIcons;",
         "",
         "namespace icons {",

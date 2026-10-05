@@ -159,6 +159,20 @@ void testValidation() {
     CHECK(hasError(setup_page::applyForm(configured(), "ics1_remove=on&ics3_remove=on"), "至少"));
 }
 
+void testRevertNoticeAndReset() {
+    std::string home = setup_page::renderForm(configured(), {}, {}, "Cafe <5G>");
+    CHECK(contains(home, "上次改的「Cafe &lt;5G&gt;」連不上，已改回「Home &quot;5G&quot; &lt;net&gt;」"));
+    CHECK(contains(setup_page::renderWifiForm(configured(), {}, {}, "Cafe"), "上次改的「Cafe」"));
+    CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "上次改的"));
+    for (const std::string& page : {home, setup_page::renderWifiForm(configured(), {}, {})}) {
+        CHECK(contains(page, "action=\"/reset\""));
+        CHECK(contains(page, "name=\"confirm\" value=\"yes\""));
+    }
+    CHECK(setup_page::confirmsReset("confirm=yes"));
+    CHECK(!setup_page::confirmsReset(""));
+    CHECK(!setup_page::confirmsReset("confirm=no"));
+}
+
 void testWifiQrPayload() {
     CHECK(setup_page::wifiQrPayload("Glance-AB12", "abcd2345") == "WIFI:T:WPA;S:Glance-AB12;P:abcd2345;;");
     // Every special character gets a backslash; the password here is p:q\"
@@ -194,6 +208,7 @@ int main() {
     testHtmlEscape();
     testFormsNeverLeakSecrets();
     testBlankSecretsAreKept();
+    testRevertNoticeAndReset();
     testWifiStepKeepsToWifi();
     testHomeFormChangesWifi();
     testNewNetworkDropsOldPassword();

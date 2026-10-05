@@ -45,6 +45,10 @@ constexpr int kWeatherTextBaseline = 127;
 constexpr int kTemperatureCenter = 668;
 constexpr int kRainChanceX = 735;
 
+// Status icons (24x24), top right: right-aligned with the weather text and
+// above the weather icon, which starts at y=37.
+constexpr int kStatusIconRight = 777, kStatusIconBaseline = 32, kStatusIconSize = 24;
+
 constexpr int kBoxX = 32, kBoxY = 160, kBoxWidth = 738, kBoxHeight = 288, kBoxRadius = 15;
 constexpr int kColumnDividerX = 401;
 constexpr int kColumnTextX[] = {55, 420};
@@ -165,13 +169,17 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 }
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo) {
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, bool offline) {
     canvas.fill(kBackground);
     if (now) {
         drawHeader(canvas, localDate(*now, utcOffset));
     }
     if (forecast) {
         drawWeather(canvas, *forecast);
+    }
+    if (offline) {
+        drawOnBaseline(canvas, kStatusIconRight - kStatusIconSize, kStatusIconBaseline, icons::kWifiOff,
+                       kWeatherIcons);
     }
     drawBox(canvas);
     canvas.drawBitmap(kPhotoX, kPhotoY, photo);

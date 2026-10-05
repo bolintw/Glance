@@ -63,21 +63,24 @@ constexpr gpio_num_t kPeripheralRailPin = GPIO_NUM_14;
 // Setup mode gives up (and goes back to the calendar) after this long
 // without anyone loading its page.
 constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
-// Consecutive WiFi failures (an hour apart) before the screen says so. A
-// router rebooting at 07:00 shouldn't wipe the calendar off the screen.
-constexpr uint8_t kWifiFailuresBeforeNotice = 3;
+// Consecutive failures to get online (an hour apart) before the calendar
+// gives way to the offline screen. A router rebooting at 07:00 shouldn't
+// wipe the calendar off the screen.
+constexpr uint8_t kOfflineRunsBeforeScreen = 3;
 
 // What one boot tells the next. Kept in RTC memory, which survives restarts
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E32;  // "GLN2" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E33;  // "GLN3" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
     bool wifiFailed;        // ...because the saved WiFi didn't connect (say so on the form)
     bool justConfigured;    // setup mode just saved; report WiFi trouble at once
-    uint8_t wifiFailures;
+    bool pressed;           // a short press asked for this run: the screen has to change
+    bool offlineShown;      // the panel shows the offline icon: short presses don't switch modes
+    uint8_t wifiFailures;   // runs in a row that couldn't get online
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
 };
 RTC_NOINIT_ATTR BootState gBoot;
@@ -102,27 +105,45 @@ void statusLedOn() {
     gpio_set_level(kStatusLedPin, 0);  // active low
 }
 
+// End of a run: the rail and the LED off, whether or not the panel was drawn
+// (show() cuts the rail itself, but a run that never got to draw left the
+// LED lit by the press that started it).
+void peripheralsOff() {
+    gpio_set_direction(kStatusLedPin, GPIO_MODE_OUTPUT);
+    gpio_set_level(kStatusLedPin, 0);  // parked low: nothing to feed back into the unpowered rail
+    gpio_set_direction(kPeripheralRailPin, GPIO_MODE_OUTPUT);
+    gpio_set_level(kPeripheralRailPin, 0);
+}
+
 // What a press does (from the button, or a serial command in development):
 //   short: toggle privacy mode and redraw at once (cutting short any
 //          refresh in progress: a guest at the door shouldn't wait for it)
+//          -- except while the panel shows the offline icon: there's no
+//          calendar to switch to, so it's ignored (no blink either: asleep,
+//          as the device mostly will be, it couldn't blink anyway)
 //   long:  setup mode
 //   in setup mode, any press leaves it
 // `waitForRelease` runs once a long press has lit the LED: setup mode starts
 // when the button is let go.
-[[noreturn]] void actOnPress(bool isLong, const std::function<void()>& waitForRelease) {
+void actOnPress(bool isLong, const std::function<void()>& waitForRelease) {
     ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
     if (gPhase == Phase::setup) {
         restartInto(false);
+    }
+    if (!isLong && gBoot.offlineShown) {
+        ESP_LOGI(kTag, "offline: short press ignored");
+        return;
     }
     statusLedOn();
     if (isLong) {
         waitForRelease();
         restartInto(true);
     }
+    vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
     bool privacy = !settings::loadPrivacyMode();
     settings::savePrivacyMode(privacy);
     ESP_LOGI(kTag, "privacy mode %s", privacy ? "on" : "off");
-    vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
+    gBoot.pressed = true;
     restartInto(false);
 }
 
@@ -405,6 +426,10 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
             case setup_mode::Event::idle:
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
                 restartInto(false);
+            case setup_mode::Event::erased:
+                ESP_LOGW(kTag, "everything erased, starting over");
+                gBoot.magic = 0;  // forget this boot state too
+                esp_restart();
             case setup_mode::Event::joined: {
                 // The phone is in: take the QR code (and the access point's
                 // password) off the screen so nobody else can use them.
@@ -462,6 +487,7 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
         gBoot.wifiFailed = true;
         restartInto(true);
     }
+    settings::rememberWorkingWifi({current.wifiSsid, current.wifiPassword});
     setup_mode::HomeNetwork home;
     if (setup_mode::startHome(current, home) != ESP_OK) {
         restartInto(false);
@@ -483,13 +509,65 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
     runHomeSetup(current);
 }
 
-// Called after a WiFi failure: says so on the panel right after setup (most
-// likely a mistyped password) or once failures keep piling up.
-void reportWifiFailure() {
+// Connects to the saved WiFi and remembers it as working. Right after setup
+// saved a network that doesn't connect, falls back to the last one that did
+// and makes that the saved one again (`settings` follows); the setup page
+// tells the user next time.
+esp_err_t joinWifi(WifiManager& wifi, Settings& settings) {
+    esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
+    if (err == ESP_OK) {
+        settings::rememberWorkingWifi({settings.wifiSsid, settings.wifiPassword});
+        return ESP_OK;
+    }
+    auto working = settings::loadWorkingWifi();
+    if (!gBoot.justConfigured || !working ||
+        (working->ssid == settings.wifiSsid && working->password == settings.wifiPassword)) {
+        return err;
+    }
+    ESP_LOGW(kTag, "the new WiFi didn't connect, trying the last one that worked");
+    if (wifi.connect(working->ssid, working->password, kWifiConnectTimeoutMs) != ESP_OK) {
+        return err;
+    }
+    ESP_LOGW(kTag, "back on the WiFi that worked");
+    settings::revertWifi(settings.wifiSsid, *working);
+    settings.wifiSsid = working->ssid;
+    settings.wifiPassword = working->password;
+    return ESP_OK;
+}
+
+// Privacy mode's layout without weather, plus the crossed-out WiFi icon:
+// what the panel shows when the device can't get online. The date only if
+// the clock survived (a restart keeps it, power loss doesn't).
+void showOffline() {
+    std::optional<int64_t> now;
+    if (time_sync::clockIsPlausible()) {
+        now = time(nullptr);
+    }
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    PrivacyPhoto photo = pickPhoto();
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, std::nullopt, photo.mono, true);
+#if CONFIG_GLANCE_PHOTO_4GRAY
+    GrayOverlay overlay = calendar_view::photoOverlay(photo.gray);
+    const GrayOverlay* gray = &overlay;
+#else
+    const GrayOverlay* gray = nullptr;
+#endif
+    ESP_LOGI(kTag, "showing the offline screen");
+    if (show(framebuffer, gray)) {
+        gBoot.offlineShown = true;
+    }
+}
+
+// The calendar couldn't get online. Leaves the last calendar up unless
+// that would hide a problem the user needs to see: right after setup (most
+// likely a mistyped password), after a press (it has to change something),
+// or once the failures pile up.
+void reportOffline() {
     gBoot.wifiFailures++;
-    if (gBoot.justConfigured || gBoot.wifiFailures == kWifiFailuresBeforeNotice) {
-        const std::string_view lines[] = {"每小時會自動重試", "長按按鈕可以重新設定"};
-        showNotice("WiFi 連線失敗", lines);
+    bool due = gBoot.justConfigured || gBoot.pressed || gBoot.wifiFailures >= kOfflineRunsBeforeScreen;
+    if (due && !gBoot.offlineShown) {
+        showOffline();
     }
 }
 
@@ -505,17 +583,17 @@ void installUpdateIfAny() {
 // all. Unlike the calendar it always redraws, even without WiFi or a synced
 // clock -- the point is that the events come off the screen. True if it
 // got everything; false means retry later for the date and weather.
-bool refreshPrivate(const Settings& settings) {
+bool refreshPrivate(Settings& settings) {
     std::optional<weather::Forecast> forecast;
     bool online = false;
     {
         WifiManager wifi;
-        esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
+        esp_err_t err = joinWifi(wifi, settings);
         if (err == ESP_OK) {
-            gBoot.wifiFailures = 0;
             err = time_sync::sync(kNtpSyncTimeoutMs);
             online = err == ESP_OK;
         }
+        gBoot.wifiFailures = online ? 0 : gBoot.wifiFailures + 1;
         if (online) {
             forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
         } else {
@@ -530,7 +608,7 @@ bool refreshPrivate(const Settings& settings) {
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
     PrivacyPhoto photo = pickPhoto();
-    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photo.mono);
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photo.mono, !online);
 #if CONFIG_GLANCE_PHOTO_4GRAY
     GrayOverlay overlay = calendar_view::photoOverlay(photo.gray);
     const GrayOverlay* gray = &overlay;
@@ -542,6 +620,7 @@ bool refreshPrivate(const Settings& settings) {
         ESP_LOGE(kTag, "panel did not respond");
         return false;
     }
+    gBoot.offlineShown = !online;
     if (online) {
         installUpdateIfAny();
     }
@@ -554,21 +633,23 @@ bool refreshPrivate(const Settings& settings) {
 // empty list. Weather is the exception -- without it the calendar is still
 // worth showing, just with the weather spot left blank. True once the new
 // calendar is on the panel.
-bool refresh(const Settings& settings) {
+bool refresh(Settings& settings) {
     WifiManager wifi;
-    esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
+    esp_err_t err = joinWifi(wifi, settings);
     if (err != ESP_OK) {
-        ESP_LOGE(kTag, "WiFi failed (%s), leaving the screen as is", esp_err_to_name(err));
-        reportWifiFailure();
+        ESP_LOGE(kTag, "WiFi failed (%s)", esp_err_to_name(err));
+        reportOffline();
+        return false;
+    }
+    // TLS certificate checks and "today" both need a real clock. Without it
+    // there's no internet to speak of: that's offline too.
+    err = time_sync::sync(kNtpSyncTimeoutMs);
+    if (err != ESP_OK) {
+        ESP_LOGE(kTag, "NTP sync failed (%s)", esp_err_to_name(err));
+        reportOffline();
         return false;
     }
     gBoot.wifiFailures = 0;
-    // TLS certificate checks and "today" both need a real clock.
-    err = time_sync::sync(kNtpSyncTimeoutMs);
-    if (err != ESP_OK) {
-        ESP_LOGE(kTag, "NTP sync failed (%s), leaving the screen as is", esp_err_to_name(err));
-        return false;
-    }
     auto events = fetchUpcomingEvents(settings);
     if (!events) {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
@@ -585,6 +666,7 @@ bool refresh(const Settings& settings) {
         return false;
     }
     ESP_LOGI(kTag, "calendar shown");
+    gBoot.offlineShown = false;
     installUpdateIfAny();
     return true;
 }
@@ -604,6 +686,8 @@ extern "C" void app_main(void)
                  .accessPointSetup = false,
                  .wifiFailed = false,
                  .justConfigured = false,
+                 .pressed = false,
+                 .offlineShown = false,
                  .wifiFailures = 0,
                  .lastPhoto = UINT8_MAX};
     }
@@ -624,6 +708,8 @@ extern "C" void app_main(void)
 
     bool refreshed = settings::loadPrivacyMode() ? refreshPrivate(settings) : refresh(settings);
     gBoot.justConfigured = false;
+    gBoot.pressed = false;
+    peripheralsOff();
     // Got through a whole run without crashing: a fresh update has proven
     // itself even if the network was down.
     ota_update::markRunningAppValid();
