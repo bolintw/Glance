@@ -40,9 +40,11 @@ button{padding:.6rem;font-size:1rem}
 <h2>新增照片</h2>
 <input type="file" id="file" accept="image/*">
 <div id="editor">
-  <p class="note">拖曳預覽來移動照片，預覽就是電子紙上的樣子。</p>
+  <p class="note">拖曳預覽來移動照片，預覽就是電子紙上的樣子。縮小可以放進整張照片，空出來的地方填白色或黑色。</p>
   <canvas id="preview"></canvas>
   <label>縮放</label><input type="range" id="zoom" min="1" max="3" step="0.01" value="1">
+  <label>空白處</label>
+  <select id="background"><option value="255">白色</option><option value="0">黑色</option></select>
   <label>亮度</label><input type="range" id="brightness" min="-80" max="80" step="1" value="0">
   <label>對比</label><input type="range" id="contrast" min="-50" max="80" step="1" value="0">
   <label>點陣方式</label>
@@ -90,6 +92,7 @@ function pack(levels, w, h, bits) {
 // --- dither end ---
 
 let W = 0, H = 0, source = null, offsetX = 0, offsetY = 0, lastCover = 0, pending = false, generation = 0;
+let photoRect = null;  // where the photo landed in the frame, in whole pixels
 const $ = id => document.getElementById(id);
 const preview = $('preview');
 
@@ -148,8 +151,14 @@ async function refresh() {
   }
 }
 
-// The photo cropped to the frame, as 0-255 gray with the tone sliders
-// applied (autocontrast first, like the built-in photos).
+function inPhoto(i) {
+  const x = i % W, y = Math.floor(i / W);
+  return x >= photoRect.x0 && x < photoRect.x1 && y >= photoRect.y0 && y < photoRect.y1;
+}
+
+// The photo placed in the frame, as 0-255 gray with the tone sliders
+// applied (autocontrast first, like the built-in photos). Zoomed out below
+// the frame, the rest is the background colour, left out of the tone work.
 function sourceGray() {
   const work = document.createElement('canvas');
   work.width = W; work.height = H;
@@ -161,17 +170,24 @@ function sourceGray() {
   }
   lastCover = cover;
   const dw = source.width * cover, dh = source.height * cover;
-  offsetX = Math.min(0, Math.max(W - dw, offsetX));
-  offsetY = Math.min(0, Math.max(H - dh, offsetY));
+  // Larger than the frame: no gaps at the edges. Smaller: stays inside it.
+  offsetX = Math.min(Math.max(0, W - dw), Math.max(Math.min(0, W - dw), offsetX));
+  offsetY = Math.min(Math.max(0, H - dh), Math.max(Math.min(0, H - dh), offsetY));
+  const background = Number($('background').value);
+  ctx.fillStyle = background ? '#fff' : '#000';
+  ctx.fillRect(0, 0, W, H);
   ctx.drawImage(source, offsetX, offsetY, dw, dh);
+  photoRect = {x0: Math.max(0, Math.round(offsetX)), y0: Math.max(0, Math.round(offsetY)),
+               x1: Math.min(W, Math.round(offsetX + dw)), y1: Math.min(H, Math.round(offsetY + dh))};
   const rgba = ctx.getImageData(0, 0, W, H).data;
   const gray = new Float64Array(W * H);
   const histogram = new Array(256).fill(0);
+  let photoPixels = 0;
   for (let i = 0; i < W * H; i++) {
     gray[i] = 0.299 * rgba[4 * i] + 0.587 * rgba[4 * i + 1] + 0.114 * rgba[4 * i + 2];
-    histogram[Math.round(gray[i])]++;
+    if (inPhoto(i)) { histogram[Math.round(gray[i])]++; photoPixels++; }
   }
-  const cut = W * H * 0.01;
+  const cut = photoPixels * 0.01;
   let lo = 0, hi = 255, seen = 0;
   while (lo < 255 && (seen += histogram[lo]) <= cut) lo++;
   seen = 0;
@@ -179,16 +195,26 @@ function sourceGray() {
   const span = Math.max(1, hi - lo);
   const contrast = 1 + Number($('contrast').value) / 100, brightness = Number($('brightness').value);
   for (let i = 0; i < gray.length; i++) {
+    if (!inPhoto(i)) { gray[i] = background; continue; }
     const stretched = (gray[i] - lo) * 255 / span;
     gray[i] = Math.min(255, Math.max(0, (stretched - 128) * contrast + 128 + brightness));
   }
   return gray;
 }
 
+// Dithered levels with the background kept clean: error diffusion would
+// otherwise scatter dots from the photo's edge into it.
+function ditherPhoto(gray, levels, method) {
+  const out = dither(gray, W, H, levels, method);
+  const fill = Number($('background').value) ? levels - 1 : 0;
+  for (let i = 0; i < out.length; i++) if (!inPhoto(i)) out[i] = fill;
+  return out;
+}
+
 function render() {
   pending = false;
   if (!source) return;
-  drawLevels(preview, dither(sourceGray(), W, H, 4, $('method').value), W, H, 4);
+  drawLevels(preview, ditherPhoto(sourceGray(), 4, $('method').value), W, H, 4);
 }
 function schedule() { if (!pending) { pending = true; requestAnimationFrame(render); } }
 
@@ -198,16 +224,18 @@ $('file').onchange = () => {
   const img = new Image();
   img.onload = () => {
     source = img;
+    // All the way out, the whole photo fits in the frame.
+    $('zoom').min = (Math.min(W / img.width, H / img.height) / Math.max(W / img.width, H / img.height)).toFixed(3);
     $('zoom').value = 1;
-    lastCover = 0;
     const cover = Math.max(W / img.width, H / img.height);  // start centred
+    lastCover = cover;
     offsetX = (W - img.width * cover) / 2; offsetY = (H - img.height * cover) / 2;
     $('editor').style.display = 'block';
     schedule();
   };
   img.src = URL.createObjectURL(file);
 };
-for (const id of ['zoom', 'brightness', 'contrast', 'method']) $(id).oninput = schedule;
+for (const id of ['zoom', 'background', 'brightness', 'contrast', 'method']) $(id).oninput = schedule;
 
 let drag = null;
 preview.onpointerdown = e => { drag = {x: e.clientX, y: e.clientY}; preview.setPointerCapture(e.pointerId); };
@@ -222,7 +250,7 @@ preview.onpointerup = preview.onpointercancel = () => { drag = null; };
 
 $('upload').onclick = async () => {
   const gray = sourceGray(), method = $('method').value;
-  const body = new Blob([pack(dither(gray, W, H, 2, method), W, H, 1), pack(dither(gray, W, H, 4, method), W, H, 2)]);
+  const body = new Blob([pack(ditherPhoto(gray, 2, method), W, H, 1), pack(ditherPhoto(gray, 4, method), W, H, 2)]);
   $('upload').disabled = true;
   status('上傳中…');
   const response = await fetch('/photos/add', {method: 'POST', body});
