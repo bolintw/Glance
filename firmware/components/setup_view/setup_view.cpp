@@ -44,20 +44,27 @@ void drawQr(Canvas& canvas, std::string_view payload) {
     }
 }
 
+// A QR code on the left, lines of text beside it.
+void renderWithQr(Canvas& canvas, std::string_view qrPayload, std::span<const std::string> lines) {
+    canvas.fill(kBackground);
+    drawQr(canvas, qrPayload);
+    int y = (static_cast<int>(canvas.frame().height) - static_cast<int>(lines.size()) * kLinePitch) / 2;
+    for (const std::string& line : lines) {
+        canvas.drawText(kTextX, y, line, kNotoSansTcBold30, kInk);
+        y += kLinePitch;
+    }
+}
+
 }  // namespace
 
 void render(Canvas& canvas, std::string_view qrPayload, std::string_view ssid, std::string_view password,
             std::string_view url) {
-    canvas.fill(kBackground);
-    drawQr(canvas, qrPayload);
-
-    const Font& font = kNotoSansTcBold30;
     const std::string lines[] = {
-        "設定模式",
+        "設定 WiFi",
         "",
-        "1. 先複製好 ICS 網址",
-        "2. 相機掃描 QR code",
-        "3. 稍等設定頁跳出",
+        "1. 相機掃描 QR code",
+        "2. 稍等設定頁跳出",
+        "3. 選擇家裡的 WiFi",
         "",
         "沒有跳出來的話請開啟",
         std::string(url),
@@ -65,11 +72,21 @@ void render(Canvas& canvas, std::string_view qrPayload, std::string_view ssid, s
         "網路：" + std::string(ssid),
         "密碼：" + std::string(password),
     };
-    int y = (static_cast<int>(canvas.frame().height) - static_cast<int>(std::size(lines)) * kLinePitch) / 2;
-    for (const std::string& line : lines) {
-        canvas.drawText(kTextX, y, line, font, kInk);
-        y += kLinePitch;
-    }
+    renderWithQr(canvas, qrPayload, lines);
+}
+
+void renderLan(Canvas& canvas, std::string_view qrPayload) {
+    const std::string lines[] = {
+        "設定行事曆與天氣",
+        "",
+        "1. 手機連家裡的 WiFi",
+        "2. 相機掃描 QR code",
+        "3. 在頁面上填寫",
+        "",
+        "網址含一次性驗證碼",
+        "請用 QR code 開啟",
+    };
+    renderWithQr(canvas, qrPayload, lines);
 }
 
 void renderNotice(Canvas& canvas, std::string_view title, std::span<const std::string_view> lines) {

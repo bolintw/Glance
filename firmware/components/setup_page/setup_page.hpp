@@ -17,12 +17,18 @@ namespace setup_page {
 // CWA's names for the counties and cities its forecast covers.
 extern const std::span<const char* const> kCounties;
 
-// The form, pre-filled with `current`. Secrets (WiFi password, calendar
-// URLs, API key) are never sent back to the browser -- a set one shows as
-// "已設定" and is kept unless replaced or explicitly removed.
-// `nearbySsids` feeds the WiFi name suggestions; `errors` are shown on top.
-std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
-                       std::span<const std::string> errors);
+// Setup happens in two steps, so the phone has internet while it matters:
+// on the access point only WiFi is set (renderWifiForm/applyWifiForm);
+// calendars, weather and photos come after, from the home network
+// (renderForm/applyForm), where the phone can still look up the URLs.
+//
+// Both forms come pre-filled with `current`. Secrets (WiFi password,
+// calendar URLs, API key) are never sent back to the browser -- a set one
+// shows as "已設定" and is kept unless replaced or explicitly removed.
+// `errors` are shown on top; `nearbySsids` feeds the WiFi name suggestions.
+std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
+                           std::span<const std::string> errors);
+std::string renderForm(const Settings& current, std::span<const std::string> errors);
 
 // Shown after a successful save, just before the device restarts.
 std::string renderSaved();
@@ -38,8 +44,9 @@ struct FormResult {
     std::vector<std::string> errors;  // empty = valid, safe to save
 };
 
-// Applies an application/x-www-form-urlencoded submission of renderForm's
-// form on top of `current`.
+// Apply an application/x-www-form-urlencoded submission of the matching
+// form on top of `current`; fields the form doesn't have stay as they are.
+FormResult applyWifiForm(const Settings& current, std::string_view body);
 FormResult applyForm(const Settings& current, std::string_view body);
 
 // The standard WiFi QR code payload ("WIFI:T:WPA;S:...;P:...;;") that phone

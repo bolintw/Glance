@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <unistd.h>
 #include <string>
@@ -70,10 +71,12 @@ constexpr uint8_t kWifiFailuresBeforeNotice = 3;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E43;  // "GLNC"
+    static constexpr uint32_t kMagic = 0x474C4E32;  // "GLN2" (bump when the layout changes)
     uint32_t magic;
-    bool enterSetup;      // a long press asked for setup mode
-    bool justConfigured;  // setup mode just saved; report WiFi trouble at once
+    bool enterSetup;        // a long press asked for setup mode
+    bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
+    bool wifiFailed;        // ...because the saved WiFi didn't connect (say so on the form)
+    bool justConfigured;    // setup mode just saved; report WiFi trouble at once
     uint8_t wifiFailures;
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
 };
@@ -384,21 +387,10 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
     show(framebuffer);
 }
 
-// Setup mode: access point + setup page, QR code on the panel. Ends in a
-// restart either way -- after a save, or when nobody used it -- so the next
-// boot starts clean and draws the calendar.
-[[noreturn]] void runSetupMode(const Settings& current) {
-    ESP_LOGI(kTag, "entering setup mode");
-    setup_mode::AccessPoint ap;
-    if (setup_mode::start(current, ap) != ESP_OK) {
-        restartInto(false);
-    }
-    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
-    Canvas canvas(framebuffer, kPanelSize);
-    setup_view::render(canvas, ap.qrPayload, ap.ssid, ap.password, ap.url);
-    show(framebuffer);
+// Either setup step's events, until it ends in a restart -- after a save,
+// or when nobody used it -- so the next boot starts clean.
+[[noreturn]] void runSetupEvents(bool onAccessPoint, const std::string& accessPointUrl) {
     gPhase = Phase::setup;
-
     while (true) {
         switch (setup_mode::waitForEvent(kSetupIdleTimeoutMs)) {
             case setup_mode::Event::saved:
@@ -409,23 +401,81 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
                 restartInto(false);
             case setup_mode::Event::joined: {
-                // The phone is in: take the QR code and password off the
-                // screen so nobody else can read them.
-                const std::string url = "沒有跳出來的話請開啟 " + ap.url;
-                const std::string_view lines[] = {"請在手機上完成設定", url};
-                showNotice("手機已連上", lines);
+                // The phone is in: take the QR code (and the access point's
+                // password) off the screen so nobody else can use them.
+                const std::string fallback = "沒有跳出來的話請開啟 " + accessPointUrl;
+                if (onAccessPoint) {
+                    const std::string_view lines[] = {"請在手機上完成設定", fallback};
+                    showNotice("手機已連上", lines);
+                } else {
+                    const std::string_view lines[] = {"請在手機上完成設定"};
+                    showNotice("手機已連上", lines);
+                }
                 break;
             }
             case setup_mode::Event::intruder: {
-                // A second device has the password: close up. Setting up
-                // again makes a new password.
-                setup_mode::closeAccessPoint();
-                const std::string_view lines[] = {"已關閉熱點", "請長按按鈕重新設定"};
+                // A second device has the secret: close up. Setting up again
+                // makes a new password or token.
+                setup_mode::close();
+                const std::string_view lines[] = {onAccessPoint ? "已關閉熱點" : "已關閉設定頁", "請長按按鈕重新設定"};
                 showNotice("偵測到第二台裝置連線", lines);
                 break;  // stays here until a press, or the idle timeout
             }
         }
     }
+}
+
+// The WiFi step, on the access point: the QR code joins it.
+[[noreturn]] void runAccessPointSetup(const Settings& current) {
+    ESP_LOGI(kTag, "entering setup mode: WiFi step on the access point");
+    std::string error;
+    if (gBoot.wifiFailed) {
+        error = "連不上「" + current.wifiSsid + "」，請確認網路名稱和密碼";
+        gBoot.wifiFailed = false;
+    }
+    setup_mode::AccessPoint ap;
+    if (setup_mode::start(current, ap, error) != ESP_OK) {
+        restartInto(false);
+    }
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    setup_view::render(canvas, ap.qrPayload, ap.ssid, ap.password, ap.url);
+    show(framebuffer);
+    runSetupEvents(true, ap.url);
+}
+
+// Calendars, weather and photos, on the home network: the phone keeps its
+// internet to look up calendar URLs. Falls back to the WiFi step when the
+// saved WiFi doesn't connect.
+[[noreturn]] void runHomeSetup(const Settings& current) {
+    ESP_LOGI(kTag, "entering setup mode on the home network");
+    WifiManager wifi;  // stays up for the session
+    if (wifi.connect(current.wifiSsid, current.wifiPassword, kWifiConnectTimeoutMs) != ESP_OK) {
+        // The access point brings WiFi up its own way, so it needs a fresh boot.
+        ESP_LOGW(kTag, "WiFi didn't connect, going to the WiFi step");
+        gBoot.accessPointSetup = true;
+        gBoot.wifiFailed = true;
+        restartInto(true);
+    }
+    setup_mode::HomeNetwork home;
+    if (setup_mode::startHome(current, home) != ESP_OK) {
+        restartInto(false);
+    }
+    std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, kPanelSize);
+    setup_view::renderLan(canvas, home.qrPayload);
+    show(framebuffer);
+    runSetupEvents(false, {});
+}
+
+// Setup mode: on the home network when there's a WiFi to join, otherwise
+// the WiFi step on the access point first.
+[[noreturn]] void runSetupMode(const Settings& current) {
+    if (gBoot.accessPointSetup || current.wifiSsid.empty()) {
+        gBoot.accessPointSetup = false;
+        runAccessPointSetup(current);
+    }
+    runHomeSetup(current);
 }
 
 // Called after a WiFi failure: says so on the panel right after setup (most
@@ -546,6 +596,8 @@ extern "C" void app_main(void)
     if (gBoot.magic != BootState::kMagic) {
         gBoot = {.magic = BootState::kMagic,
                  .enterSetup = false,
+                 .accessPointSetup = false,
+                 .wifiFailed = false,
                  .justConfigured = false,
                  .wifiFailures = 0,
                  .lastPhoto = UINT8_MAX};
@@ -556,7 +608,11 @@ extern "C" void app_main(void)
     xTaskCreate(serialCommandTask, "serial_cmd", 3072, nullptr, 5, nullptr);
 #endif
     Settings settings = settings::load();
-    if (gBoot.enterSetup || settings.wifiSsid.empty()) {
+    // Setup mode on a long press or with no WiFi saved -- and right after the
+    // WiFi step while there are no calendars yet: a first setup goes on to
+    // the home-network step.
+    bool noCalendars = std::ranges::all_of(settings.icsUrls, [](const std::string& url) { return url.empty(); });
+    if (gBoot.enterSetup || settings.wifiSsid.empty() || (gBoot.justConfigured && noCalendars)) {
         gBoot.enterSetup = false;
         runSetupMode(settings);
     }

@@ -52,15 +52,20 @@ void testUrlDecode() {
 
 void testHtmlEscape() { CHECK(setup_page::htmlEscape("<a href=\"x\">&'") == "&lt;a href=&quot;x&quot;&gt;&amp;&#39;"); }
 
-void testFormNeverLeaksSecrets() {
+void testFormsNeverLeakSecrets() {
     std::vector<std::string> nearby = {"Neighbor<1>"};
-    std::string html = setup_page::renderForm(configured(), nearby, {});
-    CHECK(!contains(html, "secret-wifi-pass"));
+    std::string wifi = setup_page::renderWifiForm(configured(), nearby, {});
+    CHECK(!contains(wifi, "secret-wifi-pass"));
+    CHECK(contains(wifi, "value=\"Home &quot;5G&quot; &lt;net&gt;\""));  // SSID is shown, escaped
+    CHECK(contains(wifi, "<option value=\"Neighbor&lt;1&gt;\">"));
+    CHECK(contains(wifi, "已設定"));
+    CHECK(!contains(wifi, "ics1"));  // the WiFi step is only WiFi
+
+    std::string html = setup_page::renderForm(configured(), {});
     CHECK(!contains(html, "SECRET1"));
     CHECK(!contains(html, "SECRET3"));
     CHECK(!contains(html, "CWA-SECRET-KEY"));
-    CHECK(contains(html, "value=\"Home &quot;5G&quot; &lt;net&gt;\""));  // SSID is shown, escaped
-    CHECK(contains(html, "<option value=\"Neighbor&lt;1&gt;\">"));
+    CHECK(!contains(html, "name=\"ssid\""));  // and the home-network step has no WiFi
     CHECK(contains(html, "<option selected>新竹縣</option>"));
     CHECK(contains(html, "name=\"ics1_remove\""));   // set slots can be removed
     CHECK(!contains(html, "name=\"ics2_remove\""));  // empty ones can't
@@ -68,29 +73,43 @@ void testFormNeverLeaksSecrets() {
     CHECK(contains(html, "已設定"));
 
     std::vector<std::string> errors = {"bad <thing>"};
-    CHECK(contains(setup_page::renderForm(Settings{}, {}, errors), "bad &lt;thing&gt;"));
+    CHECK(contains(setup_page::renderForm(Settings{}, errors), "bad &lt;thing&gt;"));
+    CHECK(contains(setup_page::renderWifiForm(Settings{}, {}, errors), "bad &lt;thing&gt;"));
 }
 
 void testBlankSecretsAreKept() {
-    auto r = setup_page::applyForm(configured(),
-                                   "ssid=Home+%225G%22+%3Cnet%3E&wifi_pass=&ics1=&ics2=&ics3=&ics4=&ics5="
-                                   "&location=%E6%96%B0%E7%AB%B9%E7%B8%A3&cwa_key=");
+    auto w = setup_page::applyWifiForm(configured(), "ssid=Home+%225G%22+%3Cnet%3E&wifi_pass=");
+    CHECK(w.errors.empty());
+    CHECK(w.settings.wifiPassword == "secret-wifi-pass");
+    auto r = setup_page::applyForm(configured(), "ics1=&ics2=&ics3=&ics4=&ics5=&location=%E6%96%B0%E7%AB%B9%E7%B8%A3&cwa_key=");
     CHECK(r.errors.empty());
-    CHECK(r.settings.wifiPassword == "secret-wifi-pass");
     CHECK(r.settings.icsUrls[0] == configured().icsUrls[0]);
     CHECK(r.settings.icsUrls[2] == configured().icsUrls[2]);
     CHECK(r.settings.cwaApiKey == "CWA-SECRET-KEY");
     CHECK(r.settings.weatherLocation == "新竹縣");
 }
 
+void testEachFormKeepsToItsFields() {
+    // Even if a request carries the other form's fields, they're ignored.
+    auto w = setup_page::applyWifiForm(configured(), "ssid=Office&ics1=https%3A%2F%2Fevil.example%2F&cwa_key=X");
+    CHECK(w.settings.icsUrls[0] == configured().icsUrls[0]);
+    CHECK(w.settings.cwaApiKey == "CWA-SECRET-KEY");
+    auto r = setup_page::applyForm(configured(), "ssid=Evil&wifi_pass=evilevil&ics1=");
+    CHECK(r.settings.wifiSsid == configured().wifiSsid);
+    CHECK(r.settings.wifiPassword == "secret-wifi-pass");
+}
+
 void testReplaceAndRemove() {
+    auto w = setup_page::applyWifiForm(configured(), "ssid=+Office+&wifi_pass=new+pass+");
+    CHECK(w.errors.empty());
+    CHECK(w.settings.wifiSsid == "Office");         // trimmed
+    CHECK(w.settings.wifiPassword == "new pass ");  // passwords kept as typed
+
     auto r = setup_page::applyForm(configured(),
-                                   "ssid=+Office+&wifi_pass=new+pass+&ics1=+webcal%3A%2F%2Fexample.com%2Fa.ics+"
+                                   "ics1=+webcal%3A%2F%2Fexample.com%2Fa.ics+"
                                    "&ics2=https%3A%2F%2Fexample.com%2Fb.ics&ics3=&ics3_remove=on"
                                    "&location=&cwa_key=&cwa_key_remove=on");
     CHECK(r.errors.empty());
-    CHECK(r.settings.wifiSsid == "Office");             // trimmed
-    CHECK(r.settings.wifiPassword == "new pass ");      // passwords kept as typed
     CHECK(r.settings.icsUrls[0] == "https://example.com/a.ics");  // webcal -> https, trimmed
     CHECK(r.settings.icsUrls[1] == "https://example.com/b.ics");
     CHECK(r.settings.icsUrls[2].empty());               // removed
@@ -98,27 +117,25 @@ void testReplaceAndRemove() {
     CHECK(r.settings.weatherLocation.empty());          // weather off
 
     // A new value wins over a ticked remove box.
-    auto both = setup_page::applyForm(configured(), "ssid=x&ics1=https%3A%2F%2Fnew.example%2F&ics1_remove=on");
+    auto both = setup_page::applyForm(configured(), "ics1=https%3A%2F%2Fnew.example%2F&ics1_remove=on");
     CHECK(both.settings.icsUrls[0] == "https://new.example/");
 }
 
 void testValidation() {
     Settings empty;
-    auto r = setup_page::applyForm(empty, "ssid=&wifi_pass=short&ics1=ftp%3A%2F%2Fx&location=Tokyo");
-    CHECK(hasError(r, "網路名稱"));
-    CHECK(hasError(r, "8 到 63"));
+    auto w = setup_page::applyWifiForm(empty, "ssid=&wifi_pass=short");
+    CHECK(hasError(w, "網路名稱"));
+    CHECK(hasError(w, "8 到 63"));
+    auto open = setup_page::applyWifiForm(empty, "ssid=Home&wifi_pass=");
+    CHECK(open.errors.empty());  // open network: no password is fine, and no calendar needed yet
+    std::string longSsid(33, 'a');
+    CHECK(hasError(setup_page::applyWifiForm(configured(), "ssid=" + longSsid), "太長"));
+
+    auto r = setup_page::applyForm(empty, "ics1=ftp%3A%2F%2Fx&location=Tokyo");
     CHECK(hasError(r, "行事曆 1 不是網址"));
     CHECK(hasError(r, "縣市"));
-
-    auto noCalendar = setup_page::applyForm(empty, "ssid=Home&wifi_pass=");
-    CHECK(hasError(noCalendar, "至少"));
-    CHECK(!hasError(noCalendar, "8 到 63"));  // open network: no password is fine
-
-    auto removeLast = setup_page::applyForm(configured(), "ssid=x&ics1_remove=on&ics3_remove=on");
-    CHECK(hasError(removeLast, "至少"));
-
-    std::string longSsid(33, 'a');
-    CHECK(hasError(setup_page::applyForm(configured(), "ssid=" + longSsid), "太長"));
+    CHECK(hasError(setup_page::applyForm(empty, "ics1="), "至少"));
+    CHECK(hasError(setup_page::applyForm(configured(), "ics1_remove=on&ics3_remove=on"), "至少"));
 }
 
 void testWifiQrPayload() {
@@ -148,14 +165,15 @@ void testPhotosPage() {
     CHECK(contains(page, "fetch('/photos/list')"));
     CHECK(contains(page, "fetch('/photos/add'"));
     CHECK(contains(page, "// --- dither begin ---") && contains(page, "// --- dither end ---"));
-    CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/photos\""));
+    CHECK(contains(setup_page::renderForm(Settings{}, {}), "href=\"/photos\""));
 }
 
 int main() {
     testUrlDecode();
     testHtmlEscape();
-    testFormNeverLeaksSecrets();
+    testFormsNeverLeakSecrets();
     testBlankSecretsAreKept();
+    testEachFormKeepsToItsFields();
     testReplaceAndRemove();
     testValidation();
     testWifiQrPayload();

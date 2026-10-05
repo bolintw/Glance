@@ -1,6 +1,7 @@
 #pragma once
 
 #include <span>
+#include <string>
 #include <string_view>
 
 #include "canvas.hpp"
@@ -9,10 +10,15 @@
 // preview draws exactly what the panel shows.
 namespace setup_view {
 
-// Setup mode: a QR code that joins the setup access point (`qrPayload`, see
-// setup_page::wifiQrPayload), and how to get to the setup page by hand.
+// Setup on the access point (the WiFi step): a QR code that joins it
+// (`qrPayload`, see setup_page::wifiQrPayload), and how to get to the
+// page by hand.
 void render(Canvas& canvas, std::string_view qrPayload, std::string_view ssid, std::string_view password,
             std::string_view url);
+
+// Setup on the home network (calendars, weather, photos): a QR code with
+// the page's URL, one-time token included.
+void renderLan(Canvas& canvas, std::string_view qrPayload);
 
 // A full-screen message, e.g. that WiFi can't connect.
 void renderNotice(Canvas& canvas, std::string_view title, std::span<const std::string_view> lines);

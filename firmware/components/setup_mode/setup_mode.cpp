@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "captive_dns.hpp"
+#include "lan_access.hpp"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -38,11 +39,26 @@ constexpr size_t kMaxFormBytes = 8 * 1024;
 constexpr size_t kMaxPhotoBytes = 128 * 1024;  // one upload is ~75KB
 constexpr int kSavedBit = BIT0;
 constexpr int kJoinedBit = BIT1;    // first station joined: take the QR code down
-constexpr int kIntruderBit = BIT2;  // a second station joined: close the access point
+constexpr int kIntruderBit = BIT2;  // a second device got in: close up
+constexpr const char* kSessionCookie = "glance_session";
+
+constexpr const char* kDeniedPage = R"(<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">
+<title>Glance</title></head><body style="font-family:system-ui,sans-serif;padding:1rem">
+<h1>請掃描裝置上的 QR code</h1><p>設定頁只能從裝置螢幕上的 QR code 開啟。</p></body></html>
+)";
+
+// What this setup session serves (see setup_mode.hpp).
+enum class Mode { accessPoint, home, devLan };
 
 // Shared with the HTTP handlers and the DNS task. One setup session per boot.
+Mode gMode = Mode::accessPoint;
+httpd_handle_t gServer = nullptr;
 Settings gCurrent;
 std::vector<std::string> gNearby;
+std::vector<std::string> gWifiErrors;  // shown on the WiFi form, e.g. that the last network didn't work
+std::optional<LanAccess> gAccess;      // home mode's gate
+std::string gCookieHeader;             // outlives the response it's set on (handlers run one at a time)
 EventGroupHandle_t gEvents = nullptr;
 std::atomic<int64_t> gLastActivityUs{0};
 StationWatch gStations;  // only touched from the event loop task
@@ -67,6 +83,31 @@ void onStationJoined(void*, esp_event_base_t, int32_t, void* data) {
 }
 
 void touch() { gLastActivityUs = esp_timer_get_time(); }
+
+std::string randomHex(size_t bytes) {
+    constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    for (size_t i = 0; i < bytes; i++) {
+        uint32_t r = esp_random();
+        out += kHex[(r >> 4) & 0xF];
+        out += kHex[r & 0xF];
+    }
+    return out;
+}
+
+// The requester's address, as text (any stable form will do for LanAccess).
+std::string clientAddress(httpd_req_t* req) {
+    sockaddr_storage addr = {};
+    socklen_t length = sizeof(addr);
+    char text[64] = "?";
+    if (getpeername(httpd_req_to_sockfd(req), reinterpret_cast<sockaddr*>(&addr), &length) == 0) {
+        const void* raw = addr.ss_family == AF_INET6
+                              ? static_cast<const void*>(&reinterpret_cast<sockaddr_in6*>(&addr)->sin6_addr)
+                              : static_cast<const void*>(&reinterpret_cast<sockaddr_in*>(&addr)->sin_addr);
+        inet_ntop(addr.ss_family, raw, text, sizeof(text));
+    }
+    return text;
+}
 
 std::vector<std::string> scanNearby() {
     std::vector<std::string> names;
@@ -119,10 +160,53 @@ esp_err_t sendHtml(httpd_req_t* req, const std::string& html) {
     return httpd_resp_send(req, html.data(), static_cast<ssize_t>(html.size()));
 }
 
+esp_err_t sendText(httpd_req_t* req, const char* status, const char* type, const std::string& text) {
+    httpd_resp_set_status(req, status);
+    httpd_resp_set_type(req, type);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, text.data(), static_cast<ssize_t>(text.size()));
+}
+
+// Home mode's gate (see LanAccess); the other modes let everyone through.
+// When it returns false the request has been answered already.
+bool authorize(httpd_req_t* req) {
+    if (gMode != Mode::home) {
+        return true;
+    }
+    char cookie[160] = {};
+    httpd_req_get_hdr_value_str(req, "Cookie", cookie, sizeof(cookie));  // stays empty if there's none
+    LanAccess::Result result = gAccess->check(clientAddress(req), queryParam(req->uri, "t"),
+                                              cookieValue(cookie, kSessionCookie), [] { return randomHex(16); });
+    switch (result.verdict) {
+        case LanAccess::Verdict::allow:
+            if (!result.newSession.empty()) {
+                gCookieHeader = std::string(kSessionCookie) + "=" + result.newSession + "; Path=/; HttpOnly; SameSite=Strict";
+                httpd_resp_set_hdr(req, "Set-Cookie", gCookieHeader.c_str());
+            }
+            if (result.firstVisit) {
+                ESP_LOGI(kTag, "setup page opened from %s", clientAddress(req).c_str());
+                xEventGroupSetBits(gEvents, kJoinedBit);
+            }
+            return true;
+        case LanAccess::Verdict::intruder:
+            ESP_LOGW(kTag, "a second device (%s) used the setup secret", clientAddress(req).c_str());
+            xEventGroupSetBits(gEvents, kIntruderBit);
+            break;
+        case LanAccess::Verdict::deny:
+            break;
+    }
+    sendText(req, "403 Forbidden", "text/html; charset=utf-8", kDeniedPage);
+    return false;
+}
+
 esp_err_t handleForm(httpd_req_t* req) {
     touch();
-    ESP_LOGI(kTag, "GET %s", req->uri);
-    return sendHtml(req, setup_page::renderForm(gCurrent, gNearby, {}));
+    ESP_LOGI(kTag, "GET %s", gMode == Mode::home ? "/" : req->uri);  // home mode's URI carries the token
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    return sendHtml(req, gMode == Mode::accessPoint ? setup_page::renderWifiForm(gCurrent, gNearby, gWifiErrors)
+                                                    : setup_page::renderForm(gCurrent, {}));
 }
 
 // The whole request body, or nullopt (after answering) if it's too big or
@@ -154,20 +238,20 @@ int slotFromUri(const char* uri) {
     return std::sscanf(uri, "/photos/%d", &slot) == 1 ? slot : -1;
 }
 
-esp_err_t sendText(httpd_req_t* req, const char* status, const char* type, const std::string& text) {
-    httpd_resp_set_status(req, status);
-    httpd_resp_set_type(req, type);
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, text.data(), static_cast<ssize_t>(text.size()));
-}
 
 esp_err_t handlePhotosPage(httpd_req_t* req) {
     touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
     return sendHtml(req, setup_page::renderPhotosPage());
 }
 
 esp_err_t handlePhotosList(httpd_req_t* req) {
     touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
     std::vector<int> slots = photo_store::list();
     return sendText(req, "200 OK", "application/json",
                     setup_page::photosListJson(slots, photo_store::kMaxPhotos, photos::kWidth, photos::kHeight));
@@ -176,6 +260,9 @@ esp_err_t handlePhotosList(httpd_req_t* req) {
 // GET /photos/<n>: the stored 2bpp image, for the page's thumbnails.
 esp_err_t handlePhotoGet(httpd_req_t* req) {
     touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
     auto photo = photo_store::open(slotFromUri(req->uri));
     if (!photo) {
         return sendText(req, "404 Not Found", "text/plain", "no such photo");
@@ -187,6 +274,9 @@ esp_err_t handlePhotoGet(httpd_req_t* req) {
 
 esp_err_t handlePhotoAdd(httpd_req_t* req) {
     touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
     auto body = readBody<std::vector<uint8_t>>(req, kMaxPhotoBytes);
     if (!body) {
         return ESP_FAIL;
@@ -204,6 +294,9 @@ esp_err_t handlePhotoAdd(httpd_req_t* req) {
 // POST /photos/<n>/delete
 esp_err_t handlePhotoDelete(httpd_req_t* req) {
     touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
     if (photo_store::remove(slotFromUri(req->uri)) != ESP_OK) {
         return sendText(req, "404 Not Found", "text/plain", "no such photo");
     }
@@ -219,18 +312,26 @@ esp_err_t handleRestart(httpd_req_t* req) {
 
 esp_err_t handleSave(httpd_req_t* req) {
     touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
     auto body = readBody<std::string>(req, kMaxFormBytes);
     if (!body) {
         return ESP_FAIL;
     }
 
-    setup_page::FormResult result = setup_page::applyForm(gCurrent, *body);
+    bool wifiStep = gMode == Mode::accessPoint;
+    auto render = [&](const Settings& s, std::span<const std::string> errors) {
+        return wifiStep ? setup_page::renderWifiForm(s, gNearby, errors) : setup_page::renderForm(s, errors);
+    };
+    setup_page::FormResult result =
+        wifiStep ? setup_page::applyWifiForm(gCurrent, *body) : setup_page::applyForm(gCurrent, *body);
     if (!result.errors.empty()) {
-        return sendHtml(req, setup_page::renderForm(result.settings, gNearby, result.errors));
+        return sendHtml(req, render(result.settings, result.errors));
     }
     if (settings::save(result.settings) != ESP_OK) {
         const std::string errors[] = {"儲存失敗，請再試一次"};
-        return sendHtml(req, setup_page::renderForm(result.settings, gNearby, errors));
+        return sendHtml(req, render(result.settings, errors));
     }
     ESP_LOGI(kTag, "settings saved");
     gCurrent = result.settings;
@@ -250,17 +351,17 @@ esp_err_t handleRedirect(httpd_req_t* req) {
     return httpd_resp_send(req, nullptr, 0);
 }
 
-// `captivePortal`: answer every other path with a redirect to the form,
-// which is what makes phones on the access point pop the page up. Not on
-// the home network (LAN mode), where that address doesn't exist.
-esp_err_t startHttp(bool captivePortal) {
+// The handlers depend on the mode: the access point serves only the WiFi
+// form, plus a redirect for every other path (which is what makes phones
+// pop the page up); the home network serves the rest of the settings and
+// the photos (and, in development, /restart).
+esp_err_t startHttp() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
     config.stack_size = 8192;        // the form is built with std::string
     config.max_uri_handlers = 12;
-    httpd_handle_t server = nullptr;
-    esp_err_t err = httpd_start(&server, &config);
+    esp_err_t err = httpd_start(&gServer, &config);
     if (err != ESP_OK) {
         return err;
     }
@@ -277,16 +378,20 @@ esp_err_t startHttp(bool captivePortal) {
     static const httpd_uri_t photoDelete = {
         .uri = "/photos/*", .method = HTTP_POST, .handler = handlePhotoDelete, .user_ctx = nullptr};
     static const httpd_uri_t other = {.uri = "/*", .method = HTTP_GET, .handler = handleRedirect, .user_ctx = nullptr};
-    // First match wins: the specific paths before their wildcards.
-    for (const httpd_uri_t* handler : {&form, &save, &photosPage, &photosList, &photoAdd, &photoGet, &photoDelete}) {
-        httpd_register_uri_handler(server, handler);
+    static const httpd_uri_t restart = {
+        .uri = "/restart", .method = HTTP_POST, .handler = handleRestart, .user_ctx = nullptr};
+    httpd_register_uri_handler(gServer, &form);
+    httpd_register_uri_handler(gServer, &save);
+    if (gMode == Mode::accessPoint) {
+        httpd_register_uri_handler(gServer, &other);
+        return ESP_OK;
     }
-    if (captivePortal) {
-        httpd_register_uri_handler(server, &other);
-    } else {
-        static const httpd_uri_t restart = {
-            .uri = "/restart", .method = HTTP_POST, .handler = handleRestart, .user_ctx = nullptr};
-        httpd_register_uri_handler(server, &restart);
+    // First match wins: the specific paths before their wildcards.
+    for (const httpd_uri_t* handler : {&photosPage, &photosList, &photoAdd, &photoGet, &photoDelete}) {
+        httpd_register_uri_handler(gServer, handler);
+    }
+    if (gMode == Mode::devLan) {
+        httpd_register_uri_handler(gServer, &restart);
     }
     return ESP_OK;
 }
@@ -294,8 +399,12 @@ esp_err_t startHttp(bool captivePortal) {
 
 namespace setup_mode {
 
-esp_err_t start(const Settings& current, AccessPoint& out) {
+esp_err_t start(const Settings& current, AccessPoint& out, std::string_view wifiError) {
+    gMode = Mode::accessPoint;
     gCurrent = current;
+    if (!wifiError.empty()) {
+        gWifiErrors = {std::string(wifiError)};
+    }
     gEvents = xEventGroupCreate();
     touch();
 
@@ -340,7 +449,7 @@ esp_err_t start(const Settings& current, AccessPoint& out) {
                            std::strlen(kPageUrl));
     esp_netif_dhcps_start(apNetif);
 
-    esp_err_t err = startHttp(true);
+    esp_err_t err = startHttp();
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "HTTP server failed: %s", esp_err_to_name(err));
         return err;
@@ -352,11 +461,35 @@ esp_err_t start(const Settings& current, AccessPoint& out) {
     return ESP_OK;
 }
 
-esp_err_t startOnLan(const Settings& current) {
+esp_err_t startHome(const Settings& current, HomeNetwork& out) {
+    esp_netif_ip_info_t ip = {};
+    esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!sta || esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    gMode = Mode::home;
     gCurrent = current;
     gEvents = xEventGroupCreate();
     touch();
-    return startHttp(false);
+    std::string token = randomHex(16);  // 128 bits
+    gAccess.emplace(token);
+    char address[16];
+    esp_ip4addr_ntoa(&ip.ip, address, sizeof(address));
+    out.qrPayload = std::string("http://") + address + "/?t=" + token;
+#if CONFIG_GLANCE_DEV_SERIAL_COMMANDS
+    // Development builds only, so tests can open it; it's a secret otherwise.
+    ESP_LOGW(kTag, "development: setup page at %s", out.qrPayload.c_str());
+#endif
+    ESP_LOGI(kTag, "home-network setup at http://%s/", address);
+    return startHttp();
+}
+
+esp_err_t startOnLan(const Settings& current) {
+    gMode = Mode::devLan;
+    gCurrent = current;
+    gEvents = xEventGroupCreate();
+    touch();
+    return startHttp();
 }
 
 bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & kSavedBit); }
@@ -381,10 +514,16 @@ Event waitForEvent(uint32_t idleTimeoutMs) {
     }
 }
 
-void closeAccessPoint() {
-    esp_wifi_deauth_sta(0);  // everyone
-    esp_wifi_stop();
-    ESP_LOGW(kTag, "access point closed");
+void close() {
+    if (gMode == Mode::accessPoint) {
+        esp_wifi_deauth_sta(0);  // everyone
+        esp_wifi_stop();
+        ESP_LOGW(kTag, "access point closed");
+    } else if (gServer) {
+        httpd_stop(gServer);
+        gServer = nullptr;
+        ESP_LOGW(kTag, "setup pages closed");
+    }
 }
 
 }  // namespace setup_mode
