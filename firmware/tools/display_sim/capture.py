@@ -89,11 +89,12 @@ def main():
             if not line.startswith(FRAME_PREFIX):
                 text = line.decode("utf-8", errors="replace")
                 print(text)
-                # The run is over once the next wake-up is scheduled (deep sleep
-                # or, in development builds, waiting awake -- app_main no
-                # longer returns). Exiting matters: a lingering reader on the
-                # port makes the next esptool run fail to connect.
-                done |= "Returned from app_main()" in text or "main: next " in text
+                # The run is over once the next wake-up is scheduled, before
+                # deep sleep or, in development builds, waiting awake (app_main
+                # no longer returns). Exiting matters: a lingering reader on
+                # the port makes the next esptool run fail to connect.
+                done |= any(marker in text for marker in
+                            ("Returned from app_main()", "main: next refresh", "main: next retry"))
                 continue
             try:
                 seq_s, total_s, chunk = line[len(FRAME_PREFIX):].split(b":", 2)

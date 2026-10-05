@@ -21,12 +21,14 @@ menu "Glance Privacy Mode"
 
     config GLANCE_PHOTO_4GRAY
         bool "Show photos in four gray levels"
-        default n
+        default y
         help
             Use the panel's 4-gray mode for privacy mode's photo instead of
             black-and-white dithering. Only Waveshare 7.5" V2 panels sold
             after 2023-10 carry the 4-gray waveform (see Waveshare's
-            EPD_7IN5_V2_Init_4Gray); older ones show it wrong.
+            EPD_7IN5_V2_Init_4Gray); turn this off for an older panel,
+            which shows it wrong. Confirmed on a current panel: the levels
+            come out in order, with no ghosting after the white clear.
 
 endmenu
 

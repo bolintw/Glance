@@ -29,7 +29,8 @@ public:
     bool clear() override;
     bool flush(std::span<const uint8_t> framebuffer) override;
     // 4-gray mode. Only panels sold after 2023-10 have its waveform (see
-    // Waveshare's EPD_7IN5_V2_Init_4Gray); older ones show it wrong.
+    // Waveshare's EPD_7IN5_V2_Init_4Gray); older ones show it wrong. Clears
+    // to white first, so it takes two refreshes. Needs init() first.
     bool flushGray(std::span<const uint8_t> framebuffer, const GrayOverlay& overlay) override;
     void sleep() override;
 

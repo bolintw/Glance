@@ -91,6 +91,12 @@ bool Epd7in5V2::flush(std::span<const uint8_t> framebuffer) {
 }
 
 bool Epd7in5V2::flushGray(std::span<const uint8_t> framebuffer, const GrayOverlay& overlay) {
+    // Clear to white in the normal mode first, as Waveshare's demo does: the
+    // 4-gray waveform doesn't fully drive out the previous image, which
+    // otherwise ghosts into the light gray (seen on the panel).
+    if (!clear()) {
+        return false;
+    }
     // 4-gray mode needs its own register setup, so start over from a reset.
     resetHardware();
     if (!waitUntilIdle(kPresenceTimeoutMs)) {

@@ -50,8 +50,9 @@ constexpr int64_t kMinRefreshGapSeconds = 3600;
 // IO1: short press toggles privacy mode, long press enters setup mode.
 constexpr int kButtonPin = 1;
 constexpr uint32_t kLongPressMs = 3000;
-// IO48: status LED, powered from the peripheral rail (GPIO14). Lights when
-// a press has become a long press, so you know when to let go.
+// IO48: status LED, powered from the peripheral rail (GPIO14) and lit by
+// driving IO48 low (per the schematic). Blinks on a short press; stays lit
+// once a press has become a long press, so you know when to let go.
 constexpr gpio_num_t kStatusLedPin = GPIO_NUM_48;
 constexpr gpio_num_t kPeripheralRailPin = GPIO_NUM_14;
 // Setup mode gives up (and goes back to the calendar) after this long
@@ -91,7 +92,7 @@ void statusLedOn() {
     gpio_set_level(kPeripheralRailPin, 1);
     gpio_reset_pin(kStatusLedPin);
     gpio_set_direction(kStatusLedPin, GPIO_MODE_OUTPUT);
-    gpio_set_level(kStatusLedPin, 1);
+    gpio_set_level(kStatusLedPin, 0);  // active low
 }
 
 // Watches the button from boot on, so a press is timed from when it really
@@ -109,6 +110,7 @@ void buttonTask(void*) {
         }
         Button::Press press = button.readPress(kLongPressMs);
         if (press == Button::Press::none) {
+            ESP_LOGI(kTag, "button: released within the debounce time, ignored");
             continue;
         }
         bool isLong = press == Button::Press::longPress;
@@ -165,6 +167,7 @@ constexpr int kEpdCsPin = 37;
 constexpr int kEpdDcPin = 38;
 constexpr int kEpdResetPin = 39;
 constexpr int kEpdBusyPin = 40;
+constexpr int kFlashCsPin = 21;  // external W25Q128, on the same rail and SPI lines
 constexpr uint32_t kEpdSpiClockHz = 1'000'000;
 #endif
 
@@ -212,39 +215,9 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
     return events;
 }
 
-// Brings up the panel (or its simulator stand-in), shows one frame and puts
-// it back to sleep. The code below the backend selection is identical for
-// both -- that's the point of the Display interface. False if the panel
+// init -> one frame -> sleep, on whichever backend. False if the panel
 // didn't respond.
-bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nullptr) {
-#ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
-    SerialDumpDisplay display(kPanelSize);
-#else
-    Gpio peripheralPower(kPeripheralPowerPin, Gpio::Direction::output);
-    peripheralPower.write(true);
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    SpiConfig spiConfig{
-        .mosiPin = kEpdMosiPin,
-        .misoPin = -1,
-        .sclkPin = kEpdClkPin,
-        .csPin = kEpdCsPin,
-        .hostId = SPI2_HOST,
-        .clockSpeedHz = kEpdSpiClockHz,
-        .maxTransferSize = kPanelSize.framebufferSize(),
-    };
-    Spi spi(spiConfig);
-
-    EpdConfig epdConfig{
-        .frame = kPanelSize,
-        .spiDevice = spi,
-        .dcPin = kEpdDcPin,
-        .resetPin = kEpdResetPin,
-        .busyPin = kEpdBusyPin,
-    };
-    Epd7in5V2 display(epdConfig);
-#endif
-
+bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
     // No clear() first: a full refresh already drives every pixel through
     // the whole waveform, so clearing only doubled the time and flicker.
     bool ready = display.init();
@@ -252,12 +225,60 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nul
     if (ready) {
         display.sleep();
     }
-#ifndef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
+    return shown;
+}
+
+// Brings up the panel (or its simulator stand-in), shows one frame and puts
+// it back to sleep. The code below the backend selection is identical for
+// both -- that's the point of the Display interface. False if the panel
+// didn't respond.
+bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nullptr) {
+#ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
+    SerialDumpDisplay display(kPanelSize);
+    return drawOn(display, framebuffer, overlay);
+#else
+    Gpio peripheralPower(kPeripheralPowerPin, Gpio::Direction::output);
+    peripheralPower.write(true);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    bool shown;
+    {
+        SpiConfig spiConfig{
+            .mosiPin = kEpdMosiPin,
+            .misoPin = -1,
+            .sclkPin = kEpdClkPin,
+            .csPin = kEpdCsPin,
+            .hostId = SPI2_HOST,
+            .clockSpeedHz = kEpdSpiClockHz,
+            .maxTransferSize = kPanelSize.framebufferSize(),
+        };
+        Spi spi(spiConfig);
+
+        EpdConfig epdConfig{
+            .frame = kPanelSize,
+            .spiDevice = spi,
+            .dcPin = kEpdDcPin,
+            .resetPin = kEpdResetPin,
+            .busyPin = kEpdBusyPin,
+        };
+        Epd7in5V2 display(epdConfig);
+        shown = drawOn(display, framebuffer, overlay);
+    }  // SPI bus released
+
+    // Park the lines into the rail's chips low before cutting it: a line left
+    // high feeds the unpowered rail through the chips' protection diodes
+    // (the status LED on that rail was seen glowing dimly with it "off").
+    for (int pin : {kEpdMosiPin, kEpdClkPin, kEpdCsPin, kEpdDcPin, kEpdResetPin, kFlashCsPin}) {
+        auto gpio = static_cast<gpio_num_t>(pin);
+        gpio_reset_pin(gpio);
+        gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
+        gpio_set_level(gpio, 0);
+    }
     // Off again before deep sleep: with the external flash powered, its SPI
     // lines leak ~300uA; with the rail cut the whole board sleeps at ~70uA.
     peripheralPower.write(false);
-#endif
     return shown;
+#endif
 }
 
 void showNotice(std::string_view title, std::span<const std::string_view> lines) {
