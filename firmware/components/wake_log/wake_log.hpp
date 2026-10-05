@@ -27,6 +27,8 @@ enum class Result : uint8_t {
     panelFailed,   // the panel didn't respond
     backToSleep,   // a button wake-up with nothing to do (offline, photo frame)
     setup,         // went into setup mode
+    chargeReminder,  // the battery ran too low: "please charge" went up
+    stillLow,        // checked the battery while the reminder is up: still too low
 };
 
 inline constexpr uint16_t kNoWifi = 0xFFFF;           // wifiMs: not tried

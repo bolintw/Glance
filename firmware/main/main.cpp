@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string>
 #include <functional>
+#include <cstdlib>
 #include <ctime>
 #include <sys/time.h>
 #include <optional>
@@ -74,12 +75,30 @@ constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
 // gives way to the offline screen. A router rebooting at 07:00 shouldn't
 // wipe the calendar off the screen.
 constexpr uint8_t kOfflineRunsBeforeScreen = 3;
+// A failed refresh is retried hourly (CONFIG_GLANCE_RETRY_MINUTES), up to
+// this many attempts in a row -- 07:00, 08:00, 09:00 -- then it waits for
+// the next daily refresh: retrying all day would cost ten normal days' worth
+// of battery.
+constexpr uint8_t kAttemptsInARow = 3;
+
+// Battery thresholds: state of charge from the fuel gauge, voltage at rest
+// (read before WiFi starts). Low: a status icon, and no OTA downloads.
+// Critical: the charge reminder, then just an hourly look at the gauge
+// until it's back past the resume levels -- the gap keeps it from flapping.
+// The voltage guard is for worn cells whose voltage gives out before the
+// gauge's estimate does.
+constexpr int kLowBatteryPct = 15;
+constexpr int kCriticalPct = 5;
+constexpr uint16_t kCriticalMillivolts = 3450;
+constexpr int kResumePct = 10;
+constexpr uint16_t kResumeMillivolts = 3550;
+constexpr int64_t kCriticalCheckSeconds = 3600;
 
 // What one boot tells the next. Kept in RTC memory, which survives restarts
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E35;  // "GLN5" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E36;  // "GLN6" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
@@ -88,9 +107,12 @@ struct BootState {
     bool homeStepNext;      // the access point's WiFi step just saved: a first setup goes on
     bool pressed;           // a short press asked for this run: the screen has to change
     bool offlineShown;      // the panel shows the offline icon: short presses don't switch modes
+    bool batteryCritical;   // the charge reminder is up (see kCriticalPct)
     uint8_t wifiFailures;   // runs in a row that couldn't get online
+    uint8_t failedRuns;     // refreshes in a row that failed, for any reason
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
     int64_t wakeAt;     // when the timer is due (Unix time; 0 = none), for a button wake-up that goes back to sleep
+    int8_t fakeBatteryPct;  // development: the next boot's state of charge instead of the gauge's (-1 = none)
 };
 RTC_NOINIT_ATTR BootState gBoot;
 
@@ -105,6 +127,8 @@ enum class Phase { refreshing, waiting, setup };
 std::atomic<Phase> gPhase{Phase::refreshing};
 // No calendars configured: a photo frame, always privacy mode's layout.
 std::atomic<bool> gPhotoFrame{false};
+// The battery is low (see kLowBatteryPct): the status icon, no OTA.
+bool gLowBattery = false;
 
 // This run, for the wake log (see components/wake_log): filled in as it goes,
 // stored just before sleeping.
@@ -227,6 +251,7 @@ void buttonTask(void*) {
 //   glance wifi default          (back to the menuconfig network and password)
 //   glance log                   (the wake log, as CSV)
 //   glance sleep                 (deep sleep until the button: for measuring sleep current)
+//   glance battery <0-100>       (the next boot sees this state of charge: tries the low-battery paths)
 // Polls stdin: without the USB-Serial-JTAG driver installed, reads don't
 // block, and installing it would change how the console output flows.
 void serialCommandTask(void*) {
@@ -263,6 +288,10 @@ void serialCommandTask(void*) {
                     std::fputs(wake_log::csvLine(e, time_sync::kUtcOffsetSeconds).c_str(), stdout);
                 });
                 std::fflush(stdout);
+            } else if (line.starts_with("glance battery ") && line.size() > 15) {
+                gBoot.fakeBatteryPct = static_cast<int8_t>(std::clamp(std::atoi(line.c_str() + 15), 0, 100));
+                ESP_LOGW(kTag, "next boot sees the battery at %d%%", gBoot.fakeBatteryPct);
+                restartInto(false);
             } else if (line == "glance sleep") {
                 ESP_LOGW(kTag, "deep sleep until the button");
                 peripheralsOff();
@@ -642,7 +671,8 @@ void showOffline() {
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
     PrivacyPhoto photo = pickPhoto();
-    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, std::nullopt, photo.mono, true);
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, std::nullopt, photo.mono,
+                                 {.offline = true, .lowBattery = gLowBattery});
 #if CONFIG_GLANCE_PHOTO_4GRAY
     GrayOverlay overlay = calendar_view::photoOverlay(photo.gray);
     const GrayOverlay* gray = &overlay;
@@ -673,6 +703,10 @@ void reportOffline() {
 // visible. Restarts into the update if one is installed.
 void installUpdateIfAny() {
     ota_update::markRunningAppValid();
+    if (gLowBattery) {
+        ESP_LOGI(kTag, "battery low: no update check");
+        return;
+    }
     ota_update::checkAndInstall(CONFIG_GLANCE_OTA_MANIFEST_URL);
 }
 
@@ -705,7 +739,8 @@ bool refreshPrivate(Settings& settings) {
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
     PrivacyPhoto photo = pickPhoto();
-    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photo.mono, !online);
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photo.mono,
+                                 {.offline = !online, .lowBattery = gLowBattery});
 #if CONFIG_GLANCE_PHOTO_4GRAY
     GrayOverlay overlay = calendar_view::photoOverlay(photo.gray);
     const GrayOverlay* gray = &overlay;
@@ -759,7 +794,8 @@ bool refresh(Settings& settings) {
 
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
-    calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast);
+    calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast,
+                          {.lowBattery = gLowBattery});
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");
@@ -773,6 +809,37 @@ bool refresh(Settings& settings) {
     return true;
 }
 }  // namespace
+
+// Whether the battery is too low to run (with the gap between the critical
+// and resume levels, depending on whether the charge reminder is up).
+bool batteryTooLow(const fuel_gauge::Reading& battery) {
+    int pct = battery.soc256 / 256;
+    if (gBoot.batteryCritical) {
+        return pct < kResumePct || battery.millivolts < kResumeMillivolts;
+    }
+    return pct < kCriticalPct || battery.millivolts < kCriticalMillivolts;
+}
+
+// Too low to run: puts up the charge reminder (once), then sleeps an hour
+// at a time, checking only the gauge, until it's charged. Presses are
+// ignored meanwhile: a refresh could pull the voltage under brownout.
+[[noreturn]] void waitForCharge() {
+    if (!gBoot.batteryCritical) {
+        ESP_LOGW(kTag, "battery critical: charge reminder up, checking hourly");
+        gBoot.batteryCritical = true;
+        gBoot.offlineShown = false;
+        std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
+        Canvas canvas(framebuffer, kPanelSize);
+        calendar_view::renderChargeReminder(canvas);
+        show(framebuffer);
+        logRun(wake_log::Result::chargeReminder);
+    } else {
+        ESP_LOGI(kTag, "battery still too low, back to sleep");
+        logRun(wake_log::Result::stillLow);
+    }
+    peripheralsOff();
+    deepSleep(time(nullptr) + kCriticalCheckSeconds);  // even in development builds: it's on battery
+}
 
 // A press woke the device from deep sleep. Times it from the wake-up (the
 // button task only starts afterwards): held to the long-press time, setup
@@ -812,8 +879,8 @@ void actOnWakePress(bool noCalendars) {
 }
 
 // Refresh once, then sleep until the next daily refresh -- or retry sooner
-// if this one failed. A failed refresh may not even have a synced clock, so
-// its retry is a plain delay rather than a time of day. Setup mode instead,
+// if this one failed (kAttemptsInARow). A failed refresh may not even have a
+// synced clock, so its retry is a plain delay rather than a time of day. Setup mode instead,
 // if a long press asked for it or there's no WiFi to connect to.
 extern "C" void app_main(void)
 {
@@ -837,18 +904,36 @@ extern "C" void app_main(void)
                  .homeStepNext = false,
                  .pressed = false,
                  .offlineShown = false,
+                 .batteryCritical = false,
                  .wifiFailures = 0,
+                 .failedRuns = 0,
                  .lastPhoto = UINT8_MAX,
-                 .wakeAt = 0};
+                 .wakeAt = 0,
+                 .fakeBatteryPct = -1};
     }
     ESP_ERROR_CHECK(settings::initStorage());
     // The battery at rest, before WiFi loads it.
-    if (auto battery = fuel_gauge::read()) {
+    auto battery = fuel_gauge::read();
+    if (battery && gBoot.fakeBatteryPct >= 0) {
+        ESP_LOGW(kTag, "development: battery taken as %d%% (really %.1f%%)", gBoot.fakeBatteryPct,
+                 battery->soc256 / 256.0);
+        battery->soc256 = static_cast<uint16_t>(gBoot.fakeBatteryPct * 256);
+    }
+    gBoot.fakeBatteryPct = -1;  // one boot only
+    if (battery) {
         gRun.millivolts = battery->millivolts;
         gRun.soc256 = battery->soc256;
         gRun.crate = battery->crate;
         ESP_LOGI(kTag, "battery %u mV, %.1f%%, %+.1f%%/h", battery->millivolts, battery->soc256 / 256.0,
                  battery->crate * 0.208);
+        if (batteryTooLow(*battery)) {
+            waitForCharge();
+        }
+        if (gBoot.batteryCritical) {
+            ESP_LOGI(kTag, "battery charged enough, back to normal");
+            gBoot.batteryCritical = false;
+        }
+        gLowBattery = battery->soc256 < kLowBatteryPct * 256;
     }
     Settings settings = settings::load();
     bool noCalendars = std::ranges::all_of(settings.icsUrls, [](const std::string& url) { return url.empty(); });
@@ -881,10 +966,12 @@ extern "C" void app_main(void)
     // Got through a whole run without crashing: a fresh update has proven
     // itself even if the network was down.
     ota_update::markRunningAppValid();
+    gBoot.failedRuns = refreshed ? 0 : gBoot.failedRuns + 1;
+    bool retry = gBoot.failedRuns % kAttemptsInARow != 0;
     int64_t now = time(nullptr);
-    int64_t wakeAt = refreshed ? refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds,
-                                                             CONFIG_GLANCE_REFRESH_HOUR, 0, kMinRefreshGapSeconds)
-                               : now + CONFIG_GLANCE_RETRY_MINUTES * 60;
+    int64_t wakeAt = retry ? now + CONFIG_GLANCE_RETRY_MINUTES * 60
+                           : refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds, CONFIG_GLANCE_REFRESH_HOUR,
+                                                         0, kMinRefreshGapSeconds);
     int64_t sleepSeconds = wakeAt - now;
 
     time_t wakeTime = static_cast<time_t>(wakeAt);
@@ -892,7 +979,7 @@ extern "C" void app_main(void)
     localtime_r(&wakeTime, &local);
     char when[24];
     strftime(when, sizeof(when), "%Y-%m-%d %H:%M", &local);
-    ESP_LOGI(kTag, "next %s at %s (in %lldh%02lldm)", refreshed ? "refresh" : "retry", when, sleepSeconds / 3600,
+    ESP_LOGI(kTag, "next %s at %s (in %lldh%02lldm)", retry ? "retry" : "refresh", when, sleepSeconds / 3600,
              sleepSeconds % 3600 / 60);
 #if CONFIG_GLANCE_DEEP_SLEEP
     deepSleep(wakeAt);

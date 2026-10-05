@@ -5,7 +5,7 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, intruder, privacy[1], gray[1], offline
+//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, intruder, privacy[1], gray[1], offline, lowbattery, charge
 //
 // produces build/preview.png.
 
@@ -66,8 +66,12 @@ int main(int argc, char** argv) {
         setup_view::render(canvas, setup_page::wifiQrPayload("Glance-AB12", "k7m2qx9p"), "Glance-AB12", "k7m2qx9p",
                            "http://192.168.4.1");
     } else if (screen == "offline") {  // no WiFi: no weather, the status icon
-        calendar_view::renderPrivate(canvas, now, kTaipei, std::nullopt, photos::kBuiltIn[0], true);
+        calendar_view::renderPrivate(canvas, now, kTaipei, std::nullopt, photos::kBuiltIn[0], {.offline = true});
         overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
+    } else if (screen == "lowbattery") {  // the calendar, with both status icons
+        calendar_view::render(canvas, now, kTaipei, events, forecast, {.offline = true, .lowBattery = true});
+    } else if (screen == "charge") {
+        calendar_view::renderChargeReminder(canvas);
     } else if (screen.starts_with("privacy") || screen.starts_with("gray")) {
         size_t index = screen.ends_with("1") ? 1 : 0;
         calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index]);

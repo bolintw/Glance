@@ -12,19 +12,28 @@
 // (firmware/test/host, `make preview`) draw exactly the same thing.
 namespace calendar_view {
 
+// Status icons in the top-right corner. They show only when something is
+// wrong: nothing at all means all is well.
+struct Status {
+    bool offline = false;     // couldn't get online (crossed-out WiFi)
+    bool lowBattery = false;  // time to charge soon (battery with one bar)
+};
+
 // Draws the whole screen: today's date header, the weather (left blank
 // without a forecast) and up to ten upcoming events in two columns. `now`
 // and `utcOffset` decide what "today" is and how event dates are written.
 void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-            const std::optional<weather::Forecast>& forecast);
+            const std::optional<weather::Forecast>& forecast, Status status = {});
 
 // Privacy mode: the same header and weather, with a photo in the event box
 // instead of the events. `photo` should be photos::kWidth x photos::kHeight;
-// without a clock (`now` nullopt) the date is left out. `offline` puts a
-// crossed-out WiFi icon in the top-right corner -- status icons show only
-// when something is wrong.
+// without a clock (`now` nullopt) the date is left out.
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, bool offline = false);
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status = {});
+
+// The battery is too low to keep going: a big empty battery and "請充電",
+// left on the panel while the device sleeps until it's charged.
+void renderChargeReminder(Canvas& canvas);
 
 // The 4-gray version of renderPrivate's photo, placed over the same frame,
 // for Display::flushGray. Draw the 1bpp photo underneath anyway: backends

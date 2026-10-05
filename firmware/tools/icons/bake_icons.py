@@ -29,6 +29,7 @@ ICONS = [
     ("rainy.png", 0xE004, "kRainy"),
     ("raindrop.png", 0xE005, "kRaindrop"),
     ("wifi_off.png", 0xE006, "kWifiOff"),  # drawn by draw_status_icons.py
+    ("battery_low.png", 0xE007, "kBatteryLow"),  # drawn by draw_status_icons.py
 ]
 
 

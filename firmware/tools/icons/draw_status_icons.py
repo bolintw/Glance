@@ -32,5 +32,20 @@ def wifi_off():
     return img.resize((SIZE, SIZE), Image.LANCZOS).point(lambda v: 255 if v > 110 else 0)
 
 
+def battery_low():
+    s = SIZE * SS
+    img = Image.new("L", (s, s), 0)
+    d = ImageDraw.Draw(img)
+    stroke = int(s * 0.09)
+    top, bottom = s * 0.27, s * 0.73  # centred, like the WiFi icon's weight
+    body_right = s * 0.86
+    d.rounded_rectangle([s * 0.04, top, body_right, bottom], radius=s * 0.06, outline=255, width=stroke)
+    d.rectangle([body_right + stroke * 0.3, s * 0.4, s * 0.98, s * 0.6], fill=255)  # the terminal
+    pad = stroke * 1.9
+    d.rectangle([s * 0.04 + pad, top + pad, s * 0.04 + pad + s * 0.14, bottom - pad], fill=255)  # one bar left
+    return img.resize((SIZE, SIZE), Image.LANCZOS).point(lambda v: 255 if v > 110 else 0)
+
+
 if __name__ == "__main__":
     wifi_off().save(HERE / "src" / "wifi_off.png")
+    battery_low().save(HERE / "src" / "battery_low.png")

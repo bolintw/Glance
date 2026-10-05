@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <string>
+#include <utility>
 
 #include "fonts.hpp"
 #include "icons.hpp"
@@ -46,8 +47,9 @@ constexpr int kTemperatureCenter = 668;
 constexpr int kRainChanceX = 735;
 
 // Status icons (24x24), top right: right-aligned with the weather text and
-// above the weather icon, which starts at y=37.
-constexpr int kStatusIconRight = 777, kStatusIconBaseline = 32, kStatusIconSize = 24;
+// above the weather icon, which starts at y=37. The battery goes rightmost,
+// like on a phone.
+constexpr int kStatusIconRight = 777, kStatusIconBaseline = 32, kStatusIconSize = 24, kStatusIconGap = 8;
 
 constexpr int kBoxX = 32, kBoxY = 160, kBoxWidth = 738, kBoxHeight = 288, kBoxRadius = 15;
 constexpr int kColumnDividerX = 401;
@@ -127,6 +129,16 @@ void drawWeather(Canvas& canvas, const weather::Forecast& forecast) {
     drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20);
 }
 
+void drawStatus(Canvas& canvas, Status status) {
+    int right = kStatusIconRight;
+    for (auto [shown, icon] : {std::pair{status.lowBattery, icons::kBatteryLow}, std::pair{status.offline, icons::kWifiOff}}) {
+        if (shown) {
+            drawOnBaseline(canvas, right - kStatusIconSize, kStatusIconBaseline, icon, kWeatherIcons);
+            right -= kStatusIconSize + kStatusIconGap;
+        }
+    }
+}
+
 void drawBox(Canvas& canvas) { canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, kInk); }
 
 void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events) {
@@ -159,17 +171,18 @@ void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurr
 }  // namespace
 
 void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-            const std::optional<weather::Forecast>& forecast) {
+            const std::optional<weather::Forecast>& forecast, Status status) {
     canvas.fill(kBackground);
     drawHeader(canvas, localDate(now, utcOffset));
     if (forecast) {
         drawWeather(canvas, *forecast);
     }
+    drawStatus(canvas, status);
     drawEventBox(canvas, utcOffset, events);
 }
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, bool offline) {
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status) {
     canvas.fill(kBackground);
     if (now) {
         drawHeader(canvas, localDate(*now, utcOffset));
@@ -177,14 +190,22 @@ void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset
     if (forecast) {
         drawWeather(canvas, *forecast);
     }
-    if (offline) {
-        drawOnBaseline(canvas, kStatusIconRight - kStatusIconSize, kStatusIconBaseline, icons::kWifiOff,
-                       kWeatherIcons);
-    }
+    drawStatus(canvas, status);
     drawBox(canvas);
     canvas.drawBitmap(kPhotoX, kPhotoY, photo);
 }
 
 GrayOverlay photoOverlay(const GrayBitmap& photo) { return {kPhotoX, kPhotoY, photo}; }
+
+void renderChargeReminder(Canvas& canvas) {
+    canvas.fill(kBackground);
+    constexpr int kWidth = 220, kHeight = 110, kStroke = 8, kTerminal = 18;
+    int x = (800 - kWidth - kTerminal) / 2, y = 150;
+    canvas.roundedRect(x, y, kWidth, kHeight, 14, kStroke, kInk);
+    canvas.fillRect(x + kWidth + 4, y + kHeight / 2 - 22, kTerminal - 4, 44, kInk);
+    canvas.fillRect(x + 2 * kStroke, y + 2 * kStroke, 22, kHeight - 4 * kStroke, kInk);  // the last sliver
+    const char* text = "請充電";
+    canvas.drawText((800 - measureText(text, kNotoSansTcBold30)) / 2, y + kHeight + 40, text, kNotoSansTcBold30, kInk);
+}
 
 }  // namespace calendar_view

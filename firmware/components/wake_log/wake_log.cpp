@@ -48,6 +48,8 @@ const char* resultName(Result result) {
         case Result::panelFailed: return "panel-failed";
         case Result::backToSleep: return "back-to-sleep";
         case Result::setup: return "setup";
+        case Result::chargeReminder: return "charge-reminder";
+        case Result::stillLow: return "still-low";
     }
     return "?";
 }

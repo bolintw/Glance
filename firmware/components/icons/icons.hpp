@@ -17,4 +17,5 @@ inline constexpr const char* kWindy = "\xEE\x80\x83";  // U+E003
 inline constexpr const char* kRainy = "\xEE\x80\x84";  // U+E004
 inline constexpr const char* kRaindrop = "\xEE\x80\x85";  // U+E005
 inline constexpr const char* kWifiOff = "\xEE\x80\x86";  // U+E006
+inline constexpr const char* kBatteryLow = "\xEE\x80\x87";  // U+E007
 }  // namespace icons
