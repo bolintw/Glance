@@ -283,6 +283,8 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
     // A tab of its own, so whatever is typed above survives a visit.
     html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\" target=\"_blank\" rel=\"opener\">管理照片</a>"
             "（另開分頁，這頁填的內容會留著）</p>\n";
+    html += "<h2>電池紀錄</h2>\n<p><a href=\"/log.csv\">下載每次醒來的紀錄（CSV）</a></p>\n"
+            "<p class=\"note\">電池電壓、電量、醒著多久、連 WiFi 花多久，用來推算續航。</p>\n";
     resetForm(html);
     html += "</body></html>\n";
     return html;

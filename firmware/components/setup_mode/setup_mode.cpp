@@ -29,6 +29,8 @@
 #include "settings.hpp"
 #include "setup_page.hpp"
 #include "station_watch.hpp"
+#include "time_sync.hpp"
+#include "wake_log_store.hpp"
 
 namespace {
 constexpr const char* kTag = "setup_mode";
@@ -320,6 +322,31 @@ esp_err_t handleRestart(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// GET /log.csv: the wake log (see components/wake_log), streamed in chunks
+// straight from flash -- all 2048 entries would be ~160KB of text.
+esp_err_t handleWakeLog(httpd_req_t* req) {
+    touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "text/csv; charset=utf-8");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"glance-wake-log.csv\"");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    std::string chunk = wake_log::csvHeader();
+    esp_err_t err = ESP_OK;
+    wake_log_store::forEach([&](const wake_log::Entry& e) {
+        chunk += wake_log::csvLine(e, time_sync::kUtcOffsetSeconds);
+        if (chunk.size() > 2048 && err == ESP_OK) {
+            err = httpd_resp_send_chunk(req, chunk.data(), static_cast<ssize_t>(chunk.size()));
+            chunk.clear();
+        }
+    });
+    if (err == ESP_OK && !chunk.empty()) {
+        err = httpd_resp_send_chunk(req, chunk.data(), static_cast<ssize_t>(chunk.size()));
+    }
+    return err == ESP_OK ? httpd_resp_send_chunk(req, nullptr, 0) : err;
+}
+
 // GET /reset: the confirmation page, the second of two steps.
 esp_err_t handleResetConfirm(httpd_req_t* req) {
     touch();
@@ -404,7 +431,7 @@ esp_err_t startHttp() {
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
     config.stack_size = 8192;        // the form is built with std::string
-    config.max_uri_handlers = 14;
+    config.max_uri_handlers = 15;
     esp_err_t err = httpd_start(&gServer, &config);
     if (err != ESP_OK) {
         return err;
@@ -413,6 +440,8 @@ esp_err_t startHttp() {
     static const httpd_uri_t save = {.uri = "/save", .method = HTTP_POST, .handler = handleSave, .user_ctx = nullptr};
     static const httpd_uri_t reset = {
         .uri = "/reset", .method = HTTP_POST, .handler = handleReset, .user_ctx = nullptr};
+    static const httpd_uri_t wakeLog = {
+        .uri = "/log.csv", .method = HTTP_GET, .handler = handleWakeLog, .user_ctx = nullptr};
     static const httpd_uri_t resetConfirm = {
         .uri = "/reset", .method = HTTP_GET, .handler = handleResetConfirm, .user_ctx = nullptr};
     static const httpd_uri_t photosPage = {
@@ -432,6 +461,7 @@ esp_err_t startHttp() {
     httpd_register_uri_handler(gServer, &save);
     httpd_register_uri_handler(gServer, &reset);
     httpd_register_uri_handler(gServer, &resetConfirm);  // before the access point's catch-all
+    httpd_register_uri_handler(gServer, &wakeLog);
     if (gMode == Mode::accessPoint) {
         httpd_register_uri_handler(gServer, &other);
         return ESP_OK;

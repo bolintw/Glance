@@ -207,6 +207,7 @@ void testPhotosPage() {
     CHECK(contains(page, "fetch('/photos/add'"));
     CHECK(contains(page, "// --- dither begin ---") && contains(page, "// --- dither end ---"));
     CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/photos\" target=\"_blank\""));
+    CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/log.csv\""));
 }
 
 int main() {

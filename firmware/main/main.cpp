@@ -4,6 +4,7 @@
 #include <string>
 #include <functional>
 #include <ctime>
+#include <sys/time.h>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -23,6 +24,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_random.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+#include "driver/rtc_io.h"
+#include "fuel_gauge.hpp"
 #include "ics_event_collector.hpp"
 #include "ota_update.hpp"
 #include "photo_store.hpp"
@@ -33,6 +38,7 @@
 #include "setup_view.hpp"
 #include "time_sync.hpp"
 #include "weather_fetch.hpp"
+#include "wake_log_store.hpp"
 #include "wifi_manager.hpp"
 
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
@@ -73,7 +79,7 @@ constexpr uint8_t kOfflineRunsBeforeScreen = 3;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E34;  // "GLN4" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E35;  // "GLN5" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
@@ -84,6 +90,7 @@ struct BootState {
     bool offlineShown;      // the panel shows the offline icon: short presses don't switch modes
     uint8_t wifiFailures;   // runs in a row that couldn't get online
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
+    int64_t wakeAt;     // when the timer is due (Unix time; 0 = none), for a button wake-up that goes back to sleep
 };
 RTC_NOINIT_ATTR BootState gBoot;
 
@@ -99,6 +106,38 @@ std::atomic<Phase> gPhase{Phase::refreshing};
 // No calendars configured: a photo frame, always privacy mode's layout.
 std::atomic<bool> gPhotoFrame{false};
 
+// This run, for the wake log (see components/wake_log): filled in as it goes,
+// stored just before sleeping.
+wake_log::Entry gRun;
+
+void logRun(wake_log::Result result) {
+    gRun.result = result;
+    gRun.awakeMs = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+    gRun.time = time_sync::clockIsPlausible() ? static_cast<uint32_t>(time(nullptr)) : 0;
+    esp_err_t err = wake_log_store::append(gRun);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "wake log not written: %s", esp_err_to_name(err));
+    }
+}
+
+// Deep sleep until `wakeAt` (Unix time) or a press of the button, whichever
+// comes first; with no `wakeAt`, until the button only.
+[[noreturn]] void deepSleep(std::optional<int64_t> wakeAt) {
+    gBoot.wakeAt = wakeAt.value_or(0);
+    esp_wifi_stop();  // harmless if WiFi never started
+    // IO1 has an external pull-up on the always-on rail, so it reads high
+    // through deep sleep until pressed.
+    esp_sleep_enable_ext1_wakeup_io(BIT64(1), ESP_EXT1_WAKEUP_ANY_LOW);
+    if (wakeAt) {
+        int64_t seconds = std::max<int64_t>(*wakeAt - time(nullptr), 1);
+        esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000);
+    }
+    // Give the USB serial port a moment to send the last log lines; deep
+    // sleep cuts it off mid-buffer otherwise.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    esp_deep_sleep_start();
+}
+
 // Raw driver calls rather than Gpio: Gpio's constructor resets the pin,
 // which would cut the rail under a panel refresh in progress.
 void statusLedOn() {
@@ -108,6 +147,9 @@ void statusLedOn() {
     gpio_set_direction(kStatusLedPin, GPIO_MODE_OUTPUT);
     gpio_set_level(kStatusLedPin, 0);  // active low
 }
+
+// The LED off again, the rail left on (a refresh may be about to use it).
+void statusLedOff() { gpio_set_level(kStatusLedPin, 1); }
 
 // End of a run: the rail and the LED off, whether or not the panel was drawn
 // (show() cuts the rail itself, but a run that never got to draw left the
@@ -183,6 +225,8 @@ void buttonTask(void*) {
 //   glance refresh configured    (as if setup had just saved: WiFi fallback, offline screen at once)
 //   glance wifi <network name>   (keeps the saved password)
 //   glance wifi default          (back to the menuconfig network and password)
+//   glance log                   (the wake log, as CSV)
+//   glance sleep                 (deep sleep until the button: for measuring sleep current)
 // Polls stdin: without the USB-Serial-JTAG driver installed, reads don't
 // block, and installing it would change how the console output flows.
 void serialCommandTask(void*) {
@@ -213,6 +257,16 @@ void serialCommandTask(void*) {
                 restartInto(false);
             } else if (line == "glance refresh") {
                 restartInto(false);
+            } else if (line == "glance log") {
+                std::fputs(wake_log::csvHeader().c_str(), stdout);
+                wake_log_store::forEach([](const wake_log::Entry& e) {
+                    std::fputs(wake_log::csvLine(e, time_sync::kUtcOffsetSeconds).c_str(), stdout);
+                });
+                std::fflush(stdout);
+            } else if (line == "glance sleep") {
+                ESP_LOGW(kTag, "deep sleep until the button");
+                peripheralsOff();
+                deepSleep(std::nullopt);
             } else if (line == "glance refresh configured") {
                 gBoot.justConfigured = true;
                 restartInto(false);
@@ -512,6 +566,7 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
 // Setup mode: on the home network when there's a WiFi to join, otherwise
 // the WiFi step on the access point first.
 [[noreturn]] void runSetupMode(const Settings& current) {
+    logRun(wake_log::Result::setup);
     if (gBoot.accessPointSetup || current.wifiSsid.empty()) {
         gBoot.accessPointSetup = false;
         runAccessPointSetup(current);
@@ -523,9 +578,20 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
 // saved a network that doesn't connect, falls back to the last one that did
 // and makes that the saved one again (`settings` follows); the setup page
 // tells the user next time.
+// Notes how long it took and the signal for the wake log.
+void noteConnected(int64_t startedUs) {
+    gRun.wifiMs = static_cast<uint16_t>(std::min<int64_t>((esp_timer_get_time() - startedUs) / 1000, 0xFFFE));
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        gRun.rssi = ap.rssi;
+    }
+}
+
 esp_err_t joinWifi(WifiManager& wifi, Settings& settings) {
+    int64_t started = esp_timer_get_time();
     esp_err_t err = wifi.connect(settings.wifiSsid, settings.wifiPassword, kWifiConnectTimeoutMs);
     if (err == ESP_OK) {
+        noteConnected(started);
         settings::rememberWorkingWifi({settings.wifiSsid, settings.wifiPassword});
         return ESP_OK;
     }
@@ -538,11 +604,31 @@ esp_err_t joinWifi(WifiManager& wifi, Settings& settings) {
     if (wifi.connect(working->ssid, working->password, kWifiConnectTimeoutMs) != ESP_OK) {
         return err;
     }
+    noteConnected(started);
     ESP_LOGW(kTag, "back on the WiFi that worked");
     settings::revertWifi(settings.wifiSsid, *working);
     settings.wifiSsid = working->ssid;
     settings.wifiPassword = working->password;
     return ESP_OK;
+}
+
+// NTP, noting how far it moved a clock that was already running (the RTC
+// across deep sleep): the 32.768kHz crystal's drift, for the wake log.
+esp_err_t syncClock() {
+    bool hadClock = time_sync::clockIsPlausible();
+    struct timeval before;
+    gettimeofday(&before, nullptr);
+    int64_t startedUs = esp_timer_get_time();
+    esp_err_t err = time_sync::sync(kNtpSyncTimeoutMs);
+    if (err == ESP_OK && hadClock) {
+        struct timeval after;
+        gettimeofday(&after, nullptr);
+        int64_t movedUs = (after.tv_sec - before.tv_sec) * 1000000LL + (after.tv_usec - before.tv_usec) -
+                          (esp_timer_get_time() - startedUs);
+        gRun.clockDriftMs = static_cast<int32_t>(std::clamp<int64_t>(movedUs / 1000, INT32_MIN + 1, INT32_MAX));
+        ESP_LOGI(kTag, "NTP moved the clock by %ld ms", static_cast<long>(gRun.clockDriftMs));
+    }
+    return err;
 }
 
 // Privacy mode's layout without weather, plus the crossed-out WiFi icon:
@@ -579,6 +665,7 @@ void reportOffline() {
     if (due && !gBoot.offlineShown) {
         showOffline();
     }
+    gRun.result = gBoot.offlineShown ? wake_log::Result::offlineShown : wake_log::Result::offlineKept;
 }
 
 // Last thing a successful online refresh does: the screen is already up to
@@ -600,7 +687,7 @@ bool refreshPrivate(Settings& settings) {
         WifiManager wifi;
         esp_err_t err = joinWifi(wifi, settings);
         if (err == ESP_OK) {
-            err = time_sync::sync(kNtpSyncTimeoutMs);
+            err = syncClock();
             online = err == ESP_OK;
         }
         gBoot.wifiFailures = online ? 0 : gBoot.wifiFailures + 1;
@@ -628,9 +715,11 @@ bool refreshPrivate(Settings& settings) {
     ESP_LOGI(kTag, "showing privacy mode%s", gray ? " (4-gray)" : "");
     if (!show(framebuffer, gray)) {
         ESP_LOGE(kTag, "panel did not respond");
+        gRun.result = wake_log::Result::panelFailed;
         return false;
     }
     gBoot.offlineShown = !online;
+    gRun.result = online ? wake_log::Result::privacy : wake_log::Result::offlineShown;
     if (online) {
         installUpdateIfAny();
     }
@@ -653,7 +742,7 @@ bool refresh(Settings& settings) {
     }
     // TLS certificate checks and "today" both need a real clock. Without it
     // there's no internet to speak of: that's offline too.
-    err = time_sync::sync(kNtpSyncTimeoutMs);
+    err = syncClock();
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "NTP sync failed (%s)", esp_err_to_name(err));
         reportOffline();
@@ -663,6 +752,7 @@ bool refresh(Settings& settings) {
     auto events = fetchUpcomingEvents(settings);
     if (!events) {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
+        gRun.result = wake_log::Result::fetchFailed;
         return false;
     }
     auto forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
@@ -673,14 +763,53 @@ bool refresh(Settings& settings) {
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");
+        gRun.result = wake_log::Result::panelFailed;
         return false;
     }
     ESP_LOGI(kTag, "calendar shown");
     gBoot.offlineShown = false;
+    gRun.result = wake_log::Result::calendar;
     installUpdateIfAny();
     return true;
 }
 }  // namespace
+
+// A press woke the device from deep sleep. Times it from the wake-up (the
+// button task only starts afterwards): held to the long-press time, setup
+// mode; otherwise a short press -- privacy mode toggled for this run, or,
+// with no calendar to switch to (offline, photo frame), straight back to
+// sleep until the timer was due.
+void actOnWakePress(bool noCalendars) {
+    Button button(kButtonPin);
+    while (button.isDown() && esp_timer_get_time() < static_cast<int64_t>(kLongPressMs) * 1000) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (button.isDown()) {
+        ESP_LOGI(kTag, "button: long press (from wake-up)");
+        statusLedOn();
+        while (button.isDown()) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        gBoot.enterSetup = true;
+        return;
+    }
+    ESP_LOGI(kTag, "button: short press (from wake-up)");
+    if (gBoot.offlineShown || noCalendars) {
+        if (gBoot.wakeAt > time(nullptr) + 60) {
+            ESP_LOGI(kTag, "%s: back to sleep", noCalendars ? "no calendars" : "offline");
+            logRun(wake_log::Result::backToSleep);
+            deepSleep(gBoot.wakeAt);
+        }
+        return;  // the timer is due anyway: refresh
+    }
+    statusLedOn();
+    bool privacy = !settings::loadPrivacyMode();
+    settings::savePrivacyMode(privacy);
+    ESP_LOGI(kTag, "privacy mode %s", privacy ? "on" : "off");
+    gBoot.pressed = true;
+    vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
+    statusLedOff();
+}
 
 // Refresh once, then sleep until the next daily refresh -- or retry sooner
 // if this one failed. A failed refresh may not even have a synced clock, so
@@ -688,8 +817,17 @@ bool refresh(Settings& settings) {
 // if a long press asked for it or there's no WiFi to connect to.
 extern "C" void app_main(void)
 {
-    ESP_LOGI(kTag, "firmware %s, woke by %s", ota_update::runningVersion(),
-             (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) ? "timer" : "reset/power-on");
+    uint32_t causes = esp_sleep_get_wakeup_causes();
+    gRun.resetReason = static_cast<uint8_t>(esp_reset_reason());
+    gRun.wake = (causes & BIT(ESP_SLEEP_WAKEUP_TIMER))  ? wake_log::Wake::timer
+                : (causes & BIT(ESP_SLEEP_WAKEUP_EXT1)) ? wake_log::Wake::button
+                : esp_reset_reason() == ESP_RST_POWERON ? wake_log::Wake::powerOn
+                                                        : wake_log::Wake::other;
+    if (gRun.wake == wake_log::Wake::button) {
+        rtc_gpio_deinit(static_cast<gpio_num_t>(kButtonPin));  // the wake-up left it an RTC pin
+    }
+    static constexpr const char* kWakeNames[] = {"power-on", "timer", "button", "reset"};
+    ESP_LOGI(kTag, "firmware %s, woke by %s", ota_update::runningVersion(), kWakeNames[static_cast<int>(gRun.wake)]);
     if (gBoot.magic != BootState::kMagic) {
         gBoot = {.magic = BootState::kMagic,
                  .enterSetup = false,
@@ -700,19 +838,31 @@ extern "C" void app_main(void)
                  .pressed = false,
                  .offlineShown = false,
                  .wifiFailures = 0,
-                 .lastPhoto = UINT8_MAX};
+                 .lastPhoto = UINT8_MAX,
+                 .wakeAt = 0};
     }
     ESP_ERROR_CHECK(settings::initStorage());
+    // The battery at rest, before WiFi loads it.
+    if (auto battery = fuel_gauge::read()) {
+        gRun.millivolts = battery->millivolts;
+        gRun.soc256 = battery->soc256;
+        gRun.crate = battery->crate;
+        ESP_LOGI(kTag, "battery %u mV, %.1f%%, %+.1f%%/h", battery->millivolts, battery->soc256 / 256.0,
+                 battery->crate * 0.208);
+    }
+    Settings settings = settings::load();
+    bool noCalendars = std::ranges::all_of(settings.icsUrls, [](const std::string& url) { return url.empty(); });
+    if (gRun.wake == wake_log::Wake::button) {
+        actOnWakePress(noCalendars);
+    }
     xTaskCreate(buttonTask, "button", 3072, nullptr, 5, nullptr);  // after NVS: a press writes to it
 #if CONFIG_GLANCE_DEV_SERIAL_COMMANDS
-    xTaskCreate(serialCommandTask, "serial_cmd", 3072, nullptr, 5, nullptr);
+    xTaskCreate(serialCommandTask, "serial_cmd", 4096, nullptr, 5, nullptr);
 #endif
-    Settings settings = settings::load();
     // Setup mode on a long press or with no WiFi saved -- and right after the
     // WiFi step while there are no calendars yet: a first setup goes on to
     // the home-network step. (Saving that with no calendars is fine: the
     // device is then a photo frame.)
-    bool noCalendars = std::ranges::all_of(settings.icsUrls, [](const std::string& url) { return url.empty(); });
     bool homeStepNext = std::exchange(gBoot.homeStepNext, false);
     if (gBoot.enterSetup || settings.wifiSsid.empty() || (homeStepNext && noCalendars)) {
         gBoot.enterSetup = false;
@@ -727,6 +877,7 @@ extern "C" void app_main(void)
     gBoot.justConfigured = false;
     gBoot.pressed = false;
     peripheralsOff();
+    logRun(gRun.result);
     // Got through a whole run without crashing: a fresh update has proven
     // itself even if the network was down.
     ota_update::markRunningAppValid();
@@ -744,15 +895,11 @@ extern "C" void app_main(void)
     ESP_LOGI(kTag, "next %s at %s (in %lldh%02lldm)", refreshed ? "refresh" : "retry", when, sleepSeconds / 3600,
              sleepSeconds % 3600 / 60);
 #if CONFIG_GLANCE_DEEP_SLEEP
-    // Give the USB serial port a moment to send the last log lines; deep
-    // sleep cuts it off mid-buffer otherwise.
-    vTaskDelay(pdMS_TO_TICKS(100));
-    esp_deep_sleep(static_cast<uint64_t>(sleepSeconds) * 1000000);
+    deepSleep(wakeAt);
 #else
     // Development mode: stay awake (USB serial stays reachable for flashing
     // and logs) and reboot at the same time deep sleep would have woken. The
     // button task handles presses meanwhile.
-    // TODO(M9): wake from deep sleep on the button too.
     ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), waiting awake instead");
     gPhase = Phase::waiting;
 #if CONFIG_GLANCE_DEV_SETUP_ON_LAN
