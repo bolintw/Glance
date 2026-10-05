@@ -31,7 +31,7 @@ button{padding:.6rem;font-size:1rem}
 #editor{display:none}
 #status{font-weight:600}
 </style></head><body>
-<p><a href="/">← 回到設定</a></p>
+<p><a href="/" id="back">← 回到設定</a></p>
 <h1>隱私模式照片</h1>
 <p class="note">隱私模式會在框裡顯示一張照片，每天換一張。上傳自己的照片之後，就只輪播自己的照片。</p>
 <p id="status"></p>
@@ -258,6 +258,12 @@ $('upload').onclick = async () => {
   if (!response.ok) { status('上傳失敗：' + await response.text()); return; }
   source = null; $('editor').style.display = 'none'; $('file').value = '';
   refresh();
+};
+
+// Opened in its own tab from the settings page: going back closes this tab,
+// which leaves the settings page as it was, half-filled form included.
+$('back').onclick = e => {
+  if (window.opener && !window.opener.closed) { e.preventDefault(); window.close(); }
 };
 
 refresh();

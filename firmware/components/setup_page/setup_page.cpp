@@ -279,7 +279,9 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
     html += "<p class=\"note\">新的 WiFi 連不上時，螢幕會顯示通知；長按按鈕會開啟設定熱點重新設定。</p>\n";
 
     html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
-    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\">管理照片</a>（不會重新啟動）</p>\n";
+    // A tab of its own, so whatever is typed above survives a visit.
+    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\" target=\"_blank\" rel=\"opener\">管理照片</a>"
+            "（另開分頁，這頁填的內容會留著）</p>\n";
     resetForm(html);
     html += "</body></html>\n";
     return html;
