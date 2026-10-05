@@ -165,9 +165,13 @@ void testRevertNoticeAndReset() {
     CHECK(contains(setup_page::renderWifiForm(configured(), {}, {}, "Cafe"), "上次改的「Cafe」"));
     CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "上次改的"));
     for (const std::string& page : {home, setup_page::renderWifiForm(configured(), {}, {})}) {
-        CHECK(contains(page, "action=\"/reset\""));
-        CHECK(contains(page, "name=\"confirm\" value=\"yes\""));
+        CHECK(contains(page, "method=\"get\" action=\"/reset\""));  // only to the confirmation page
+        CHECK(!contains(page, "name=\"confirm\""));
     }
+    std::string confirmPage = setup_page::renderResetConfirm();
+    CHECK(contains(confirmPage, "method=\"post\" action=\"/reset\""));
+    CHECK(contains(confirmPage, "name=\"confirm\" value=\"yes\""));
+    CHECK(contains(confirmPage, "href=\"/\""));
     CHECK(setup_page::confirmsReset("confirm=yes"));
     CHECK(!setup_page::confirmsReset(""));
     CHECK(!setup_page::confirmsReset("confirm=no"));

@@ -176,12 +176,10 @@ void revertNotice(std::string& html, const Settings& current, std::string_view r
             htmlEscape(current.wifiSsid) + "」。</p>\n";
 }
 
+// The first of two steps: only opens the confirmation page (renderResetConfirm).
 void resetForm(std::string& html) {
-    html += "<h2>清除所有資料</h2>\n<p class=\"note\">WiFi、行事曆、授權碼和上傳的照片都會刪除，"
-            "裝置會回到第一次設定的狀態。</p>\n"
-            "<form method=\"post\" action=\"/reset\" onsubmit=\"return confirm('確定要清除所有資料嗎？')\">"
-            "<input type=\"hidden\" name=\"confirm\" value=\"yes\">"
-            "<button type=\"submit\" class=\"danger\">清除所有資料</button></form>\n";
+    html += "<h2>清除所有資料</h2>\n"
+            "<form method=\"get\" action=\"/reset\"><button type=\"submit\" class=\"danger\">清除所有資料…</button></form>\n";
 }
 }  // namespace
 
@@ -290,6 +288,16 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
 std::string renderSaved() {
     return std::string(kPageHead) +
            "<h1>已儲存</h1><p>裝置正在重新啟動並更新畫面，大約一分鐘。手機可以切回原本的 WiFi 了。</p></body></html>\n";
+}
+
+std::string renderResetConfirm() {
+    return std::string(kPageHead) +
+           "<h1>確定要清除所有資料嗎？</h1>\n"
+           "<p>WiFi、行事曆、天氣設定、授權碼和上傳的照片都會刪除，無法復原。"
+           "裝置會重新啟動，回到第一次設定的狀態。</p>\n"
+           "<form method=\"post\" action=\"/reset\"><input type=\"hidden\" name=\"confirm\" value=\"yes\">"
+           "<button type=\"submit\" class=\"danger\">確定清除</button></form>\n"
+           "<p><a href=\"/\">取消，回到設定</a></p></body></html>\n";
 }
 
 std::string renderErased() {

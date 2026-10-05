@@ -320,8 +320,17 @@ esp_err_t handleRestart(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// POST /reset: erases every setting and photo, then restarts into a first
-// setup.
+// GET /reset: the confirmation page, the second of two steps.
+esp_err_t handleResetConfirm(httpd_req_t* req) {
+    touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    return sendHtml(req, setup_page::renderResetConfirm());
+}
+
+// POST /reset (from the confirmation page): erases every setting and photo,
+// then restarts into a first setup.
 esp_err_t handleReset(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
@@ -395,7 +404,7 @@ esp_err_t startHttp() {
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
     config.stack_size = 8192;        // the form is built with std::string
-    config.max_uri_handlers = 13;
+    config.max_uri_handlers = 14;
     esp_err_t err = httpd_start(&gServer, &config);
     if (err != ESP_OK) {
         return err;
@@ -404,6 +413,8 @@ esp_err_t startHttp() {
     static const httpd_uri_t save = {.uri = "/save", .method = HTTP_POST, .handler = handleSave, .user_ctx = nullptr};
     static const httpd_uri_t reset = {
         .uri = "/reset", .method = HTTP_POST, .handler = handleReset, .user_ctx = nullptr};
+    static const httpd_uri_t resetConfirm = {
+        .uri = "/reset", .method = HTTP_GET, .handler = handleResetConfirm, .user_ctx = nullptr};
     static const httpd_uri_t photosPage = {
         .uri = "/photos", .method = HTTP_GET, .handler = handlePhotosPage, .user_ctx = nullptr};
     static const httpd_uri_t photosList = {
@@ -420,6 +431,7 @@ esp_err_t startHttp() {
     httpd_register_uri_handler(gServer, &form);
     httpd_register_uri_handler(gServer, &save);
     httpd_register_uri_handler(gServer, &reset);
+    httpd_register_uri_handler(gServer, &resetConfirm);  // before the access point's catch-all
     if (gMode == Mode::accessPoint) {
         httpd_register_uri_handler(gServer, &other);
         return ESP_OK;

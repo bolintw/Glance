@@ -30,7 +30,8 @@ extern const std::span<const char* const> kCounties;
 // `errors` are shown on top; `nearbySsids` feeds the WiFi name suggestions.
 // `revertedFrom` (if any) names a newly saved WiFi that didn't connect, so
 // the device went back to the current one -- the page says so. Both end
-// with a button that erases everything (POST /reset, confirm=yes).
+// with a button that leads to erasing everything, in two steps: GET /reset
+// (renderResetConfirm), then its POST /reset, confirm=yes.
 std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
                            std::span<const std::string> errors, std::string_view revertedFrom = {});
 std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
@@ -38,6 +39,8 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
 
 // Shown after a successful save, just before the device restarts.
 std::string renderSaved();
+// The second step before erasing everything: says what goes, and asks.
+std::string renderResetConfirm();
 // Shown after everything was erased, just before the device restarts.
 std::string renderErased();
 // Whether a POST /reset body confirms it (the button's hidden field).
