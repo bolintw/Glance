@@ -27,6 +27,12 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
 // Shown after a successful save, just before the device restarts.
 std::string renderSaved();
 
+// The privacy-mode photos page (static; its script loads the list from
+// /photos/list and does all the image processing).
+std::string renderPhotosPage();
+// GET /photos/list: {"max":20,"width":730,"height":280,"slots":[0,3]}.
+std::string photosListJson(std::span<const int> slots, size_t max, int width, int height);
+
 struct FormResult {
     Settings settings;
     std::vector<std::string> errors;  // empty = valid, safe to save

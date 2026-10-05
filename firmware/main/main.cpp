@@ -20,6 +20,7 @@
 #include "esp_random.h"
 #include "ics_event_collector.hpp"
 #include "ota_update.hpp"
+#include "photo_store.hpp"
 #include "photos.hpp"
 #include "refresh_schedule.hpp"
 #include "settings.hpp"
@@ -71,7 +72,7 @@ struct BootState {
     bool enterSetup;      // a long press asked for setup mode
     bool justConfigured;  // setup mode just saved; report WiFi trouble at once
     uint8_t wifiFailures;
-    uint8_t lastPhoto;  // privacy mode's last photo, so the next one differs
+    uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
 };
 RTC_NOINIT_ATTR BootState gBoot;
 
@@ -134,21 +135,47 @@ void buttonTask(void*) {
     }
 }
 
-// Index of a built-in photo, never the same one twice in a row.
-size_t pickPhoto() {
-    std::span<const Bitmap> choices = photos::kBuiltIn;
-    size_t count = choices.size();
-    size_t index;
-    if (count > 1 && gBoot.lastPhoto < count) {
-        index = esp_random() % (count - 1);
-        if (index >= gBoot.lastPhoto) {
-            index++;
-        }
-    } else {
-        index = esp_random() % count;
+// Privacy mode's photo, both ways (1bpp, and 2bpp for 4-gray panels). When
+// it's an upload, `mapping` keeps it readable from flash.
+struct PrivacyPhoto {
+    Bitmap mono;
+    GrayBitmap gray;
+    std::unique_ptr<photo_store::Photo> mapping;
+};
+
+// gBoot.lastPhoto holds an upload's slot, or this plus a built-in's index.
+constexpr uint8_t kBuiltInPhotoKey = 0x40;
+
+// The uploaded photos if there are any, otherwise the built-in ones; picked
+// at random, never the same one twice in a row.
+PrivacyPhoto pickPhoto() {
+    std::vector<uint8_t> keys;
+    for (int slot : photo_store::list()) {
+        keys.push_back(static_cast<uint8_t>(slot));
     }
-    gBoot.lastPhoto = static_cast<uint8_t>(index);
-    return index;
+    if (keys.empty()) {
+        for (size_t i = 0; i < photos::kBuiltIn.size(); i++) {
+            keys.push_back(static_cast<uint8_t>(kBuiltInPhotoKey + i));
+        }
+    }
+    if (keys.size() > 1) {
+        std::erase(keys, gBoot.lastPhoto);
+    }
+    uint8_t key = keys[esp_random() % keys.size()];
+    gBoot.lastPhoto = key;
+
+    if (key < kBuiltInPhotoKey) {
+        if (auto mapping = photo_store::open(key)) {
+            ESP_LOGI(kTag, "privacy photo: uploaded, slot %d", key);
+            Bitmap mono{mapping->width(), mapping->height(), mapping->mono()};
+            GrayBitmap gray{mapping->width(), mapping->height(), mapping->gray()};
+            return {mono, gray, std::move(mapping)};
+        }
+        key = kBuiltInPhotoKey;  // unreadable upload: fall back to a built-in
+    }
+    size_t index = key - kBuiltInPhotoKey;
+    ESP_LOGI(kTag, "privacy photo: built-in %zu", index);
+    return {photos::kBuiltIn[index], photos::kBuiltInGray[index], nullptr};
 }
 
 // The layout shows two columns of five (same as the Raspberry Pi version).
@@ -354,15 +381,15 @@ bool refreshPrivate(const Settings& settings) {
 
     std::vector<uint8_t> framebuffer(kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, kPanelSize);
-    size_t photo = pickPhoto();
-    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photos::kBuiltIn[photo]);
+    PrivacyPhoto photo = pickPhoto();
+    calendar_view::renderPrivate(canvas, now, time_sync::kUtcOffsetSeconds, forecast, photo.mono);
 #if CONFIG_GLANCE_PHOTO_4GRAY
-    GrayOverlay overlay = calendar_view::photoOverlay(photos::kBuiltInGray[photo]);
+    GrayOverlay overlay = calendar_view::photoOverlay(photo.gray);
     const GrayOverlay* gray = &overlay;
 #else
     const GrayOverlay* gray = nullptr;
 #endif
-    ESP_LOGI(kTag, "showing privacy mode (photo %zu%s)", photo, gray ? ", 4-gray" : "");
+    ESP_LOGI(kTag, "showing privacy mode%s", gray ? " (4-gray)" : "");
     if (!show(framebuffer, gray)) {
         ESP_LOGE(kTag, "panel did not respond");
         return false;
@@ -468,8 +495,17 @@ extern "C" void app_main(void)
     // TODO(M9): wake from deep sleep on the button too.
     ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), waiting awake instead");
     gPhase = Phase::waiting;
+#if CONFIG_GLANCE_DEV_SETUP_ON_LAN
+    if (setup_mode::startOnLan(settings) == ESP_OK) {
+        ESP_LOGW(kTag, "development: setup pages served on the home network");
+    }
+#endif
     while (time(nullptr) < wakeAt) {
-        vTaskDelay(pdMS_TO_TICKS(60 * 1000));
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (setup_mode::wasSaved()) {
+            vTaskDelay(pdMS_TO_TICKS(1500));  // let the "saved" page reach the browser
+            break;
+        }
     }
     restartInto(false);
 #endif

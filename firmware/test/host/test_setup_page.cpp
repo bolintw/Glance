@@ -140,6 +140,17 @@ void testAccessPointPassword() {
 
 }  // namespace
 
+void testPhotosPage() {
+    std::vector<int> slots = {0, 3, 7};
+    CHECK(setup_page::photosListJson(slots, 20, 730, 280) == R"({"max":20,"width":730,"height":280,"slots":[0,3,7]})");
+    CHECK(setup_page::photosListJson({}, 20, 730, 280) == R"({"max":20,"width":730,"height":280,"slots":[]})");
+    std::string page = setup_page::renderPhotosPage();
+    CHECK(contains(page, "fetch('/photos/list')"));
+    CHECK(contains(page, "fetch('/photos/add'"));
+    CHECK(contains(page, "// --- dither begin ---") && contains(page, "// --- dither end ---"));
+    CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/photos\""));
+}
+
 int main() {
     testUrlDecode();
     testHtmlEscape();
@@ -149,6 +160,7 @@ int main() {
     testValidation();
     testWifiQrPayload();
     testAccessPointPassword();
+    testPhotosPage();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;

@@ -4,6 +4,8 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <optional>
+#include <string>
 #include <cstring>
 #include <vector>
 
@@ -20,6 +22,9 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
+#include "photo_format.hpp"
+#include "photo_store.hpp"
+#include "photos.hpp"
 #include "settings.hpp"
 #include "setup_page.hpp"
 
@@ -29,6 +34,7 @@ constexpr std::array<uint8_t, 4> kApIp = {192, 168, 4, 1};  // ESP-IDF's default
 constexpr const char* kPageUrl = "http://192.168.4.1/";
 constexpr size_t kMaxNearby = 15;
 constexpr size_t kMaxFormBytes = 8 * 1024;
+constexpr size_t kMaxPhotoBytes = 128 * 1024;  // one upload is ~75KB
 constexpr int kSavedBit = BIT0;
 
 // Shared with the HTTP handlers and the DNS task. One setup session per boot.
@@ -95,26 +101,99 @@ esp_err_t handleForm(httpd_req_t* req) {
     return sendHtml(req, setup_page::renderForm(gCurrent, gNearby, {}));
 }
 
-esp_err_t handleSave(httpd_req_t* req) {
-    touch();
-    if (req->content_len > kMaxFormBytes) {
-        httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "form too large");
-        return ESP_FAIL;
+// The whole request body, or nullopt (after answering) if it's too big or
+// the connection drops.
+template <typename Buffer>
+std::optional<Buffer> readBody(httpd_req_t* req, size_t maxBytes) {
+    if (req->content_len > maxBytes) {
+        httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "too large");
+        return std::nullopt;
     }
-    std::string body(req->content_len, '\0');
+    Buffer body(req->content_len, 0);
     size_t received = 0;
     while (received < body.size()) {
-        int n = httpd_req_recv(req, body.data() + received, body.size() - received);
+        int n = httpd_req_recv(req, reinterpret_cast<char*>(body.data()) + received, body.size() - received);
         if (n == HTTPD_SOCK_ERR_TIMEOUT) {
             continue;
         }
         if (n <= 0) {
-            return ESP_FAIL;
+            return std::nullopt;
         }
         received += static_cast<size_t>(n);
     }
+    return body;
+}
 
-    setup_page::FormResult result = setup_page::applyForm(gCurrent, body);
+// The slot number in "/photos/<n>" or "/photos/<n>/delete"; -1 if none.
+int slotFromUri(const char* uri) {
+    int slot = -1;
+    return std::sscanf(uri, "/photos/%d", &slot) == 1 ? slot : -1;
+}
+
+esp_err_t sendText(httpd_req_t* req, const char* status, const char* type, const std::string& text) {
+    httpd_resp_set_status(req, status);
+    httpd_resp_set_type(req, type);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, text.data(), static_cast<ssize_t>(text.size()));
+}
+
+esp_err_t handlePhotosPage(httpd_req_t* req) {
+    touch();
+    return sendHtml(req, setup_page::renderPhotosPage());
+}
+
+esp_err_t handlePhotosList(httpd_req_t* req) {
+    touch();
+    std::vector<int> slots = photo_store::list();
+    return sendText(req, "200 OK", "application/json",
+                    setup_page::photosListJson(slots, photo_store::kMaxPhotos, photos::kWidth, photos::kHeight));
+}
+
+// GET /photos/<n>: the stored 2bpp image, for the page's thumbnails.
+esp_err_t handlePhotoGet(httpd_req_t* req) {
+    touch();
+    auto photo = photo_store::open(slotFromUri(req->uri));
+    if (!photo) {
+        return sendText(req, "404 Not Found", "text/plain", "no such photo");
+    }
+    httpd_resp_set_type(req, "application/octet-stream");
+    return httpd_resp_send(req, reinterpret_cast<const char*>(photo->gray().data()),
+                           static_cast<ssize_t>(photo->gray().size()));
+}
+
+esp_err_t handlePhotoAdd(httpd_req_t* req) {
+    touch();
+    auto body = readBody<std::vector<uint8_t>>(req, kMaxPhotoBytes);
+    if (!body) {
+        return ESP_FAIL;
+    }
+    if (!photo_format::isUpload(*body, photos::kWidth, photos::kHeight)) {
+        return sendText(req, "400 Bad Request", "text/plain; charset=utf-8", "照片資料大小不對");
+    }
+    int slot = photo_store::add(*body, photos::kWidth, photos::kHeight);
+    if (slot < 0) {
+        return sendText(req, "507 Insufficient Storage", "text/plain; charset=utf-8", "照片已滿或寫入失敗");
+    }
+    return sendText(req, "200 OK", "application/json", "{\"slot\":" + std::to_string(slot) + "}");
+}
+
+// POST /photos/<n>/delete
+esp_err_t handlePhotoDelete(httpd_req_t* req) {
+    touch();
+    if (photo_store::remove(slotFromUri(req->uri)) != ESP_OK) {
+        return sendText(req, "404 Not Found", "text/plain", "no such photo");
+    }
+    return sendText(req, "200 OK", "text/plain", "deleted");
+}
+
+esp_err_t handleSave(httpd_req_t* req) {
+    touch();
+    auto body = readBody<std::string>(req, kMaxFormBytes);
+    if (!body) {
+        return ESP_FAIL;
+    }
+
+    setup_page::FormResult result = setup_page::applyForm(gCurrent, *body);
     if (!result.errors.empty()) {
         return sendHtml(req, setup_page::renderForm(result.settings, gNearby, result.errors));
     }
@@ -144,6 +223,7 @@ esp_err_t startHttp() {
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
     config.stack_size = 8192;        // the form is built with std::string
+    config.max_uri_handlers = 12;
     httpd_handle_t server = nullptr;
     esp_err_t err = httpd_start(&server, &config);
     if (err != ESP_OK) {
@@ -151,10 +231,21 @@ esp_err_t startHttp() {
     }
     static const httpd_uri_t form = {.uri = "/", .method = HTTP_GET, .handler = handleForm, .user_ctx = nullptr};
     static const httpd_uri_t save = {.uri = "/save", .method = HTTP_POST, .handler = handleSave, .user_ctx = nullptr};
+    static const httpd_uri_t photosPage = {
+        .uri = "/photos", .method = HTTP_GET, .handler = handlePhotosPage, .user_ctx = nullptr};
+    static const httpd_uri_t photosList = {
+        .uri = "/photos/list", .method = HTTP_GET, .handler = handlePhotosList, .user_ctx = nullptr};
+    static const httpd_uri_t photoAdd = {
+        .uri = "/photos/add", .method = HTTP_POST, .handler = handlePhotoAdd, .user_ctx = nullptr};
+    static const httpd_uri_t photoGet = {
+        .uri = "/photos/*", .method = HTTP_GET, .handler = handlePhotoGet, .user_ctx = nullptr};
+    static const httpd_uri_t photoDelete = {
+        .uri = "/photos/*", .method = HTTP_POST, .handler = handlePhotoDelete, .user_ctx = nullptr};
     static const httpd_uri_t other = {.uri = "/*", .method = HTTP_GET, .handler = handleRedirect, .user_ctx = nullptr};
-    httpd_register_uri_handler(server, &form);
-    httpd_register_uri_handler(server, &save);
-    httpd_register_uri_handler(server, &other);
+    // First match wins: the specific paths before their wildcards.
+    for (const httpd_uri_t* handler : {&form, &save, &photosPage, &photosList, &photoAdd, &photoGet, &photoDelete, &other}) {
+        httpd_register_uri_handler(server, handler);
+    }
     return ESP_OK;
 }
 }  // namespace
@@ -216,6 +307,15 @@ esp_err_t start(const Settings& current, AccessPoint& out) {
              static_cast<unsigned>(esp_get_free_heap_size()));
     return ESP_OK;
 }
+
+esp_err_t startOnLan(const Settings& current) {
+    gCurrent = current;
+    gEvents = xEventGroupCreate();
+    touch();
+    return startHttp();
+}
+
+bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & kSavedBit); }
 
 bool waitForSave(uint32_t idleTimeoutMs) {
     while (true) {

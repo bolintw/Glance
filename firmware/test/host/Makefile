@@ -9,7 +9,7 @@ CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g
 COMPONENTS := ../../components
 
 HOST_COMPONENTS := ics canvas display calendar_view fonts refresh_schedule json weather icons setup_page \
-                   setup_view qrcodegen captive_dns photos ota_manifest
+                   setup_view qrcodegen captive_dns photos ota_manifest photo_format
 # Only their ESP-free headers are used on the host (settings: device_settings.hpp).
 HOST_HEADER_COMPONENTS := settings
 INCLUDES := $(foreach c,$(HOST_COMPONENTS) $(HOST_HEADER_COMPONENTS),-I$(COMPONENTS)/$(c))
@@ -23,9 +23,9 @@ COMPONENT_C_SRCS := $(foreach c,$(HOST_COMPONENTS),$(wildcard $(COMPONENTS)/$(c)
 COMPONENT_OBJS := $(patsubst $(COMPONENTS)/%.cpp,build/obj/%.o,$(COMPONENT_SRCS)) \
                   $(patsubst $(COMPONENTS)/%.c,build/obj/%.o,$(COMPONENT_C_SRCS))
 
-TESTS := test_ics_line_reader test_ics_events test_canvas test_refresh_schedule test_json test_weather test_setup_page test_captive_dns test_ota_manifest
+TESTS := test_ics_line_reader test_ics_events test_canvas test_refresh_schedule test_json test_weather test_setup_page test_captive_dns test_ota_manifest test_photo_format
 
-.PHONY: test preview clean
+.PHONY: test preview dither-check clean
 # Keep the per-component objects between runs (make deletes pattern-rule
 # intermediates by default).
 .SECONDARY:
@@ -54,6 +54,12 @@ preview: build/preview
 	./build/preview build/preview.pgm $(NOW) $(SCREEN)
 	$(PYTHON) -c "from PIL import Image; Image.open('build/preview.pgm').save('build/preview.png')"
 	@echo "wrote build/preview.png"
+
+# The upload page's JavaScript dithering against the photo baking tool's
+# (needs node, and the font tool's venv for Pillow).
+dither-check:
+	$(PYTHON) photos_dither_reference.py build/dither
+	node test_photos_dither.js build/dither
 
 clean:
 	rm -rf build

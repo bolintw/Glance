@@ -50,6 +50,17 @@ menu "Glance Refresh"
             If WiFi, NTP, every calendar or the panel fails, the screen is
             left as is and the device tries again after this long.
 
+    config GLANCE_DEV_SETUP_ON_LAN
+        bool "Development: serve the setup pages on the home network"
+        depends on !GLANCE_DEEP_SLEEP
+        default n
+        help
+            While waiting awake for the next refresh, serve the setup and
+            photo pages on the network the device is connected to, so a
+            computer there can drive them (end-to-end tests without joining
+            the setup access point). No password protects them -- never
+            enable this on a device in use.
+
     config GLANCE_DEEP_SLEEP
         bool "Deep sleep until the next refresh"
         default y

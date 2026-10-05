@@ -208,7 +208,8 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
     secretInput(html, "text", "cwa_key", !current.cwaApiKey.empty(), "CWA-XXXXXXXX-...");
     html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得。</p>\n";
 
-    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form></body></html>\n";
+    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
+    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\">管理照片</a>（不會重新啟動）</p>\n</body></html>\n";
     return html;
 }
 
