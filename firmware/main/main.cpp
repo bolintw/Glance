@@ -7,6 +7,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "button.hpp"
@@ -72,12 +73,13 @@ constexpr uint8_t kOfflineRunsBeforeScreen = 3;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E33;  // "GLN3" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E34;  // "GLN4" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
     bool wifiFailed;        // ...because the saved WiFi didn't connect (say so on the form)
     bool justConfigured;    // setup mode just saved; report WiFi trouble at once
+    bool homeStepNext;      // the access point's WiFi step just saved: a first setup goes on
     bool pressed;           // a short press asked for this run: the screen has to change
     bool offlineShown;      // the panel shows the offline icon: short presses don't switch modes
     uint8_t wifiFailures;   // runs in a row that couldn't get online
@@ -94,6 +96,8 @@ RTC_NOINIT_ATTR BootState gBoot;
 // What the device is doing, for the button task to decide what a press means.
 enum class Phase { refreshing, waiting, setup };
 std::atomic<Phase> gPhase{Phase::refreshing};
+// No calendars configured: a photo frame, always privacy mode's layout.
+std::atomic<bool> gPhotoFrame{false};
 
 // Raw driver calls rather than Gpio: Gpio's constructor resets the pin,
 // which would cut the rail under a panel refresh in progress.
@@ -118,9 +122,10 @@ void peripheralsOff() {
 // What a press does (from the button, or a serial command in development):
 //   short: toggle privacy mode and redraw at once (cutting short any
 //          refresh in progress: a guest at the door shouldn't wait for it)
-//          -- except while the panel shows the offline icon: there's no
-//          calendar to switch to, so it's ignored (no blink either: asleep,
-//          as the device mostly will be, it couldn't blink anyway)
+//          -- except while the panel shows the offline icon, or with no
+//          calendars at all (a photo frame): there's no calendar to switch
+//          to, so it's ignored (no blink either: asleep, as the device
+//          mostly will be, it couldn't blink anyway)
 //   long:  setup mode
 //   in setup mode, any press leaves it
 // `waitForRelease` runs once a long press has lit the LED: setup mode starts
@@ -130,8 +135,8 @@ void actOnPress(bool isLong, const std::function<void()>& waitForRelease) {
     if (gPhase == Phase::setup) {
         restartInto(false);
     }
-    if (!isLong && gBoot.offlineShown) {
-        ESP_LOGI(kTag, "offline: short press ignored");
+    if (!isLong && (gBoot.offlineShown || gPhotoFrame)) {
+        ESP_LOGI(kTag, "%s: short press ignored", gPhotoFrame ? "no calendars" : "offline");
         return;
     }
     statusLedOn();
@@ -426,6 +431,7 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
             case setup_mode::Event::saved:
                 ESP_LOGI(kTag, "leaving setup mode (saved)");
                 gBoot.justConfigured = true;
+                gBoot.homeStepNext = onAccessPoint;
                 restartInto(false);
             case setup_mode::Event::idle:
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
@@ -690,6 +696,7 @@ extern "C" void app_main(void)
                  .accessPointSetup = false,
                  .wifiFailed = false,
                  .justConfigured = false,
+                 .homeStepNext = false,
                  .pressed = false,
                  .offlineShown = false,
                  .wifiFailures = 0,
@@ -703,14 +710,20 @@ extern "C" void app_main(void)
     Settings settings = settings::load();
     // Setup mode on a long press or with no WiFi saved -- and right after the
     // WiFi step while there are no calendars yet: a first setup goes on to
-    // the home-network step.
+    // the home-network step. (Saving that with no calendars is fine: the
+    // device is then a photo frame.)
     bool noCalendars = std::ranges::all_of(settings.icsUrls, [](const std::string& url) { return url.empty(); });
-    if (gBoot.enterSetup || settings.wifiSsid.empty() || (gBoot.justConfigured && noCalendars)) {
+    bool homeStepNext = std::exchange(gBoot.homeStepNext, false);
+    if (gBoot.enterSetup || settings.wifiSsid.empty() || (homeStepNext && noCalendars)) {
         gBoot.enterSetup = false;
         runSetupMode(settings);
     }
 
-    bool refreshed = settings::loadPrivacyMode() ? refreshPrivate(settings) : refresh(settings);
+    gPhotoFrame = noCalendars;
+    if (noCalendars) {
+        ESP_LOGI(kTag, "no calendars: photo frame");
+    }
+    bool refreshed = noCalendars || settings::loadPrivacyMode() ? refreshPrivate(settings) : refresh(settings);
     gBoot.justConfigured = false;
     gBoot.pressed = false;
     peripheralsOff();

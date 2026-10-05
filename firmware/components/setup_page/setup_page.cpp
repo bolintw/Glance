@@ -244,7 +244,8 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
     revertNotice(html, current, revertedFrom);
     html += "<form method=\"post\" action=\"/save\">\n";
 
-    html += "<h2>行事曆</h2>\n<p class=\"note\">Google 日曆：設定 → 選擇日曆 → 「iCal 格式的私人網址」。</p>\n";
+    html += "<h2>行事曆</h2>\n<p class=\"note\">Google 日曆：設定 → 選擇日曆 → 「iCal 格式的私人網址」。"
+            "全部留空的話只顯示照片，當相簿使用。</p>\n";
     for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
         std::string name = "ics" + std::to_string(i + 1);
         bool isSet = !current.icsUrls[i].empty();
@@ -335,21 +336,16 @@ FormResult applyForm(const Settings& current, std::string_view body) {
     if (find(fields, "ssid")) {
         applyWifi(fields, s, errors);
     }
-    bool anyCalendar = false;
     for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
         const std::string& url = s.icsUrls[i];
         if (url.empty()) {
-            continue;
+            continue;  // none at all is fine: the device is then a photo frame
         }
-        anyCalendar = true;
         if (!startsWith(url, "https://") && !startsWith(url, "http://")) {
             errors.push_back("行事曆 " + std::to_string(i + 1) + " 不是網址（應以 https:// 開頭）");
         } else if (url.size() > kMaxFieldBytes) {
             errors.push_back("行事曆 " + std::to_string(i + 1) + " 的網址太長");
         }
-    }
-    if (!anyCalendar) {
-        errors.push_back("請至少填寫一個行事曆");
     }
     bool knownCounty = s.weatherLocation.empty();
     for (const char* county : kCounties) {

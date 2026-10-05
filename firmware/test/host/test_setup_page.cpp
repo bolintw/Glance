@@ -155,8 +155,10 @@ void testValidation() {
     auto r = setup_page::applyForm(empty, "ics1=ftp%3A%2F%2Fx&location=Tokyo");
     CHECK(hasError(r, "行事曆 1 不是網址"));
     CHECK(hasError(r, "縣市"));
-    CHECK(hasError(setup_page::applyForm(empty, "ics1="), "至少"));
-    CHECK(hasError(setup_page::applyForm(configured(), "ics1_remove=on&ics3_remove=on"), "至少"));
+    CHECK(setup_page::applyForm(empty, "ics1=").errors.empty());  // no calendars: a photo frame
+    auto none = setup_page::applyForm(configured(), "ics1_remove=on&ics3_remove=on");
+    CHECK(none.errors.empty());
+    CHECK(none.settings.icsUrls[0].empty() && none.settings.icsUrls[2].empty());
 }
 
 void testRevertNoticeAndReset() {
