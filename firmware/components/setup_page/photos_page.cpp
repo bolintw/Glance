@@ -15,12 +15,13 @@ constexpr const char* kPhotosPage = R"PAGE(<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>隱私模式照片</title>
+<link rel="icon" href="data:,">
 <style>
 body{font-family:system-ui,sans-serif;margin:0 auto;max-width:34rem;padding:1rem;line-height:1.5;color:#111;background:#fff}
 h1{font-size:1.4rem}h2{font-size:1.1rem;margin:1.6rem 0 .4rem}
 .note{color:#555;font-size:.9rem}
 .thumbs{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
-.thumb canvas{width:100%;border:1px solid #999;display:block}
+.thumb canvas{width:100%;border:1px solid #999;display:block;background:#ddd}
 .thumb button{margin-top:.2rem;width:100%}
 #preview{width:100%;border:1px solid #333;touch-action:none;cursor:grab;display:block}
 label{display:block;margin:.6rem 0 .2rem}
@@ -88,7 +89,7 @@ function pack(levels, w, h, bits) {
 }
 // --- dither end ---
 
-let W = 0, H = 0, source = null, offsetX = 0, offsetY = 0, pending = false;
+let W = 0, H = 0, source = null, offsetX = 0, offsetY = 0, lastCover = 0, pending = false, generation = 0;
 const $ = id => document.getElementById(id);
 const preview = $('preview');
 
@@ -115,7 +116,9 @@ function unpackGray(bytes, w, h) {
 }
 
 async function refresh() {
+  const mine = ++generation;  // a newer refresh supersedes this one
   const info = await (await fetch('/photos/list')).json();
+  if (mine !== generation) return;
   W = info.width; H = info.height;
   status(`已上傳 ${info.slots.length} / ${info.max} 張` + (info.slots.length ? '' : '（目前輪播內建的浮世繪）'));
   $('file').disabled = info.slots.length >= info.max;
@@ -125,6 +128,7 @@ async function refresh() {
     const div = document.createElement('div');
     div.className = 'thumb';
     const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;  // the right shape while it loads
     const remove = document.createElement('button');
     remove.textContent = '刪除';
     remove.onclick = async () => {
@@ -134,8 +138,13 @@ async function refresh() {
     };
     div.append(canvas, remove);
     thumbs.append(div);
-    const bytes = new Uint8Array(await (await fetch(`/photos/${slot}`)).arrayBuffer());
-    drawLevels(canvas, unpackGray(bytes, W, H), W, H, 4);
+  }
+  // Then fill them in, one request at a time (the device serves one well).
+  const canvases = thumbs.querySelectorAll('canvas');
+  for (let i = 0; i < info.slots.length; i++) {
+    const bytes = new Uint8Array(await (await fetch(`/photos/${info.slots[i]}`)).arrayBuffer());
+    if (mine !== generation) return;
+    drawLevels(canvases[i], unpackGray(bytes, W, H), W, H, 4);
   }
 }
 
@@ -146,6 +155,11 @@ function sourceGray() {
   work.width = W; work.height = H;
   const ctx = work.getContext('2d');
   const cover = Math.max(W / source.width, H / source.height) * Number($('zoom').value);
+  if (lastCover && cover !== lastCover) {  // zoom about the frame's centre
+    offsetX = W / 2 - (W / 2 - offsetX) * cover / lastCover;
+    offsetY = H / 2 - (H / 2 - offsetY) * cover / lastCover;
+  }
+  lastCover = cover;
   const dw = source.width * cover, dh = source.height * cover;
   offsetX = Math.min(0, Math.max(W - dw, offsetX));
   offsetY = Math.min(0, Math.max(H - dh, offsetY));
@@ -184,6 +198,8 @@ $('file').onchange = () => {
   const img = new Image();
   img.onload = () => {
     source = img;
+    $('zoom').value = 1;
+    lastCover = 0;
     const cover = Math.max(W / img.width, H / img.height);  // start centred
     offsetX = (W - img.width * cover) / 2; offsetY = (H - img.height * cover) / 2;
     $('editor').style.display = 'block';

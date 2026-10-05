@@ -29,7 +29,7 @@ bool waitForSave(uint32_t idleTimeoutMs);
 
 // Development aid (GLANCE_DEV_SETUP_ON_LAN): the same pages served on the
 // home network the device is already connected to, so a computer on that
-// network can drive them -- no access point, no DNS.
+// network can drive them -- no access point, no DNS. Adds POST /restart.
 esp_err_t startOnLan(const Settings& current);
 // Whether the setup page saved settings (meant for polling in LAN mode).
 bool wasSaved();

@@ -58,6 +58,10 @@ public:
     }
     esp_err_t writeU8(const char* key, uint8_t value) { return nvs_set_u8(handle_, key, value); }
     esp_err_t commit() { return nvs_commit(handle_); }
+    esp_err_t erase(const char* key) {
+        esp_err_t err = nvs_erase_key(handle_, key);
+        return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
+    }
 
 private:
     nvs_handle_t handle_ = 0;
@@ -118,6 +122,18 @@ esp_err_t save(const Settings& s) {
         ESP_LOGE(kTag, "save failed: %s", esp_err_to_name(err));
     }
     return err;
+}
+
+esp_err_t forgetWifi() {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs.erase(kWifiSsidKey);
+    if (err == ESP_OK) {
+        err = nvs.erase(kWifiPasswordKey);
+    }
+    return err == ESP_OK ? nvs.commit() : err;
 }
 
 bool loadPrivacyMode() { return Nvs(NVS_READONLY).readU8(kPrivacyModeKey, 0) != 0; }

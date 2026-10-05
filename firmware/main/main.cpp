@@ -151,6 +151,8 @@ void buttonTask(void*) {
 //   glance press short | glance press long
 //   glance privacy on | glance privacy off
 //   glance refresh
+//   glance wifi <network name>   (keeps the saved password)
+//   glance wifi default          (back to the menuconfig network and password)
 // Polls stdin: without the USB-Serial-JTAG driver installed, reads don't
 // block, and installing it would change how the console output flows.
 void serialCommandTask(void*) {
@@ -181,6 +183,18 @@ void serialCommandTask(void*) {
                 restartInto(false);
             } else if (line == "glance refresh") {
                 restartInto(false);
+            } else if (line == "glance wifi default") {
+                if (settings::forgetWifi() == ESP_OK) {
+                    ESP_LOGW(kTag, "saved WiFi forgotten, using menuconfig's; restarting");
+                    restartInto(false);
+                }
+            } else if (line.starts_with("glance wifi ") && line.size() > 12) {
+                Settings current = settings::load();
+                current.wifiSsid = line.substr(12);
+                if (settings::save(current) == ESP_OK) {
+                    ESP_LOGW(kTag, "WiFi network set, restarting");
+                    restartInto(false);
+                }
             } else {
                 ESP_LOGW(kTag, "unknown command");
             }

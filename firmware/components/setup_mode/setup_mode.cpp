@@ -186,6 +186,13 @@ esp_err_t handlePhotoDelete(httpd_req_t* req) {
     return sendText(req, "200 OK", "text/plain", "deleted");
 }
 
+// POST /restart, LAN mode only: restarts without touching any settings.
+esp_err_t handleRestart(httpd_req_t* req) {
+    sendText(req, "200 OK", "text/plain", "restarting");
+    xEventGroupSetBits(gEvents, kSavedBit);  // the waiting loop restarts on it
+    return ESP_OK;
+}
+
 esp_err_t handleSave(httpd_req_t* req) {
     touch();
     auto body = readBody<std::string>(req, kMaxFormBytes);
@@ -218,7 +225,10 @@ esp_err_t handleRedirect(httpd_req_t* req) {
     return httpd_resp_send(req, nullptr, 0);
 }
 
-esp_err_t startHttp() {
+// `captivePortal`: answer every other path with a redirect to the form,
+// which is what makes phones on the access point pop the page up. Not on
+// the home network (LAN mode), where that address doesn't exist.
+esp_err_t startHttp(bool captivePortal) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
@@ -243,8 +253,15 @@ esp_err_t startHttp() {
         .uri = "/photos/*", .method = HTTP_POST, .handler = handlePhotoDelete, .user_ctx = nullptr};
     static const httpd_uri_t other = {.uri = "/*", .method = HTTP_GET, .handler = handleRedirect, .user_ctx = nullptr};
     // First match wins: the specific paths before their wildcards.
-    for (const httpd_uri_t* handler : {&form, &save, &photosPage, &photosList, &photoAdd, &photoGet, &photoDelete, &other}) {
+    for (const httpd_uri_t* handler : {&form, &save, &photosPage, &photosList, &photoAdd, &photoGet, &photoDelete}) {
         httpd_register_uri_handler(server, handler);
+    }
+    if (captivePortal) {
+        httpd_register_uri_handler(server, &other);
+    } else {
+        static const httpd_uri_t restart = {
+            .uri = "/restart", .method = HTTP_POST, .handler = handleRestart, .user_ctx = nullptr};
+        httpd_register_uri_handler(server, &restart);
     }
     return ESP_OK;
 }
@@ -296,7 +313,7 @@ esp_err_t start(const Settings& current, AccessPoint& out) {
                            std::strlen(kPageUrl));
     esp_netif_dhcps_start(apNetif);
 
-    esp_err_t err = startHttp();
+    esp_err_t err = startHttp(true);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "HTTP server failed: %s", esp_err_to_name(err));
         return err;
@@ -312,7 +329,7 @@ esp_err_t startOnLan(const Settings& current) {
     gCurrent = current;
     gEvents = xEventGroupCreate();
     touch();
-    return startHttp();
+    return startHttp(false);
 }
 
 bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & kSavedBit); }

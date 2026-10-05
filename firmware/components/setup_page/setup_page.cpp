@@ -17,6 +17,7 @@ constexpr const char* kPageHead = R"(<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Glance 設定</title>
+<link rel="icon" href="data:,">
 <style>
 body{font-family:system-ui,sans-serif;margin:0 auto;max-width:34rem;padding:1rem;line-height:1.5;color:#111;background:#fff}
 h1{font-size:1.4rem}h2{font-size:1.1rem;margin:1.6rem 0 .4rem}

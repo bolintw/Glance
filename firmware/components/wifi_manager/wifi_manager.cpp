@@ -40,10 +40,13 @@ void WifiManager::handleEvent(esp_event_base_t base, int32_t id, void* data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        // Reason codes are wifi_err_reason_t: 15 = 4-way handshake timeout and
+        // 204 = handshake failed (usually a wrong password), 201 = AP not found.
+        int reason = static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
         if (retryCount_ < kMaxRetries) {
             esp_wifi_connect();
             retryCount_++;
-            ESP_LOGW(kTag, "disconnected, retry %d/%d", retryCount_, kMaxRetries);
+            ESP_LOGW(kTag, "disconnected (reason %d), retry %d/%d", reason, retryCount_, kMaxRetries);
         } else {
             xEventGroupSetBits(events_, kFailBit);
         }
