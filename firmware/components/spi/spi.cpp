@@ -3,7 +3,7 @@
 #include "driver/spi_master.h"
 #include "esp_check.h"
 
-Spi::Spi(const SpiConfig& config) {
+Spi::Spi(const SpiConfig& config) : hostId_(config.hostId) {
     auto host = static_cast<spi_host_device_t>(config.hostId);
 
     spi_bus_config_t busConfig = {};
@@ -23,6 +23,11 @@ Spi::Spi(const SpiConfig& config) {
     deviceConfig.flags = SPI_DEVICE_NO_DUMMY;
     ESP_ERROR_CHECK(
         spi_bus_add_device(host, &deviceConfig, reinterpret_cast<spi_device_handle_t*>(&deviceHandle_)));
+}
+
+Spi::~Spi() {
+    spi_bus_remove_device(static_cast<spi_device_handle_t>(deviceHandle_));
+    spi_bus_free(static_cast<spi_host_device_t>(hostId_));
 }
 
 void Spi::write(std::span<const uint8_t> data) {

@@ -16,12 +16,15 @@ struct SpiConfig {
     size_t maxTransferSize;
 };
 
-// RAII wrapper around one SPI bus + attached device. Bus and device are
-// both torn up on construction; there is currently no need for a
-// multi-device bus, so this class owns the whole bus.
+// RAII wrapper around one SPI bus + attached device: set up on
+// construction, released on destruction (so a later Spi can take the bus
+// again -- setup mode draws the panel more than once per boot). There is
+// currently no need for a multi-device bus, so this class owns the whole
+// bus.
 class Spi {
 public:
     explicit Spi(const SpiConfig& config);
+    ~Spi();
 
     Spi(const Spi&) = delete;
     Spi& operator=(const Spi&) = delete;
@@ -29,5 +32,6 @@ public:
     void write(std::span<const uint8_t> data);
 
 private:
+    int hostId_;
     void* deviceHandle_;
 };

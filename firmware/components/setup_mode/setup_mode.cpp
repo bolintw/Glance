@@ -51,6 +51,7 @@ void onStationJoined(void*, esp_event_base_t, int32_t, void* data) {
     auto* event = static_cast<wifi_event_ap_staconnected_t*>(data);
     StationWatch::Mac mac;
     std::copy(std::begin(event->mac), std::end(event->mac), mac.begin());
+    ESP_LOGI(kTag, "station joined: ..:%02x:%02x:%02x", mac[3], mac[4], mac[5]);
     switch (gStations.onJoined(mac)) {
         case StationWatch::Action::hideQr:
             ESP_LOGI(kTag, "a device joined the access point");
@@ -120,6 +121,7 @@ esp_err_t sendHtml(httpd_req_t* req, const std::string& html) {
 
 esp_err_t handleForm(httpd_req_t* req) {
     touch();
+    ESP_LOGI(kTag, "GET %s", req->uri);
     return sendHtml(req, setup_page::renderForm(gCurrent, gNearby, {}));
 }
 
@@ -242,6 +244,7 @@ esp_err_t handleSave(httpd_req_t* req) {
 // tells the phone there's a captive portal to show.
 esp_err_t handleRedirect(httpd_req_t* req) {
     touch();
+    ESP_LOGI(kTag, "redirecting %s", req->uri);
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", kPageUrl);
     return httpd_resp_send(req, nullptr, 0);
