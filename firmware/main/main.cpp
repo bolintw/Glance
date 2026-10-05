@@ -218,22 +218,27 @@ struct PrivacyPhoto {
 // gBoot.lastPhoto holds an upload's slot, or this plus a built-in's index.
 constexpr uint8_t kBuiltInPhotoKey = 0x40;
 
-// The uploaded photos if there are any, otherwise the built-in ones; picked
-// at random, never the same one twice in a row.
+// The uploaded photos if there are any (a fresh upload first, then shuffled
+// rounds -- see photo_rotation), otherwise the built-in ones, never the same
+// one twice in a row.
 PrivacyPhoto pickPhoto() {
-    std::vector<uint8_t> keys;
-    for (int slot : photo_store::list()) {
-        keys.push_back(static_cast<uint8_t>(slot));
-    }
-    if (keys.empty()) {
+    uint8_t key;
+    std::vector<int> slots = photo_store::list();
+    if (!slots.empty()) {
+        photo_rotation::State rotation = settings::loadPhotoRotation();
+        int last = gBoot.lastPhoto < kBuiltInPhotoKey ? gBoot.lastPhoto : -1;
+        key = static_cast<uint8_t>(photo_rotation::pick(slots, rotation, last, [] { return esp_random(); }));
+        settings::savePhotoRotation(rotation);
+    } else {
+        std::vector<uint8_t> keys;
         for (size_t i = 0; i < photos::kBuiltIn.size(); i++) {
             keys.push_back(static_cast<uint8_t>(kBuiltInPhotoKey + i));
         }
+        if (keys.size() > 1) {
+            std::erase(keys, gBoot.lastPhoto);
+        }
+        key = keys[esp_random() % keys.size()];
     }
-    if (keys.size() > 1) {
-        std::erase(keys, gBoot.lastPhoto);
-    }
-    uint8_t key = keys[esp_random() % keys.size()];
     gBoot.lastPhoto = key;
 
     if (key < kBuiltInPhotoKey) {

@@ -16,6 +16,8 @@ constexpr const char* kIcsUrlKeys[Settings::kMaxCalendars] = {"ics_url_1", "ics_
 constexpr const char* kCwaApiKeyKey = "cwa_key";
 constexpr const char* kWeatherLocationKey = "wx_location";
 constexpr const char* kPrivacyModeKey = "privacy";
+constexpr const char* kPhotoNextKey = "photo_next";    // u8, 0xFF = none
+constexpr const char* kPhotoShownKey = "photo_shown";  // u32 bitmask
 
 constexpr const char* kIcsUrlFallbacks[Settings::kMaxCalendars] = {
     CONFIG_GLANCE_ICS_URL_1, CONFIG_GLANCE_ICS_URL_2, CONFIG_GLANCE_ICS_URL_3,
@@ -57,6 +59,12 @@ public:
         return open_ && nvs_get_u8(handle_, key, &value) == ESP_OK ? value : fallback;
     }
     esp_err_t writeU8(const char* key, uint8_t value) { return nvs_set_u8(handle_, key, value); }
+
+    uint32_t readU32(const char* key, uint32_t fallback) const {
+        uint32_t value;
+        return open_ && nvs_get_u32(handle_, key, &value) == ESP_OK ? value : fallback;
+    }
+    esp_err_t writeU32(const char* key, uint32_t value) { return nvs_set_u32(handle_, key, value); }
     esp_err_t commit() { return nvs_commit(handle_); }
     esp_err_t erase(const char* key) {
         esp_err_t err = nvs_erase_key(handle_, key);
@@ -144,6 +152,24 @@ esp_err_t savePrivacyMode(bool on) {
         return ESP_FAIL;
     }
     esp_err_t err = nvs.writeU8(kPrivacyModeKey, on ? 1 : 0);
+    return err == ESP_OK ? nvs.commit() : err;
+}
+
+photo_rotation::State loadPhotoRotation() {
+    Nvs nvs(NVS_READONLY);
+    uint8_t next = nvs.readU8(kPhotoNextKey, 0xFF);
+    return {next == 0xFF ? -1 : next, nvs.readU32(kPhotoShownKey, 0)};
+}
+
+esp_err_t savePhotoRotation(const photo_rotation::State& state) {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs.writeU8(kPhotoNextKey, state.showNext < 0 ? 0xFF : static_cast<uint8_t>(state.showNext));
+    if (err == ESP_OK) {
+        err = nvs.writeU32(kPhotoShownKey, state.shown);
+    }
     return err == ESP_OK ? nvs.commit() : err;
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device_settings.hpp"
+#include "photo_rotation.hpp"
 #include "esp_err.h"
 
 // Settings itself is in device_settings.hpp, free of ESP-IDF headers so
@@ -25,5 +26,9 @@ esp_err_t forgetWifi();
 // the setup page never touches it. Off if never saved.
 bool loadPrivacyMode();
 esp_err_t savePrivacyMode(bool on);
+
+// Which uploaded photo privacy mode shows next (see photo_rotation).
+photo_rotation::State loadPhotoRotation();
+esp_err_t savePhotoRotation(const photo_rotation::State& state);
 
 }  // namespace settings

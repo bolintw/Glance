@@ -288,6 +288,9 @@ esp_err_t handlePhotoAdd(httpd_req_t* req) {
     if (slot < 0) {
         return sendText(req, "507 Insufficient Storage", "text/plain; charset=utf-8", "照片已滿或寫入失敗");
     }
+    photo_rotation::State rotation = settings::loadPhotoRotation();
+    photo_rotation::added(rotation, slot);  // on the panel next
+    settings::savePhotoRotation(rotation);
     return sendText(req, "200 OK", "application/json", "{\"slot\":" + std::to_string(slot) + "}");
 }
 
@@ -297,9 +300,13 @@ esp_err_t handlePhotoDelete(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
-    if (photo_store::remove(slotFromUri(req->uri)) != ESP_OK) {
+    int slot = slotFromUri(req->uri);
+    if (photo_store::remove(slot) != ESP_OK) {
         return sendText(req, "404 Not Found", "text/plain", "no such photo");
     }
+    photo_rotation::State rotation = settings::loadPhotoRotation();
+    photo_rotation::removed(rotation, slot);
+    settings::savePhotoRotation(rotation);
     return sendText(req, "200 OK", "text/plain", "deleted");
 }
 
