@@ -1,8 +1,7 @@
 # Glance Firmware
 
-ESP-IDF v6.0 project for the eCalendar V2.1 board (ESP32-S3-WROOM-1-N8R8). See
-`refs/private/ecalendar-v2-dev-plan.md` (not tracked in git) for the full
-milestone plan this skeleton corresponds to (M0).
+ESP-IDF v6.0 project for the eCalendar V2.1 board (ESP32-S3-WROOM-1-N8R8). What
+it does is described in the top-level README (Firmware Features).
 
 ## Toolchain
 
@@ -28,7 +27,7 @@ Confirmed with this toolchain (GCC 15.2.0 for xtensa-esp32s3):
 
 ## Display backend
 
-`main.cpp` builds against either the real EPD driver or the
+`main/peripherals.cpp` builds against either the real EPD driver or the
 `SerialDumpDisplay` simulator (see `firmware/tools/display_sim/README.md`),
 picked at compile time via the `Glance Display Backend` Kconfig choice.
 Switch quickly without going through `idf.py menuconfig`:
@@ -41,13 +40,59 @@ idf.py build flash -p <PORT>
 
 ## Structure
 
-- `main/` — app entry point (`app_main`), kept as a thin bootstrap.
-- `components/` — project-local components, one directory per module
-  (`display`, `epd_7in5_v2`, `serial_dump_display`, `wifi_manager`,
-  `time_sync`, ...).
+- `main/` — one run of the device, split by concern:
+  - `main.cpp`: `app_main`, the run from wake-up to sleep
+  - `board.hpp`: every pin, in one place
+  - `app_state`: the RTC boot state shared across restarts and deep sleep, this run's wake log entry, restart and deep sleep
+  - `battery`: the fuel gauge reading, the charge reminder
+  - `buttons`: what a press means (also on a wake from deep sleep)
+  - `refresh`: the calendar, privacy mode, the offline screen
+  - `setup_flow`: setup mode's two steps
+  - `peripherals`: the panel, the status LED and their power rail
+  - `serial_commands`: development builds only (see below)
+- `components/` — project-local components, one directory per module. The ones
+  without ESP-IDF dependencies (ICS parsing, calendar layout, setup pages,
+  photo rotation, wake log format, `run_policy`'s retry and battery rules, ...)
+  are also built and tested on the host.
 - `sdkconfig.defaults` — board-specific config baked in (PSRAM disabled per
   the known GPIO35-37 conflict on this module, 8MB flash, custom partition
   table). Run `idf.py set-target esp32s3` once after a fresh clone to
   generate `sdkconfig`.
-- `partitions.csv` — two 3MB OTA app slots plus on-chip `storage`. Changing
-  it means a USB reflash (`idf.py erase-flash flash`), not an OTA update.
+- `partitions.csv` — two 3MB OTA app slots plus on-chip `storage` (uploaded
+  photos and, in its last 64KB, the wake log). Changing it means a USB reflash
+  (`idf.py erase-flash flash`), not an OTA update.
+
+## Tests
+
+```sh
+make -C test/host                              # unit tests (host compiler, no board)
+make -C test/host preview SCREEN=calendar      # build/preview.png; also setup, lan, joined,
+                                               # intruder, privacy[1], gray[1], offline,
+                                               # lowbattery, charge
+make -C test/host dither-check                 # browser photo dithering vs tools/photos
+```
+
+## Development options
+
+Off by default (release builds use the defaults); set in `idf.py menuconfig`:
+
+- `GLANCE_DEEP_SLEEP` off: stay awake between refreshes so USB stays reachable.
+- `GLANCE_DEV_SETUP_ON_LAN`: serve the setup pages on the home network with no
+  token (see the README's security notes).
+- `GLANCE_DEV_SERIAL_COMMANDS`: commands on the USB serial console —
+  `glance press short|long`, `glance privacy on|off`, `glance refresh`,
+  `glance refresh configured`, `glance wifi <name>|default`, `glance log`
+  (the wake log as CSV), `glance sleep` (deep sleep until the button, for
+  measuring sleep current), `glance battery <0-100>` (the next boot sees that
+  state of charge).
+
+## Tools
+
+- `tools/display_sim/capture.py` — capture a run's log (and frames, with the
+  simulator backend); `--command` sends a serial command first.
+- `tools/battery/analyze_wake_log.py` — battery life and clock drift from the
+  wake log CSV.
+- `tools/board/check_pins.py` — check an EasyEDA netlist against this board's
+  ESP32-S3 pin rules and print the pin map.
+- `tools/font_subset/`, `tools/icons/`, `tools/photos/` — regenerate the baked
+  fonts, icons and built-in photos.

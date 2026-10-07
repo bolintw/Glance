@@ -73,6 +73,31 @@ This table maps critical signals to their corresponding GPIO pins on the ESP32-S
 | D-        | 13              | USB_D- (GPIO19) | USB Negative signal                     |
 | D+        | 14              | USB_D+ (GPIO20) | USB Positive signal                     |
 
+### Known Issues (V2.1)
+-   **The USB/battery power-path MOSFET (Q2) is fitted the wrong way round.** Its source is on VBAT and its drain on VSYS, so with USB plugged in the body diode feeds VSYS into the battery, bypassing the TP4057's 4.2V regulation: the battery was measured at 4.5V, and only its own protection board stopped it. Don't leave a battery charging unattended on V2.1. Fix on an existing board: replace Q2 with a Schottky diode from VBAT (anode) to VSYS (cathode), or rework it so the drain is on VBAT. V3.0 fixes it.
+-   **The SPI bus uses GPIO35-37**, which the module's Octal PSRAM also uses, so PSRAM stays disabled. V3.0 moves the panel off those pins.
+-   **R15 = 1.5kΩ sets about 667mA**, over the TP4057's 500mA rating; fit 4.7kΩ (about 213mA).
+
+---
+
+## 3. Firmware Features
+
+The firmware (`firmware/`, ESP-IDF v6.0) wakes once a day, draws the panel and goes back to deep sleep. Everything else is set up from a phone.
+
+-   **Calendar:** up to five private iCal (ICS) URLs, merged into the next ten events, shown as date and title only, two columns of five. Recurring events, exceptions and time zones are expanded on the device.
+-   **Weather:** today's forecast for a Taiwan county from the Central Weather Administration (an API key is entered at setup).
+-   **Daily refresh at 07:00.** A failed refresh is retried hourly, at most three times in a row (07:00, 08:00, 09:00); then it waits for the next day.
+-   **The button:** a short press toggles privacy mode; a long press (3 s, the LED lights when it's long enough) opens setup mode. It wakes the device from deep sleep.
+-   **Privacy mode:** date, weather and a photo instead of the events, for when guests are around. Photos are uploaded from the setup page, cropped and dithered in the browser (zoom out to fit a whole photo, gaps filled white or black), and shown in 4 shades of gray. A fresh upload is shown next, then the photos rotate in shuffled rounds. Two Hokusai prints are built in.
+-   **Photo frame:** with no calendar configured at all, the device always shows privacy mode's layout.
+-   **Setup in two steps**, each opened by a QR code on the panel: first a WiFi access point to enter the home WiFi, then a page on the home network (with a one-time token) for calendars, weather, photos and the WiFi itself, so the phone keeps its internet while looking up calendar URLs. A second device joining closes setup. A newly saved WiFi that doesn't connect falls back to the last one that did. Both pages can erase everything, after a confirmation page.
+-   **Status icons** appear in the top-right corner only when something is wrong: a crossed-out WiFi (can't get online) and an empty battery (low). After a few failed refreshes, or right after setup, the panel switches to an offline screen (privacy mode's layout with the icon) rather than leaving a stale calendar up.
+-   **Battery:** read from the MAX17048 fuel gauge each wake-up. Under 15% the icon shows and updates wait; under 5% (or 3.45V at rest) a "please charge" screen goes up and the device only checks the gauge hourly until it's back above 10% and 3.55V.
+-   **Wake log:** every wake-up records the battery, what the run did and how long it took, in a ring of 2048 entries on flash. The setup page offers it as CSV; `firmware/tools/battery/analyze_wake_log.py` turns it into battery life and clock drift.
+-   **Updates:** after a successful refresh the device checks this repository's latest GitHub release and installs a newer `vX.Y.Z` build over HTTPS, rolling back if it doesn't boot. Releases are built by `.github/workflows/release.yml`.
+
+Measured on V2.1: about 66µA in deep sleep with the peripheral rail cut, about 15s awake per refresh.
+
 ---
 
 ## Security Notes
