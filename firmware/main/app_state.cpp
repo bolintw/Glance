@@ -60,10 +60,14 @@ void logRun(wake_log::Result result) {
     esp_restart();
 }
 
-[[noreturn]] void deepSleep(std::optional<int64_t> wakeAt) {
+[[noreturn]] void deepSleep(std::optional<int64_t> wakeAt, bool buttonOnExt0) {
     gBoot.wakeAt = wakeAt.value_or(0);
     esp_wifi_stop();  // harmless if WiFi never started
-    esp_sleep_enable_ext1_wakeup_io(BIT64(board::kButtonPin), ESP_EXT1_WAKEUP_ANY_LOW);
+    if (buttonOnExt0) {
+        esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(board::kButtonPin), 0);
+    } else {
+        esp_sleep_enable_ext1_wakeup_io(BIT64(board::kButtonPin), ESP_EXT1_WAKEUP_ANY_LOW);
+    }
     if (wakeAt) {
         int64_t seconds = std::max<int64_t>(*wakeAt - time(nullptr), 1);
         esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000);

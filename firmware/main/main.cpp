@@ -48,7 +48,7 @@ void noteWakeCause() {
     uint32_t causes = esp_sleep_get_wakeup_causes();
     gRun.resetReason = static_cast<uint8_t>(esp_reset_reason());
     gRun.wake = (causes & BIT(ESP_SLEEP_WAKEUP_TIMER))  ? wake_log::Wake::timer
-                : (causes & BIT(ESP_SLEEP_WAKEUP_EXT1)) ? wake_log::Wake::button
+                : (causes & (BIT(ESP_SLEEP_WAKEUP_EXT1) | BIT(ESP_SLEEP_WAKEUP_EXT0))) ? wake_log::Wake::button
                 : esp_reset_reason() == ESP_RST_POWERON ? wake_log::Wake::powerOn
                                                         : wake_log::Wake::other;
     if (gRun.wake == wake_log::Wake::button) {

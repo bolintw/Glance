@@ -63,10 +63,11 @@ void serialCommandTask(void*) {
                 gBoot.fakeBatteryPct = static_cast<int8_t>(std::clamp(std::atoi(line.c_str() + 15), 0, 100));
                 ESP_LOGW(kTag, "next boot sees the battery at %d%%", gBoot.fakeBatteryPct);
                 restartInto(false);
-            } else if (line == "glance sleep") {
-                ESP_LOGW(kTag, "deep sleep until the button");
+            } else if (line == "glance sleep" || line == "glance sleep ext0") {
+                bool ext0 = line.ends_with("ext0");
+                ESP_LOGW(kTag, "deep sleep until the button (%s)", ext0 ? "ext0, RTC peripherals on" : "ext1");
                 peripheralsOff();
-                deepSleep(std::nullopt);
+                deepSleep(std::nullopt, ext0);
             } else if (line == "glance refresh configured") {
                 gBoot.justConfigured = true;
                 restartInto(false);

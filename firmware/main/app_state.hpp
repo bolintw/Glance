@@ -54,7 +54,10 @@ void logRun(wake_log::Result result);
 [[noreturn]] void restartInto(bool enterSetup);
 
 // Deep sleep until `wakeAt` (Unix time) or a press of the button, whichever
-// comes first; with no `wakeAt`, until the button only.
-[[noreturn]] void deepSleep(std::optional<int64_t> wakeAt);
+// comes first; with no `wakeAt`, until the button only. The button wakes
+// through ext1, which lets the RTC peripherals power down; `buttonOnExt0`
+// (development, for comparing sleep currents) uses ext0 instead, which
+// keeps them powered.
+[[noreturn]] void deepSleep(std::optional<int64_t> wakeAt, bool buttonOnExt0 = false);
 
 }  // namespace glance

@@ -11,6 +11,8 @@
 //   glance wifi default          (back to the menuconfig network and password)
 //   glance log                   (the wake log, as CSV)
 //   glance sleep                 (deep sleep until the button: for measuring sleep current)
+//   glance sleep ext0            (the same, the button on ext0: keeps the RTC peripherals powered,
+//                                 to measure what a second, ext0 wake source would cost)
 //   glance battery <0-100>       (the next boot sees this state of charge: tries the low-battery paths)
 namespace glance {
 
