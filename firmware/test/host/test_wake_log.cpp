@@ -117,6 +117,36 @@ void testCsv() {
     CHECK(csv.find("\n2,,power-on,setup,0,0.0,,,,,,\n") != std::string::npos);
 }
 
+void testHealth() {
+    const uint32_t day = 86400, t0 = 1791244800;
+    auto entry = [](uint32_t time, wake_log::Result result, uint8_t reset, uint16_t mv) {
+        Entry e;
+        e.time = time;
+        e.result = result;
+        e.resetReason = reset;
+        e.millivolts = mv;
+        return e;
+    };
+    wake_log::HealthTally tally(t0 + 7 * day);  // the last week of a two-week log
+    tally.add(entry(t0, wake_log::Result::calendar, 8, 4000));                    // old: counts for nothing but the last good refresh
+    tally.add(entry(t0 + 1 * day, wake_log::Result::fetchFailed, 4, 4490));       // old crash, old high voltage
+    tally.add(entry(t0 + 8 * day, wake_log::Result::calendar, 4, 4100));          // after a panic
+    tally.add(entry(t0 + 9 * day, wake_log::Result::offlineKept, 9, 0));          // brownout, no gauge reading
+    tally.add(entry(t0 + 10 * day, wake_log::Result::offlineShown, 8, 4450));     // high voltage
+    tally.add(entry(0, wake_log::Result::setup, 4, 0));                          // no clock: left out of the counts
+    const wake_log::Health& h = tally.health();
+    CHECK(h.lastGoodRefresh == t0 + 8 * day);
+    CHECK(h.latestBattery && h.latestBattery->millivolts == 4450);
+    CHECK(h.crashes == 1);
+    CHECK(h.brownouts == 1);
+    CHECK(h.failedRuns == 2);
+    CHECK(h.highVoltage == 1 && h.highestMillivolts == 4450);
+
+    wake_log::HealthTally all(0);  // no window: everything counts
+    all.add(entry(t0 + 1 * day, wake_log::Result::fetchFailed, 4, 4490));
+    CHECK(all.health().crashes == 1 && all.health().failedRuns == 1 && all.health().highestMillivolts == 4490);
+}
+
 void testMax17048() {
     CHECK(max17048::millivolts(0) == 0);
     CHECK(max17048::millivolts(0xC800) == 4000);  // 51200 * 78.125 uV
@@ -134,6 +164,7 @@ int main() {
     testBadEntries();
     testPositions();
     testCsv();
+    testHealth();
     testMax17048();
     if (failures == 0) {
         std::printf("all wake_log tests passed\n");

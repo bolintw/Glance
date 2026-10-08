@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -8,6 +9,7 @@
 #include <vector>
 
 #include "device_settings.hpp"
+#include "wake_log.hpp"
 
 // The setup page served in setup mode: the HTML form, and turning a
 // submitted form back into Settings. Pure C++, tested on the host; the
@@ -27,6 +29,16 @@ extern const std::span<const char* const> kCounties;
 // Both forms come pre-filled with `current`. Secrets (WiFi password,
 // calendar URLs, API key) are never sent back to the browser -- a set one
 // shows as "已設定" and is kept unless replaced or explicitly removed.
+// The device's state, shown at the top of the home-network form so a problem
+// the panel only hints at (with a status icon, or not at all) can be read in
+// full. Built from the wake log and the calendar failure times.
+struct DeviceStatus {
+    int64_t now = 0;  // 0 when the clock isn't set: dates are then left out
+    int32_t utcOffset = 0;
+    wake_log::Health health;  // over the last week
+    std::array<uint32_t, Settings::kMaxCalendars> calendarFailingSince{};  // Unix time; 0 = fine
+};
+
 // `errors` are shown on top; `nearbySsids` feeds the WiFi name suggestions.
 // `revertedFrom` (if any) names a newly saved WiFi that didn't connect, so
 // the device went back to the current one -- the page says so. Both end
@@ -35,7 +47,8 @@ extern const std::span<const char* const> kCounties;
 std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
                            std::span<const std::string> errors, std::string_view revertedFrom = {});
 std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
-                       std::span<const std::string> errors, std::string_view revertedFrom = {});
+                       std::span<const std::string> errors, std::string_view revertedFrom = {},
+                       const DeviceStatus* status = nullptr);
 
 // Shown after a successful save, just before the device restarts.
 std::string renderSaved();

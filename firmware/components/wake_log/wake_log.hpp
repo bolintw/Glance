@@ -69,6 +69,32 @@ Position nextPosition(std::span<const uint8_t> region);
 void forEachInOrder(std::span<const uint8_t> region, const std::function<void(const Entry&)>& visit);
 std::vector<Entry> entriesInOrder(std::span<const uint8_t> region);
 
+// What the log says about the device's health, for the setup page.
+inline constexpr uint16_t kHighMillivolts = 4300;  // a Li-ion charger stops at 4.2V
+struct Health {
+    uint32_t lastGoodRefresh = 0;        // newest calendar or online privacy run (Unix time; 0 = none)
+    std::optional<Entry> latestBattery;  // newest entry with a battery reading
+    // Counted within the window only:
+    int crashes = 0;      // runs that started after a panic, a watchdog or a CPU lock-up
+    int brownouts = 0;    // ...after a brownout or a power glitch
+    int failedRuns = 0;   // refreshes that didn't get the calendar or photo up, retries included
+    int highVoltage = 0;  // battery readings over kHighMillivolts (charging gone wrong)
+    uint16_t highestMillivolts = 0;
+};
+
+// Builds a Health from the entries, oldest first. `windowStart` (Unix time)
+// limits the counts to recent runs; 0 counts everything.
+class HealthTally {
+public:
+    explicit HealthTally(uint32_t windowStart) : windowStart_(windowStart) {}
+    void add(const Entry& entry);
+    const Health& health() const { return health_; }
+
+private:
+    uint32_t windowStart_;
+    Health health_;
+};
+
 // CSV, a line at a time (each ends in "\n"); times in local time (`utcOffset`).
 std::string csvHeader();
 std::string csvLine(const Entry& entry, int32_t utcOffset);

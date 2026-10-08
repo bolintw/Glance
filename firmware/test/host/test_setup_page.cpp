@@ -179,6 +179,35 @@ void testRevertNoticeAndReset() {
     CHECK(!setup_page::confirmsReset("confirm=no"));
 }
 
+void testDeviceStatus() {
+    setup_page::DeviceStatus status;
+    status.utcOffset = 8 * 3600;
+    std::string none = setup_page::renderForm(configured(), {}, {}, {}, &status);
+    CHECK(contains(none, "<h2>裝置狀態</h2>"));
+    CHECK(contains(none, "最後成功更新：還沒有紀錄"));
+    CHECK(contains(none, "電池：沒有讀到"));
+    CHECK(contains(none, "最近 7 天沒有異常"));
+    CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "裝置狀態"));  // no status, no section
+
+    wake_log::Entry battery;
+    battery.millivolts = 3987;
+    battery.soc256 = 82 * 256 + 100;
+    status.health.lastGoodRefresh = 1791414000;  // 2026-10-07 23:00 UTC = 10/08 07:00 in Taiwan
+    status.health.latestBattery = battery;
+    status.health.crashes = 2;
+    status.health.failedRuns = 5;
+    status.health.highVoltage = 3;
+    status.health.highestMillivolts = 4490;
+    status.calendarFailingSince[1] = 1791039600;  // 10/03 15:00 UTC = 10/03 23:00
+    std::string html = setup_page::renderForm(configured(), {}, {}, {}, &status);
+    CHECK(contains(html, "最後成功更新：10/08 07:00"));
+    CHECK(contains(html, "電池：3.99V，82%"));
+    CHECK(contains(html, "行事曆 2：從 10/03 起抓不到"));
+    CHECK(!contains(html, "行事曆 1："));
+    CHECK(contains(html, "電池電壓偏高：最高 4.49V（3 次）"));
+    CHECK(contains(html, "最近 7 天：當機重開 2 次、更新失敗 5 次（含重試）"));
+}
+
 void testWifiQrPayload() {
     CHECK(setup_page::wifiQrPayload("Glance-AB12", "abcd2345") == "WIFI:T:WPA;S:Glance-AB12;P:abcd2345;;");
     // Every special character gets a backslash; the password here is p:q\"
@@ -216,6 +245,7 @@ int main() {
     testFormsNeverLeakSecrets();
     testBlankSecretsAreKept();
     testRevertNoticeAndReset();
+    testDeviceStatus();
     testWifiStepKeepsToWifi();
     testHomeFormChangesWifi();
     testNewNetworkDropsOldPassword();

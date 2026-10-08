@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <cstring>
+#include <ctime>
 #include <vector>
 
 #include "captive_dns.hpp"
@@ -203,15 +204,31 @@ bool authorize(httpd_req_t* req) {
     return false;
 }
 
+// The device status for the top of the home-network form (see
+// setup_page::DeviceStatus): the last week of the wake log, and which
+// calendars are failing.
+setup_page::DeviceStatus deviceStatus() {
+    setup_page::DeviceStatus status;
+    status.now = time_sync::clockIsPlausible() ? time(nullptr) : 0;
+    status.utcOffset = time_sync::kUtcOffsetSeconds;
+    constexpr int64_t kWeek = 7 * 24 * 3600;
+    wake_log::HealthTally tally(status.now ? static_cast<uint32_t>(status.now - kWeek) : 0);
+    wake_log_store::forEach([&](const wake_log::Entry& e) { tally.add(e); });
+    status.health = tally.health();
+    status.calendarFailingSince = settings::loadCalendarFailures();
+    return status;
+}
+
 esp_err_t handleForm(httpd_req_t* req) {
     touch();
     ESP_LOGI(kTag, "GET %s", gMode == Mode::home ? "/" : req->uri);  // home mode's URI carries the token
     if (!authorize(req)) {
         return ESP_OK;
     }
+    const setup_page::DeviceStatus status = gMode == Mode::accessPoint ? setup_page::DeviceStatus{} : deviceStatus();
     return sendHtml(req, gMode == Mode::accessPoint
                              ? setup_page::renderWifiForm(gCurrent, gNearby, gWifiErrors, gRevertedFrom)
-                             : setup_page::renderForm(gCurrent, gNearby, {}, gRevertedFrom));
+                             : setup_page::renderForm(gCurrent, gNearby, {}, gRevertedFrom, &status));
 }
 
 // The whole request body, or nullopt (after answering) if it's too big or

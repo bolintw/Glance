@@ -1,5 +1,7 @@
 #include "setup_page.hpp"
 
+#include <cstdio>
+#include <ctime>
 
 namespace setup_page {
 namespace {
@@ -28,6 +30,7 @@ input[type=text],input[type=password],input[type=url],select{width:100%;box-sizi
 .errors{background:#fde8e8;border:1px solid #c00;padding:.5rem 1rem}
 .notice{background:#fff6dc;border:1px solid #b80;padding:.5rem 1rem}
 .danger{color:#b00}
+.status{padding-left:1.2rem;margin:.4rem 0}.status li{margin:.15rem 0}.status .warn{color:#b00}
 button{margin-top:1.6rem;width:100%;padding:.8rem;font-size:1.1rem}
 </style></head><body>
 )";
@@ -177,6 +180,62 @@ void revertNotice(std::string& html, const Settings& current, std::string_view r
 }
 
 // The first of two steps: only opens the confirmation page (renderResetConfirm).
+std::string when(uint32_t unixTime, int32_t utcOffset) {
+    time_t local = static_cast<time_t>(unixTime) + utcOffset;
+    struct tm t;
+    gmtime_r(&local, &t);
+    char text[16];
+    std::strftime(text, sizeof(text), "%m/%d %H:%M", &t);
+    return text;
+}
+
+void statusSection(std::string& html, const DeviceStatus& s) {
+    const wake_log::Health& h = s.health;
+    html += "<h2>裝置狀態</h2>\n<ul class=\"status\">";
+    html += "<li>最後成功更新：" + (h.lastGoodRefresh ? when(h.lastGoodRefresh, s.utcOffset) : std::string("還沒有紀錄")) +
+            "</li>";
+    if (h.latestBattery) {
+        char text[64];
+        std::snprintf(text, sizeof(text), "電池：%.2fV，%d%%", h.latestBattery->millivolts / 1000.0,
+                      h.latestBattery->soc256 / 256);
+        html += "<li>" + std::string(text) + "</li>";
+    } else {
+        html += "<li>電池：沒有讀到（沒接電池？）</li>";
+    }
+    for (size_t i = 0; i < s.calendarFailingSince.size(); i++) {
+        if (uint32_t since = s.calendarFailingSince[i]) {
+            html += "<li class=\"warn\">行事曆 " + std::to_string(i + 1) + "：從 " + when(since, s.utcOffset).substr(0, 5) +
+                    " 起抓不到，請確認網址是否還有效</li>";
+        }
+    }
+    if (h.highVoltage > 0) {
+        char text[96];
+        std::snprintf(text, sizeof(text), "電池電壓偏高：最高 %.2fV（%d 次），充電電路可能有問題", h.highestMillivolts / 1000.0,
+                      h.highVoltage);
+        html += "<li class=\"warn\">" + std::string(text) + "</li>";
+    }
+    std::vector<std::string> issues;
+    if (h.crashes) {
+        issues.push_back("當機重開 " + std::to_string(h.crashes) + " 次");
+    }
+    if (h.brownouts) {
+        issues.push_back("欠壓重開 " + std::to_string(h.brownouts) + " 次");
+    }
+    if (h.failedRuns) {
+        issues.push_back("更新失敗 " + std::to_string(h.failedRuns) + " 次（含重試）");
+    }
+    if (issues.empty()) {
+        html += "<li>最近 7 天沒有異常</li>";
+    } else {
+        std::string joined;
+        for (const std::string& issue : issues) {
+            joined += (joined.empty() ? "" : "、") + issue;
+        }
+        html += "<li class=\"warn\">最近 7 天：" + joined + "</li>";
+    }
+    html += "</ul>\n";
+}
+
 void resetForm(std::string& html) {
     html += "<h2>清除所有資料</h2>\n"
             "<form method=\"get\" action=\"/reset\"><button type=\"submit\" class=\"danger\">清除所有資料…</button></form>\n";
@@ -237,11 +296,15 @@ std::string renderWifiForm(const Settings& current, std::span<const std::string>
 }
 
 std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
-                       std::span<const std::string> errors, std::string_view revertedFrom) {
+                       std::span<const std::string> errors, std::string_view revertedFrom,
+                       const DeviceStatus* status) {
     std::string html = kPageHead;
     html += "<h1>Glance 設定</h1>\n";
     errorBox(html, errors);
     revertNotice(html, current, revertedFrom);
+    if (status) {
+        statusSection(html, *status);
+    }
     html += "<form method=\"post\" action=\"/save\">\n";
 
     html += "<h2>行事曆</h2>\n<p class=\"note\">Google 日曆：設定 → 選擇日曆 → 「iCal 格式的私人網址」。"

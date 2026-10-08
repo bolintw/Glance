@@ -136,6 +136,48 @@ std::vector<Entry> entriesInOrder(std::span<const uint8_t> region) {
     return entries;
 }
 
+void HealthTally::add(const Entry& e) {
+    if (e.result == Result::calendar || e.result == Result::privacy) {
+        health_.lastGoodRefresh = std::max(health_.lastGoodRefresh, e.time);
+    }
+    if (e.millivolts != 0) {
+        health_.latestBattery = e;
+    }
+    if (windowStart_ != 0 && (e.time == 0 || e.time < windowStart_)) {
+        return;
+    }
+    switch (e.resetReason) {  // esp_reset_reason_t
+        case 4:   // ESP_RST_PANIC
+        case 5:   // ESP_RST_INT_WDT
+        case 6:   // ESP_RST_TASK_WDT
+        case 7:   // ESP_RST_WDT
+        case 15:  // ESP_RST_CPU_LOCKUP
+            health_.crashes++;
+            break;
+        case 9:   // ESP_RST_BROWNOUT
+        case 14:  // ESP_RST_PWR_GLITCH
+            health_.brownouts++;
+            break;
+        default:
+            break;
+    }
+    switch (e.result) {
+        case Result::offlineShown:
+        case Result::offlineKept:
+        case Result::fetchFailed:
+        case Result::panelFailed:
+        case Result::calendarError:
+            health_.failedRuns++;
+            break;
+        default:
+            break;
+    }
+    if (e.millivolts > kHighMillivolts) {
+        health_.highVoltage++;
+        health_.highestMillivolts = std::max(health_.highestMillivolts, e.millivolts);
+    }
+}
+
 std::string csvHeader() {
     return "seq,time,wake,result,reset_reason,awake_s,battery_v,soc_pct,charge_rate_pct_per_h,wifi_s,rssi_dbm,"
            "clock_drift_ms\n";
