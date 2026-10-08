@@ -21,6 +21,7 @@ constexpr const char* kPhotoShownKey = "photo_shown";  // u32 bitmask
 constexpr const char* kWorkingSsidKey = "wifi_ok_ssid";
 constexpr const char* kWorkingPasswordKey = "wifi_ok_pass";
 constexpr const char* kWifiRevertKey = "wifi_reverted";  // the network that didn't connect
+constexpr const char* kCalendarFailuresKey = "cal_fail";  // blob: uint32 per slot
 
 constexpr const char* kIcsUrlFallbacks[Settings::kMaxCalendars] = {
     CONFIG_GLANCE_ICS_URL_1, CONFIG_GLANCE_ICS_URL_2, CONFIG_GLANCE_ICS_URL_3,
@@ -68,6 +69,11 @@ public:
         return open_ && nvs_get_u32(handle_, key, &value) == ESP_OK ? value : fallback;
     }
     esp_err_t writeU32(const char* key, uint32_t value) { return nvs_set_u32(handle_, key, value); }
+    bool readBlob(const char* key, void* out, size_t size) const {
+        size_t length = size;
+        return open_ && nvs_get_blob(handle_, key, out, &length) == ESP_OK && length == size;
+    }
+    esp_err_t writeBlob(const char* key, const void* data, size_t size) { return nvs_set_blob(handle_, key, data, size); }
     esp_err_t commit() { return nvs_commit(handle_); }
     nvs_handle_t handle() const { return handle_; }
     esp_err_t erase(const char* key) {
@@ -209,6 +215,23 @@ esp_err_t eraseAll() {
     }
     ESP_LOGW(kTag, "all settings erased: %s", esp_err_to_name(err));
     return err;
+}
+
+CalendarFailures loadCalendarFailures() {
+    CalendarFailures failures{};
+    if (!Nvs(NVS_READONLY).readBlob(kCalendarFailuresKey, failures.data(), sizeof(failures))) {
+        failures.fill(0);
+    }
+    return failures;
+}
+
+esp_err_t saveCalendarFailures(const CalendarFailures& failures) {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = nvs.writeBlob(kCalendarFailuresKey, failures.data(), sizeof(failures));
+    return err == ESP_OK ? nvs.commit() : err;
 }
 
 bool loadPrivacyMode() { return Nvs(NVS_READONLY).readU8(kPrivacyModeKey, 0) != 0; }

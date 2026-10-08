@@ -46,6 +46,24 @@ def battery_low():
     return img.resize((SIZE, SIZE), Image.LANCZOS).point(lambda v: 255 if v > 110 else 0)
 
 
+def calendar_error():
+    s = SIZE * SS
+    img = Image.new("L", (s, s), 0)
+    d = ImageDraw.Draw(img)
+    stroke = int(s * 0.09)
+    left, top, right, bottom = s * 0.08, s * 0.16, s * 0.92, s * 0.92
+    d.rounded_rectangle([left, top, right, bottom], radius=s * 0.08, outline=255, width=stroke)
+    d.rectangle([left, top, right, top + s * 0.18], fill=255)  # the header band
+    for x in (s * 0.32, s * 0.68):  # the binding rings
+        d.line([x, s * 0.04, x, s * 0.24], fill=255, width=stroke)
+    # A cross in the page: the calendar didn't come through.
+    x0, y0, x1, y1 = s * 0.32, s * 0.46, s * 0.68, s * 0.80
+    d.line([x0, y0, x1, y1], fill=255, width=stroke)
+    d.line([x0, y1, x1, y0], fill=255, width=stroke)
+    return img.resize((SIZE, SIZE), Image.LANCZOS).point(lambda v: 255 if v > 110 else 0)
+
+
 if __name__ == "__main__":
     wifi_off().save(HERE / "src" / "wifi_off.png")
     battery_low().save(HERE / "src" / "battery_low.png")
+    calendar_error().save(HERE / "src" / "calendar_error.png")

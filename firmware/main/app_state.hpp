@@ -25,7 +25,7 @@ struct BootState {
     bool justConfigured;    // setup mode just saved; report WiFi trouble at once
     bool homeStepNext;      // the access point's WiFi step just saved: a first setup goes on
     bool pressed;           // a short press asked for this run: the screen has to change
-    bool offlineShown;      // the panel shows the offline icon: short presses don't switch modes
+    bool offlineShown;      // the panel shows no calendar (offline, or none came through): short presses don't switch modes
     bool batteryCritical;   // the charge reminder is up (see run_policy::kCriticalPct)
     uint8_t wifiFailures;   // runs in a row that couldn't get online
     uint8_t failedRuns;     // refreshes in a row that failed, for any reason

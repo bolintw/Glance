@@ -30,6 +30,11 @@ inline constexpr uint16_t kCriticalMillivolts = 3450;
 inline constexpr int kResumePct = 10;
 inline constexpr uint16_t kResumeMillivolts = 3550;
 
+// A calendar that has failed this long -- two daily refreshes in a row (an
+// hour's slack for the wake-up time) -- gets the calendar-sync icon. One bad
+// morning doesn't.
+inline constexpr int64_t kCalendarStaleSeconds = 47 * 3600;
+
 // Whether the next wake-up is a retry (an hour on) rather than the next
 // daily refresh, after `failedRunsInARow` failed refreshes (0 after one that
 // worked).
@@ -39,6 +44,10 @@ bool retrySoon(uint8_t failedRunsInARow);
 // screen: right after setup (most likely a mistyped password), after a press
 // (it has to change something), or once the failures pile up.
 bool offlineScreenDue(bool justConfigured, bool pressed, uint8_t offlineRunsInARow);
+
+// Whether a calendar failing since `failingSince` (Unix time; 0 = it isn't)
+// has failed long enough to show.
+bool calendarStale(uint32_t failingSince, int64_t now);
 
 // The battery is low: the status icon, and no OTA downloads.
 bool batteryLow(uint16_t soc256);

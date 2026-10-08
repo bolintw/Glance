@@ -50,6 +50,7 @@ const char* resultName(Result result) {
         case Result::setup: return "setup";
         case Result::chargeReminder: return "charge-reminder";
         case Result::stillLow: return "still-low";
+        case Result::calendarError: return "calendar-error";
     }
     return "?";
 }

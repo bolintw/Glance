@@ -97,8 +97,13 @@ std::optional<GrayOverlay> grayOverlayFor([[maybe_unused]] const PrivacyPhoto& p
 // Fetches every configured calendar into one EventCollector. nullopt if
 // calendars are configured but none could be fetched -- an empty list would
 // wrongly read as "nothing coming up". Logs the slot number, never the URL,
-// since the URL is a secret.
-std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& settings) {
+// since the URL is a secret. Keeps track of when each calendar started
+// failing; `stale` says whether one has failed long enough to show
+// (run_policy::calendarStale).
+std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& settings, bool& stale) {
+    const int64_t now = time(nullptr);
+    settings::CalendarFailures failures = settings::loadCalendarFailures();
+    const settings::CalendarFailures before = failures;
     ics::EventCollector collector({
         .now = time(nullptr),
         .displayUtcOffset = time_sync::kUtcOffsetSeconds,
@@ -111,6 +116,7 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
     for (size_t slot = 0; slot < settings.icsUrls.size(); slot++) {
         const std::string& url = settings.icsUrls[slot];
         if (url.empty()) {
+            failures[slot] = 0;
             continue;
         }
         configured++;
@@ -118,6 +124,18 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
             calendar_fetch::fetchLines(url.c_str(), [&](std::string_view line) { collector.onLine(line); });
         ESP_LOGI(kTag, "calendar %zu: %s", slot + 1, esp_err_to_name(err));
         fetched += err == ESP_OK;
+        if (err == ESP_OK) {
+            failures[slot] = 0;
+        } else if (failures[slot] == 0) {
+            failures[slot] = static_cast<uint32_t>(now);
+        }
+    }
+    if (failures != before) {
+        settings::saveCalendarFailures(failures);
+    }
+    stale = std::ranges::any_of(failures, [&](uint32_t since) { return run_policy::calendarStale(since, now); });
+    if (stale) {
+        ESP_LOGW(kTag, "a calendar hasn't come through for two days");
     }
     ESP_LOGI(kTag, "heap lowest since boot: %zu before fetching, %zu after", lowestBefore,
              heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT));
@@ -203,20 +221,24 @@ std::optional<int64_t> plausibleNow() {
     return std::nullopt;
 }
 
-// Privacy mode's layout without weather, plus the crossed-out WiFi icon:
-// what the panel shows when the device can't get online.
-void showOffline() {
+// Privacy mode's layout plus a status icon, for when there's no calendar to
+// show: offline (no weather, crossed-out WiFi), or no calendar for two days
+// (weather, calendar with a cross).
+void showWithoutCalendar(const std::optional<weather::Forecast>& forecast, calendar_view::Status status,
+                         const char* what) {
     std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, board::kPanelSize);
     PrivacyPhoto photo = pickPhoto();
-    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, std::nullopt, photo.mono,
-                                 {.offline = true, .lowBattery = gLowBattery});
+    status.lowBattery = gLowBattery;
+    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono, status);
     auto overlay = grayOverlayFor(photo);
-    ESP_LOGI(kTag, "showing the offline screen");
+    ESP_LOGI(kTag, "showing the %s screen", what);
     if (show(framebuffer, overlay ? &*overlay : nullptr)) {
         gBoot.offlineShown = true;
     }
 }
+
+void showOffline() { showWithoutCalendar(std::nullopt, {.offline = true}, "offline"); }
 
 // The calendar couldn't get online: the offline screen if it's due,
 // otherwise the last calendar stays up.
@@ -298,18 +320,26 @@ bool refresh(Settings& settings) {
         return false;
     }
     gBoot.wifiFailures = 0;
-    auto events = fetchUpcomingEvents(settings);
-    if (!events) {
+    bool calendarStale = false;
+    auto events = fetchUpcomingEvents(settings, calendarStale);
+    if (!events && !calendarStale) {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
         gRun.result = wake_log::Result::fetchFailed;
         return false;
     }
     auto forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
+    if (!events) {
+        // Nothing to draw a calendar with, for two days now: say so rather
+        // than leave an ever older calendar up.
+        showWithoutCalendar(forecast, {.calendarError = true}, "no-calendar");
+        gRun.result = wake_log::Result::calendarError;
+        return false;
+    }
 
     std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, board::kPanelSize);
     calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast,
-                          {.lowBattery = gLowBattery});
+                          {.lowBattery = gLowBattery, .calendarError = calendarStale});
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");

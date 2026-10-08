@@ -40,6 +40,18 @@ void testOfflineScreen() {
     CHECK(offlineScreenDue(false, true, 1));  // after a press
 }
 
+void testCalendarStale() {
+    using run_policy::calendarStale;
+    constexpr int64_t kDay = 24 * 3600;
+    const int64_t monday7 = 1791327600;  // some 07:00
+    CHECK(!calendarStale(0, monday7));  // not failing
+    // Failed at Monday 07:00; Tuesday 07:00 fails too: still just one bad day.
+    CHECK(!calendarStale(static_cast<uint32_t>(monday7), monday7 + kDay));
+    // Wednesday 07:00, even waking a little early: two days, show it.
+    CHECK(calendarStale(static_cast<uint32_t>(monday7), monday7 + 2 * kDay - 30 * 60));
+    CHECK(calendarStale(static_cast<uint32_t>(monday7), monday7 + 3 * kDay));
+}
+
 void testBattery() {
     using run_policy::batteryLow;
     using run_policy::batteryTooLow;
@@ -63,6 +75,7 @@ void testBattery() {
 int main() {
     testRetries();
     testOfflineScreen();
+    testCalendarStale();
     testBattery();
     if (failures == 0) {
         std::printf("all run_policy tests passed\n");

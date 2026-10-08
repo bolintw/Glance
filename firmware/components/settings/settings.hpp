@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -43,6 +45,13 @@ std::string takeWifiRevertNote();
 // Everything this namespace holds -- settings, the remembered WiFi, privacy
 // mode, photo rotation -- back to never saved. (Photos are photo_store's.)
 esp_err_t eraseAll();
+
+// When each calendar slot started failing to download (Unix time; 0 = it
+// isn't), for the calendar-sync icon and the setup page. Saved only when a
+// slot changes, not on every refresh.
+using CalendarFailures = std::array<uint32_t, Settings::kMaxCalendars>;
+CalendarFailures loadCalendarFailures();
+esp_err_t saveCalendarFailures(const CalendarFailures& failures);
 
 // Privacy mode, toggled by the button. Kept apart from Settings so saving
 // the setup page never touches it. Off if never saved.

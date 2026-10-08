@@ -5,7 +5,7 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, intruder, privacy[1], gray[1], offline, lowbattery, charge
+//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, intruder, privacy[1], gray[1], offline, lowbattery, charge, calendarerror, nocalendar
 //
 // produces build/preview.png.
 
@@ -70,6 +70,11 @@ int main(int argc, char** argv) {
         overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
     } else if (screen == "lowbattery") {  // the calendar, with both status icons
         calendar_view::render(canvas, now, kTaipei, events, forecast, {.offline = true, .lowBattery = true});
+    } else if (screen == "calendarerror") {  // one calendar failing for two days
+        calendar_view::render(canvas, now, kTaipei, events, forecast, {.calendarError = true});
+    } else if (screen == "nocalendar") {  // none came through for two days: the photo layout
+        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], {.calendarError = true});
+        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
     } else if (screen == "charge") {
         calendar_view::renderChargeReminder(canvas);
     } else if (screen.starts_with("privacy") || screen.starts_with("gray")) {
