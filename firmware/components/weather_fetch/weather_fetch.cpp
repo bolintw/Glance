@@ -6,13 +6,15 @@
 #include <type_traits>
 
 #include "esp_crt_bundle.h"
+#include "esp_timer.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 
 namespace {
 constexpr const char* kTag = "weather_fetch";
 constexpr const char* kEndpoint = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001";
-constexpr int kTimeoutMs = 15000;
+constexpr int kTimeoutMs = 15000;  // for each network operation
+constexpr int64_t kMaxDownloadUs = 30 * 1000 * 1000;  // for the whole response (a trickling server)
 // A single county's response is ~2KB; anything far bigger isn't what we asked for.
 constexpr size_t kMaxResponseBytes = 16 * 1024;
 
@@ -59,7 +61,12 @@ std::optional<std::string> fetchBody(const std::string& url) {
     std::string body;
     char buf[1024];
     int n;
+    const int64_t deadline = esp_timer_get_time() + kMaxDownloadUs;
     while ((n = esp_http_client_read(client.get(), buf, sizeof(buf))) > 0) {
+        if (esp_timer_get_time() > deadline) {
+            ESP_LOGE(kTag, "gave up after %lld s", kMaxDownloadUs / 1000000);
+            return std::nullopt;
+        }
         if (body.size() + static_cast<size_t>(n) > kMaxResponseBytes) {
             ESP_LOGE(kTag, "response over %zu bytes", kMaxResponseBytes);
             return std::nullopt;

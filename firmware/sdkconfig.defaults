@@ -45,3 +45,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # it too (the development serial commands, GLANCE_DEV_SERIAL_COMMANDS). As
 # the default secondary console it could only write.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# A task that hogs the CPU long enough to starve the idle task (5 s) is a
+# bug: reboot instead of just logging it, so the run can start over.
+CONFIG_ESP_TASK_WDT_PANIC=y

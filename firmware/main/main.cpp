@@ -43,6 +43,52 @@ namespace {
 // refresh, so waking slightly early doesn't redraw twice in one morning.
 constexpr int64_t kMinRefreshGapSeconds = 3600;
 
+// The longest a run may take from wake-up to sleep. A normal one takes about
+// 15s; every step failing in turn about two minutes; an update download adds
+// some. Each step has its own timeout, but a bug or a server that trickles
+// could still keep the device awake until the battery is flat.
+constexpr uint32_t kRunDeadlineMs = 5 * 60 * 1000;
+
+// When to wake next: the next daily refresh, or a retry sooner after a
+// failed run (run_policy::retrySoon). A failed run may not even have a
+// synced clock, so its retry is a plain delay rather than a time of day.
+struct NextWake {
+    int64_t at;
+    bool retry;
+};
+NextWake scheduleNext(bool refreshed) {
+    gBoot.failedRuns = refreshed ? 0 : gBoot.failedRuns + 1;
+    bool retry = run_policy::retrySoon(gBoot.failedRuns);
+    int64_t now = time(nullptr);
+    int64_t at = retry ? now + CONFIG_GLANCE_RETRY_MINUTES * 60
+                       : refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds, CONFIG_GLANCE_REFRESH_HOUR, 0,
+                                                     kMinRefreshGapSeconds);
+    return {at, retry};
+}
+
+// Cuts a run short once it's past kRunDeadlineMs: logs it and sleeps until
+// the next attempt (it counts as a failed run), or restarts in development
+// builds. Setup mode and the development wait have their own limits, so a
+// run that has moved on to those is left alone. A FreeRTOS task, above
+// app_main's priority so a busy loop there can't hold it off.
+void runDeadlineTask(void*) {
+    vTaskDelay(pdMS_TO_TICKS(kRunDeadlineMs));
+    if (gPhase != Phase::refreshing) {
+        vTaskDelete(nullptr);
+        return;
+    }
+    ESP_LOGE(kTag, "run still going after %lu s: stuck, giving up", static_cast<unsigned long>(kRunDeadlineMs / 1000));
+    peripheralsOff();
+    logRun(wake_log::Result::stuck);
+    NextWake next = scheduleNext(false);
+#if CONFIG_GLANCE_DEEP_SLEEP
+    deepSleep(next.at);
+#else
+    (void)next;
+    restartInto(false);
+#endif
+}
+
 // Why this run started, for the log and the wake log.
 void noteWakeCause() {
     uint32_t causes = esp_sleep_get_wakeup_causes();
@@ -58,18 +104,12 @@ void noteWakeCause() {
     ESP_LOGI(kTag, "firmware %s, woke by %s", ota_update::runningVersion(), kWakeNames[static_cast<int>(gRun.wake)]);
 }
 
-// After a refresh: sleep until the next daily refresh -- or retry sooner if
-// this one failed (run_policy::retrySoon). A failed refresh may not even
-// have a synced clock, so its retry is a plain delay rather than a time of
-// day.
+// After a refresh: sleep until the next one (see scheduleNext).
 [[noreturn]] void sleepUntilNext(bool refreshed, const Settings& settings) {
-    gBoot.failedRuns = refreshed ? 0 : gBoot.failedRuns + 1;
-    bool retry = run_policy::retrySoon(gBoot.failedRuns);
-    int64_t now = time(nullptr);
-    int64_t wakeAt = retry ? now + CONFIG_GLANCE_RETRY_MINUTES * 60
-                           : refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds, CONFIG_GLANCE_REFRESH_HOUR,
-                                                         0, kMinRefreshGapSeconds);
-    int64_t sleepSeconds = wakeAt - now;
+    NextWake next = scheduleNext(refreshed);
+    const bool retry = next.retry;
+    const int64_t wakeAt = next.at;
+    int64_t sleepSeconds = wakeAt - time(nullptr);
 
     time_t wakeTime = static_cast<time_t>(wakeAt);
     struct tm local;
@@ -115,6 +155,7 @@ extern "C" void app_main(void)
     using namespace glance;
     noteWakeCause();
     initBootState();
+    xTaskCreate(runDeadlineTask, "run_deadline", 4096, nullptr, 10, nullptr);
     ESP_ERROR_CHECK(settings::initStorage());
     checkBattery();  // doesn't return while the battery is too low to run
 

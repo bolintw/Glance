@@ -4,12 +4,16 @@
 #include <type_traits>
 
 #include "esp_crt_bundle.h"
+#include "esp_timer.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 
 namespace {
 constexpr const char* kTag = "calendar_fetch";
-constexpr int kTimeoutMs = 15000;
+constexpr int kTimeoutMs = 15000;  // for each network operation
+// For the whole download: kTimeoutMs alone doesn't end a server that trickles
+// data, and one stuck calendar shouldn't hold up the rest.
+constexpr int64_t kMaxDownloadUs = 60 * 1000 * 1000;
 constexpr int kReadChunkBytes = 1024;
 
 // esp_http_client_cleanup() also closes the connection.
@@ -46,9 +50,14 @@ esp_err_t fetchLines(const char* url, const ics::LineReader::LineHandler& onLine
     char buf[kReadChunkBytes];
     int totalBytes = 0;
     int n;
+    const int64_t deadline = esp_timer_get_time() + kMaxDownloadUs;
     while ((n = esp_http_client_read(client.get(), buf, sizeof(buf))) > 0) {
         reader.feed(std::string_view(buf, static_cast<size_t>(n)));
         totalBytes += n;
+        if (esp_timer_get_time() > deadline) {
+            ESP_LOGE(kTag, "gave up after %lld s and %d bytes", kMaxDownloadUs / 1000000, totalBytes);
+            return ESP_ERR_TIMEOUT;
+        }
     }
     reader.finish();
 

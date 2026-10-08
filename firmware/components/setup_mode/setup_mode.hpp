@@ -46,8 +46,11 @@ enum class Event {
     erased,    // everything was erased (settings and photos): start over
 };
 
-// Blocks until something happens in setup mode (see Event).
-Event waitForEvent(uint32_t idleTimeoutMs);
+// Blocks until something happens in setup mode (see Event). `idle` also once
+// `sessionLimitMs` has passed since setup mode started, used or not: a phone
+// left joined to the access point keeps probing it, which would otherwise
+// keep setup mode -- and the device -- up for good.
+Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs);
 
 // Closes up: drops every station and stops the access point, or stops
 // serving the home-network pages.

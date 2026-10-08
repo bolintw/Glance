@@ -66,6 +66,7 @@ std::optional<LanAccess> gAccess;      // home mode's gate
 std::string gCookieHeader;             // outlives the response it's set on (handlers run one at a time)
 EventGroupHandle_t gEvents = nullptr;
 std::atomic<int64_t> gLastActivityUs{0};
+int64_t gSessionStartUs = 0;
 StationWatch gStations;  // only touched from the event loop task
 
 void onStationJoined(void*, esp_event_base_t, int32_t, void* data) {
@@ -505,6 +506,7 @@ esp_err_t start(const Settings& current, AccessPoint& out, std::string_view wifi
     }
     gEvents = xEventGroupCreate();
     touch();
+    gSessionStartUs = esp_timer_get_time();
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -572,6 +574,7 @@ esp_err_t startHome(const Settings& current, HomeNetwork& out) {
     ESP_LOGI(kTag, "%zu networks nearby", gNearby.size());
     gEvents = xEventGroupCreate();
     touch();
+    gSessionStartUs = esp_timer_get_time();
     std::string token = randomHex(16);  // 128 bits
     gAccess.emplace(token);
     char address[16];
@@ -590,12 +593,13 @@ esp_err_t startOnLan(const Settings& current) {
     gCurrent = current;  // leaves the revert note for a real setup session
     gEvents = xEventGroupCreate();
     touch();
+    gSessionStartUs = esp_timer_get_time();
     return startHttp();
 }
 
 bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & (kSavedBit | kErasedBit)); }
 
-Event waitForEvent(uint32_t idleTimeoutMs) {
+Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
     while (true) {
         EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit | kErasedBit, pdTRUE,
                                                pdFALSE, pdMS_TO_TICKS(1000));
@@ -613,7 +617,12 @@ Event waitForEvent(uint32_t idleTimeoutMs) {
         if (bits & kJoinedBit) {
             return Event::joined;
         }
-        if (esp_timer_get_time() - gLastActivityUs > static_cast<int64_t>(idleTimeoutMs) * 1000) {
+        int64_t now = esp_timer_get_time();
+        if (now - gLastActivityUs > static_cast<int64_t>(idleTimeoutMs) * 1000) {
+            return Event::idle;
+        }
+        if (now - gSessionStartUs > static_cast<int64_t>(sessionLimitMs) * 1000) {
+            ESP_LOGW(kTag, "setup mode open for %lu minutes, closing", static_cast<unsigned long>(sessionLimitMs / 60000));
             return Event::idle;
         }
     }

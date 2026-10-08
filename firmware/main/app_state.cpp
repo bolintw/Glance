@@ -4,6 +4,7 @@
 #include <ctime>
 
 #include "board.hpp"
+#include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -61,10 +62,21 @@ void logRun(wake_log::Result result) {
 }
 
 [[noreturn]] void deepSleep(std::optional<int64_t> wakeAt, bool buttonOnExt0) {
-    gBoot.wakeAt = wakeAt.value_or(0);
     esp_wifi_stop();  // harmless if WiFi never started
-    if (buttonOnExt0) {
-        esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(board::kButtonPin), 0);
+    // The button wakes on a low level, so one that's stuck down would wake the
+    // device the moment it slept, over and over: then only the timer does --
+    // in an hour, if nothing else was due.
+    const auto button = static_cast<gpio_num_t>(board::kButtonPin);
+    gpio_set_direction(button, GPIO_MODE_INPUT);  // may not be set up yet this run (the external pull-up holds it)
+    const bool buttonDown = gpio_get_level(button) == 0;
+    if (buttonDown && !wakeAt) {
+        wakeAt = time(nullptr) + 3600;
+    }
+    gBoot.wakeAt = wakeAt.value_or(0);
+    if (buttonDown) {
+        ESP_LOGW(kTag, "button is down going to sleep (stuck?): waking on the timer only");
+    } else if (buttonOnExt0) {
+        esp_sleep_enable_ext0_wakeup(button, 0);
     } else {
         esp_sleep_enable_ext1_wakeup_io(BIT64(board::kButtonPin), ESP_EXT1_WAKEUP_ANY_LOW);
     }

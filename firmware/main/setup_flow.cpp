@@ -21,12 +21,14 @@ namespace {
 // Setup mode gives up (and goes back to the calendar) after this long
 // without anyone loading its page.
 constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
+// ...and after this long in any case (see setup_mode::waitForEvent).
+constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
 
 // Either setup step's events, until it ends in a restart.
 [[noreturn]] void runSetupEvents(bool onAccessPoint, const std::string& accessPointUrl) {
     gPhase = Phase::setup;
     while (true) {
-        switch (setup_mode::waitForEvent(kSetupIdleTimeoutMs)) {
+        switch (setup_mode::waitForEvent(kSetupIdleTimeoutMs, kSetupSessionLimitMs)) {
             case setup_mode::Event::saved:
                 ESP_LOGI(kTag, "leaving setup mode (saved)");
                 gBoot.justConfigured = true;

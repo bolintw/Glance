@@ -15,9 +15,23 @@
 namespace glance {
 namespace {
 constexpr uint32_t kLongPressMs = 3000;
+
+// Waits for `button` to come up, for at most kStuckButtonMs. False if it
+// didn't.
+bool waitForRelease(const Button& button) {
+    const int64_t deadline = esp_timer_get_time() + static_cast<int64_t>(kStuckButtonMs) * 1000;
+    while (button.isDown()) {
+        if (esp_timer_get_time() > deadline) {
+            ESP_LOGW(kTag, "button held for %lu s: stuck, ignoring it", static_cast<unsigned long>(kStuckButtonMs / 1000));
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return true;
+}
 }  // namespace
 
-void actOnPress(bool isLong, const std::function<void()>& waitForRelease) {
+void actOnPress(bool isLong, const std::function<bool()>& waitForRelease) {
     ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
     if (gPhase == Phase::setup) {
         restartInto(false);
@@ -30,7 +44,10 @@ void actOnPress(bool isLong, const std::function<void()>& waitForRelease) {
     // long press, so you know when to let go.
     statusLedOn();
     if (isLong) {
-        waitForRelease();
+        if (!waitForRelease()) {
+            statusLedOff();
+            return;
+        }
         restartInto(true);
     }
     vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
@@ -53,11 +70,11 @@ void buttonTask(void*) {
             ESP_LOGI(kTag, "button: released within the debounce time, ignored");
             continue;
         }
-        actOnPress(press == Button::Press::longPress, [&] {
-            while (button.isDown()) {
-                vTaskDelay(pdMS_TO_TICKS(20));
-            }
-        });
+        actOnPress(press == Button::Press::longPress, [&] { return waitForRelease(button); });
+        // A stuck button is still down: don't take it for a new press each time round.
+        while (button.isDown()) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
     }
 }
 
@@ -69,8 +86,9 @@ void actOnWakePress(bool noCalendars) {
     if (button.isDown()) {
         ESP_LOGI(kTag, "button: long press (from wake-up)");
         statusLedOn();
-        while (button.isDown()) {
-            vTaskDelay(pdMS_TO_TICKS(20));
+        if (!waitForRelease(button)) {
+            statusLedOff();
+            return;  // stuck: carry on with the run as if it hadn't been pressed
         }
         gBoot.enterSetup = true;
         return;

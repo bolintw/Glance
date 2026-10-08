@@ -51,6 +51,7 @@ const char* resultName(Result result) {
         case Result::chargeReminder: return "charge-reminder";
         case Result::stillLow: return "still-low";
         case Result::calendarError: return "calendar-error";
+        case Result::stuck: return "stuck";
     }
     return "?";
 }
@@ -167,6 +168,7 @@ void HealthTally::add(const Entry& e) {
         case Result::fetchFailed:
         case Result::panelFailed:
         case Result::calendarError:
+        case Result::stuck:
             health_.failedRuns++;
             break;
         default:
