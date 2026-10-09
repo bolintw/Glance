@@ -1,0 +1,41 @@
+# Runs on every push and pull request: the host tests, and a firmware build
+# from sdkconfig.defaults (the configuration a release builds). Releases
+# themselves are built by release.yml.
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Clang with libc++, like the macOS toolchain the tests are written
+      # against.
+      - name: Install libc++
+        run: sudo apt-get update && sudo apt-get install -y libc++-dev libc++abi-dev
+
+      - name: Host tests
+        run: make -C firmware/test/host CXX="clang++ -stdlib=libc++" CC=clang
+
+  firmware:
+    runs-on: ubuntu-latest
+    # Same ESP-IDF as development (v6.0).
+    container: espressif/idf:v6.0
+    steps:
+      - uses: actions/checkout@v7
+
+      # No sdkconfig in the repo (it holds local secrets): this builds from
+      # sdkconfig.defaults, with deep sleep on and the development options off.
+      - name: Build
+        shell: bash
+        working-directory: firmware
+        run: |
+          . "$IDF_PATH/export.sh"
+          idf.py build
