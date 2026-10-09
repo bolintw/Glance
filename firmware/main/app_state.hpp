@@ -17,7 +17,7 @@ inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E36;  // "GLN6" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E37;  // "GLN7" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
@@ -29,6 +29,7 @@ struct BootState {
     bool batteryCritical;   // the charge reminder is up (see run_policy::kCriticalPct)
     uint8_t wifiFailures;   // runs in a row that couldn't get online
     uint8_t failedRuns;     // refreshes in a row that failed, for any reason
+    uint8_t badResets;      // crashes and brownouts in a row (run_policy::classifyReset)
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
     int64_t wakeAt;     // when the timer is due (Unix time; 0 = none), for a button wake-up that goes back to sleep
     int8_t fakeBatteryPct;  // development: the next boot's state of charge instead of the gauge's (-1 = none)

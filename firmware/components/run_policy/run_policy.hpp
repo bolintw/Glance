@@ -40,6 +40,41 @@ inline constexpr int64_t kCalendarStaleSeconds = 47 * 3600;
 // worked).
 bool retrySoon(uint8_t failedRunsInARow);
 
+// When to wake next after `failedRunsInARow` failed runs: the next daily
+// refresh at `refreshHour` (local, `utcOffset`), or `retryMinutes` on for a
+// retry. A failed run may not even have a synced clock, so a retry is a
+// plain delay rather than a time of day. `minGapSeconds`: a wake-up this
+// close before the daily time counts as that refresh (see
+// refresh_schedule::nextDaily).
+struct NextWake {
+    int64_t at;
+    bool retry;
+};
+NextWake nextWake(uint8_t failedRunsInARow, int64_t now, int32_t utcOffset, int refreshHour, int retryMinutes,
+                  int64_t minGapSeconds);
+
+// Why the chip last reset (esp_reset_reason_t), as far as runs care: a crash
+// (panic, a watchdog, a CPU lock-up), the power (a brownout or a glitch), or
+// anything normal (power-on, a restart, waking from deep sleep).
+enum class ResetKind { normal, crash, power };
+ResetKind classifyReset(uint8_t resetReason);
+
+// Crashes and brownouts in a row before the device stops trying for a while:
+// each one reboots straight away, so a fault that keeps recurring would
+// otherwise reboot it nonstop and flatten the battery.
+inline constexpr uint8_t kBadResetsBeforeBackoff = 3;
+bool backOffAfterBadResets(uint8_t badResetsInARow);
+
+// What a press that woke the device from deep sleep means, timed from the
+// wake-up: held to the long-press time and let go, setup mode; held past
+// that and still down, a stuck button -- carry on as if it weren't pressed;
+// a short press toggles privacy mode, unless there's no calendar to switch
+// to (offline, photo frame): then straight back to sleep until the timer
+// was due -- or the refresh, if that's within a minute anyway.
+enum class WakePress { setup, stuck, togglePrivacy, backToSleep, refresh };
+WakePress decideWakePress(bool heldToLongPress, bool released, bool noCalendarToSwitchTo, int64_t timerDueAt,
+                          int64_t now);
+
 // Whether a calendar run that couldn't get online should put up the offline
 // screen: right after setup (most likely a mistyped password), after a press
 // (it has to change something), or once the failures pile up.

@@ -40,6 +40,7 @@ void initBootState() {
              .batteryCritical = false,
              .wifiFailures = 0,
              .failedRuns = 0,
+             .badResets = 0,
              .lastPhoto = UINT8_MAX,
              .wakeAt = 0,
              .fakeBatteryPct = -1};

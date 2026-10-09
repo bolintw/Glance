@@ -1,5 +1,7 @@
 #include "wake_log.hpp"
 
+#include "run_policy.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
@@ -52,6 +54,7 @@ const char* resultName(Result result) {
         case Result::stillLow: return "still-low";
         case Result::calendarError: return "calendar-error";
         case Result::stuck: return "stuck";
+        case Result::badResetBackoff: return "bad-reset-backoff";
     }
     return "?";
 }
@@ -147,19 +150,14 @@ void HealthTally::add(const Entry& e) {
     if (windowStart_ != 0 && (e.time == 0 || e.time < windowStart_)) {
         return;
     }
-    switch (e.resetReason) {  // esp_reset_reason_t
-        case 4:   // ESP_RST_PANIC
-        case 5:   // ESP_RST_INT_WDT
-        case 6:   // ESP_RST_TASK_WDT
-        case 7:   // ESP_RST_WDT
-        case 15:  // ESP_RST_CPU_LOCKUP
+    switch (run_policy::classifyReset(e.resetReason)) {
+        case run_policy::ResetKind::crash:
             health_.crashes++;
             break;
-        case 9:   // ESP_RST_BROWNOUT
-        case 14:  // ESP_RST_PWR_GLITCH
+        case run_policy::ResetKind::power:
             health_.brownouts++;
             break;
-        default:
+        case run_policy::ResetKind::normal:
             break;
     }
     switch (e.result) {

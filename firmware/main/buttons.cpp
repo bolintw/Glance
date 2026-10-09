@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "peripherals.hpp"
+#include "run_policy.hpp"
 #include "settings.hpp"
 
 namespace glance {
@@ -83,24 +84,31 @@ void actOnWakePress(bool noCalendars) {
     while (button.isDown() && esp_timer_get_time() < static_cast<int64_t>(kLongPressMs) * 1000) {
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    if (button.isDown()) {
+    const bool held = button.isDown();
+    bool released = true;
+    if (held) {
         ESP_LOGI(kTag, "button: long press (from wake-up)");
         statusLedOn();
-        if (!waitForRelease(button)) {
-            statusLedOff();
-            return;  // stuck: carry on with the run as if it hadn't been pressed
-        }
-        gBoot.enterSetup = true;
-        return;
+        released = waitForRelease(button);
+    } else {
+        ESP_LOGI(kTag, "button: short press (from wake-up)");
     }
-    ESP_LOGI(kTag, "button: short press (from wake-up)");
-    if (gBoot.offlineShown || noCalendars) {
-        if (gBoot.wakeAt > time(nullptr) + 60) {
+    switch (run_policy::decideWakePress(held, released, gBoot.offlineShown || noCalendars, gBoot.wakeAt,
+                                        time(nullptr))) {
+        case run_policy::WakePress::setup:
+            gBoot.enterSetup = true;
+            return;
+        case run_policy::WakePress::stuck:
+            statusLedOff();
+            return;  // carry on with the run as if it hadn't been pressed
+        case run_policy::WakePress::backToSleep:
             ESP_LOGI(kTag, "%s: back to sleep", noCalendars ? "no calendars" : "offline");
             logRun(wake_log::Result::backToSleep);
             deepSleep(gBoot.wakeAt);
-        }
-        return;  // the timer is due anyway: refresh
+        case run_policy::WakePress::refresh:
+            return;  // the timer is due anyway
+        case run_policy::WakePress::togglePrivacy:
+            break;
     }
     statusLedOn();
     bool privacy = !settings::loadPrivacyMode();

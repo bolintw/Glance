@@ -31,6 +31,46 @@ void testRetries() {
     CHECK(!retrySoon(6));
 }
 
+void testNextWake() {
+    using run_policy::nextWake;
+    // 2026-10-06 07:00:20 in Taiwan (23:00:20 UTC the day before).
+    const int64_t morning = 1791327620;
+    const int32_t taipei = 8 * 3600;
+    auto ok = nextWake(0, morning, taipei, 7, 60, 3600);
+    CHECK(!ok.retry && ok.at == morning - 20 + 24 * 3600);  // tomorrow 07:00
+    auto retry = nextWake(1, morning, taipei, 7, 60, 3600);
+    CHECK(retry.retry && retry.at == morning + 3600);
+    auto giveUp = nextWake(3, morning + 2 * 3600, taipei, 7, 60, 3600);  // the 09:00 attempt failed too
+    CHECK(!giveUp.retry && giveUp.at == morning - 20 + 24 * 3600);
+}
+
+void testResets() {
+    using run_policy::ResetKind;
+    using run_policy::classifyReset;
+    CHECK(classifyReset(1) == ResetKind::normal);  // power-on
+    CHECK(classifyReset(3) == ResetKind::normal);  // esp_restart
+    CHECK(classifyReset(8) == ResetKind::normal);  // deep sleep
+    CHECK(classifyReset(4) == ResetKind::crash);   // panic
+    CHECK(classifyReset(6) == ResetKind::crash);   // task watchdog
+    CHECK(classifyReset(15) == ResetKind::crash);  // CPU lock-up
+    CHECK(classifyReset(9) == ResetKind::power);   // brownout
+    CHECK(!run_policy::backOffAfterBadResets(2));
+    CHECK(run_policy::backOffAfterBadResets(3));
+}
+
+void testWakePress() {
+    using run_policy::WakePress;
+    using run_policy::decideWakePress;
+    const int64_t now = 1791327620;
+    CHECK(decideWakePress(true, true, false, now + 3600, now) == WakePress::setup);
+    CHECK(decideWakePress(true, true, true, now + 3600, now) == WakePress::setup);  // setup works offline too
+    CHECK(decideWakePress(true, false, false, now + 3600, now) == WakePress::stuck);
+    CHECK(decideWakePress(false, true, false, now + 3600, now) == WakePress::togglePrivacy);
+    CHECK(decideWakePress(false, true, true, now + 3600, now) == WakePress::backToSleep);
+    CHECK(decideWakePress(false, true, true, now + 30, now) == WakePress::refresh);  // due anyway
+    CHECK(decideWakePress(false, true, true, 0, now) == WakePress::refresh);         // no timer was set
+}
+
 void testOfflineScreen() {
     using run_policy::offlineScreenDue;
     CHECK(!offlineScreenDue(false, false, 1));  // a router rebooting: keep the calendar
@@ -74,6 +114,9 @@ void testBattery() {
 
 int main() {
     testRetries();
+    testNextWake();
+    testResets();
+    testWakePress();
     testOfflineScreen();
     testCalendarStale();
     testBattery();

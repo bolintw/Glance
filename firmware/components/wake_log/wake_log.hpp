@@ -31,6 +31,7 @@ enum class Result : uint8_t {
     stillLow,        // checked the battery while the reminder is up: still too low
     calendarError,   // online, no calendar for two days: the photo layout with the calendar icon
     stuck,           // the run went past its deadline and was cut short (main.cpp, kRunDeadlineMs)
+    badResetBackoff,  // crashes or brownouts kept recurring: sleeping a while before trying again
 };
 
 inline constexpr uint16_t kNoWifi = 0xFFFF;           // wifiMs: not tried

@@ -28,7 +28,6 @@
 #include "ota_update.hpp"
 #include "peripherals.hpp"
 #include "refresh.hpp"
-#include "refresh_schedule.hpp"
 #include "run_policy.hpp"
 #include "serial_commands.hpp"
 #include "settings.hpp"
@@ -49,21 +48,29 @@ constexpr int64_t kMinRefreshGapSeconds = 3600;
 // could still keep the device awake until the battery is flat.
 constexpr uint32_t kRunDeadlineMs = 5 * 60 * 1000;
 
-// When to wake next: the next daily refresh, or a retry sooner after a
-// failed run (run_policy::retrySoon). A failed run may not even have a
-// synced clock, so its retry is a plain delay rather than a time of day.
-struct NextWake {
-    int64_t at;
-    bool retry;
-};
-NextWake scheduleNext(bool refreshed) {
+// When to wake next, counting this run in (see run_policy::nextWake).
+run_policy::NextWake scheduleNext(bool refreshed) {
     gBoot.failedRuns = refreshed ? 0 : gBoot.failedRuns + 1;
-    bool retry = run_policy::retrySoon(gBoot.failedRuns);
-    int64_t now = time(nullptr);
-    int64_t at = retry ? now + CONFIG_GLANCE_RETRY_MINUTES * 60
-                       : refresh_schedule::nextDaily(now, time_sync::kUtcOffsetSeconds, CONFIG_GLANCE_REFRESH_HOUR, 0,
-                                                     kMinRefreshGapSeconds);
-    return {at, retry};
+    return run_policy::nextWake(gBoot.failedRuns, time(nullptr), time_sync::kUtcOffsetSeconds,
+                                CONFIG_GLANCE_REFRESH_HOUR, CONFIG_GLANCE_RETRY_MINUTES, kMinRefreshGapSeconds);
+}
+
+// Crashes or brownouts keep recurring (run_policy::backOffAfterBadResets):
+// each reboots straight away, so sleep a retry interval before trying again
+// rather than rebooting nonstop. Development builds only log it, to keep
+// the fault in reach of the serial console.
+void backOffIfResetsKeepRecurring() {
+    gBoot.badResets =
+        run_policy::classifyReset(gRun.resetReason) == run_policy::ResetKind::normal ? 0 : gBoot.badResets + 1;
+    if (!run_policy::backOffAfterBadResets(gBoot.badResets)) {
+        return;
+    }
+    ESP_LOGE(kTag, "%u crashes or brownouts in a row", gBoot.badResets);
+#if CONFIG_GLANCE_DEEP_SLEEP
+    logRun(wake_log::Result::badResetBackoff);
+    peripheralsOff();
+    deepSleep(time(nullptr) + CONFIG_GLANCE_RETRY_MINUTES * 60);
+#endif
 }
 
 // Cuts a run short once it's past kRunDeadlineMs: logs it and sleeps until
@@ -80,7 +87,7 @@ void runDeadlineTask(void*) {
     ESP_LOGE(kTag, "run still going after %lu s: stuck, giving up", static_cast<unsigned long>(kRunDeadlineMs / 1000));
     peripheralsOff();
     logRun(wake_log::Result::stuck);
-    NextWake next = scheduleNext(false);
+    run_policy::NextWake next = scheduleNext(false);
 #if CONFIG_GLANCE_DEEP_SLEEP
     deepSleep(next.at);
 #else
@@ -106,7 +113,7 @@ void noteWakeCause() {
 
 // After a refresh: sleep until the next one (see scheduleNext).
 [[noreturn]] void sleepUntilNext(bool refreshed, const Settings& settings) {
-    NextWake next = scheduleNext(refreshed);
+    run_policy::NextWake next = scheduleNext(refreshed);
     const bool retry = next.retry;
     const int64_t wakeAt = next.at;
     int64_t sleepSeconds = wakeAt - time(nullptr);
@@ -157,6 +164,7 @@ extern "C" void app_main(void)
     initBootState();
     xTaskCreate(runDeadlineTask, "run_deadline", 4096, nullptr, 10, nullptr);
     ESP_ERROR_CHECK(settings::initStorage());
+    backOffIfResetsKeepRecurring();
     checkBattery();  // doesn't return while the battery is too low to run
 
     Settings settings = settings::load();
