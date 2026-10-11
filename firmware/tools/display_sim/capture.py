@@ -30,15 +30,16 @@ from display_sim import CHECKSUM_LEN, FRAME_PREFIX, HEADER_LEN, checksum, unpack
 
 
 def reset_board(port):
-    # esptool's reset is the one that reliably restarts the app on this
-    # board (see README); flash-id is just a harmless command to hang it on.
+    # esptool's watchdog reset is the one that reliably restarts the app on
+    # this board: its RTS hard reset is sometimes a no-op too (see README).
+    # flash-id is just a harmless command to hang it on.
     # Must run with the ESP-IDF Python, not this venv's.
     idf_env = os.environ.get("IDF_PYTHON_ENV_PATH")
     if not idf_env:
         sys.exit("IDF_PYTHON_ENV_PATH not set -- source firmware/env.sh first")
     result = subprocess.run(
         [os.path.join(idf_env, "bin", "python"), "-m", "esptool", "--chip", "esp32s3", "-p", port,
-         "--after", "hard-reset", "flash-id"],
+         "--after", "watchdog-reset", "flash-id"],
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:

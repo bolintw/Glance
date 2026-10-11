@@ -1,5 +1,6 @@
 #include "peripherals.hpp"
 
+#include <atomic>
 #include <vector>
 
 #include "board.hpp"
@@ -24,6 +25,10 @@ namespace {
 constexpr gpio_num_t kStatusLed = static_cast<gpio_num_t>(board::kStatusLedPin);
 constexpr gpio_num_t kPeripheralRail = static_cast<gpio_num_t>(board::kPeripheralRailPin);
 
+// Whether show() is drawing, and whether closePanel() has stopped it for good.
+enum class PanelState { idle, drawing, closed };
+std::atomic<PanelState> gPanel = PanelState::idle;
+
 // init -> one frame -> sleep, on whichever backend. False if the panel
 // didn't respond.
 bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
@@ -42,9 +47,15 @@ bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOv
 // The code below the backend selection is identical for both -- that's the
 // point of the Display interface.
 bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
+    PanelState idle = PanelState::idle;
+    if (!gPanel.compare_exchange_strong(idle, PanelState::drawing)) {
+        return false;  // closed
+    }
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
     SerialDumpDisplay display(board::kPanelSize);
-    return drawOn(display, framebuffer, overlay);
+    bool shown = drawOn(display, framebuffer, overlay);
+    gPanel = PanelState::idle;
+    return shown;
 #else
     Gpio peripheralPower(board::kPeripheralRailPin, Gpio::Direction::output);
     peripheralPower.write(true);
@@ -87,8 +98,22 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
     // Off again before deep sleep: with the external flash powered, its SPI
     // lines leak ~300uA; with the rail cut the whole board sleeps at ~70uA.
     peripheralPower.write(false);
+    gPanel = PanelState::idle;
     return shown;
 #endif
+}
+
+bool closePanel(uint32_t waitMs) {
+    for (uint32_t waited = 0;; waited += 100) {
+        PanelState idle = PanelState::idle;
+        if (gPanel.compare_exchange_strong(idle, PanelState::closed)) {
+            return true;
+        }
+        if (waited >= waitMs) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
 
 void showNotice(std::string_view title, std::span<const std::string_view> lines) {

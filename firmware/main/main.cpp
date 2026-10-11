@@ -48,6 +48,10 @@ constexpr int64_t kMinRefreshGapSeconds = 3600;
 // could still keep the device awake until the battery is flat.
 constexpr uint32_t kRunDeadlineMs = 5 * 60 * 1000;
 
+// How long the deadline waits for a panel refresh in progress: one takes
+// about 5s, and the driver gives up on a stuck one after 10s.
+constexpr uint32_t kPanelFinishWaitMs = 20 * 1000;
+
 // When to wake next, counting this run in (see run_policy::nextWake).
 run_policy::NextWake scheduleNext(bool refreshed) {
     gBoot.failedRuns = refreshed ? 0 : gBoot.failedRuns + 1;
@@ -75,9 +79,11 @@ void backOffIfResetsKeepRecurring() {
 
 // Cuts a run short once it's past kRunDeadlineMs: logs it and sleeps until
 // the next attempt (it counts as a failed run), or restarts in development
-// builds. Setup mode and the development wait have their own limits, so a
-// run that has moved on to those is left alone. A FreeRTOS task, above
-// app_main's priority so a busy loop there can't hold it off.
+// builds. A panel refresh in progress is let finish first (closePanel), so
+// the panel isn't left half drawn. Setup mode and the development wait have
+// their own limits, so a run that has moved on to those is left alone. A
+// FreeRTOS task, above app_main's priority so a busy loop there can't hold
+// it off.
 void runDeadlineTask(void*) {
     vTaskDelay(pdMS_TO_TICKS(kRunDeadlineMs));
     if (gPhase != Phase::refreshing) {
@@ -85,6 +91,9 @@ void runDeadlineTask(void*) {
         return;
     }
     ESP_LOGE(kTag, "run still going after %lu s: stuck, giving up", static_cast<unsigned long>(kRunDeadlineMs / 1000));
+    if (!closePanel(kPanelFinishWaitMs)) {
+        ESP_LOGE(kTag, "panel refresh still going, cutting it");
+    }
     peripheralsOff();
     logRun(wake_log::Result::stuck);
     run_policy::NextWake next = scheduleNext(false);

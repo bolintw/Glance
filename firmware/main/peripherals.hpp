@@ -14,6 +14,12 @@ namespace glance {
 // respond.
 bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nullptr);
 
+// Stops show() from drawing from now on, first waiting up to waitMs for a
+// refresh in progress to finish: cutting the rail mid-waveform leaves the
+// panel half drawn (faint). For a run that's giving up. False if the
+// refresh was still going when the wait ran out.
+bool closePanel(uint32_t waitMs);
+
 // A title and a few centred lines (setup mode's messages).
 void showNotice(std::string_view title, std::span<const std::string_view> lines);
 
