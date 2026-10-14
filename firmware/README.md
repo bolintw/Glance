@@ -113,5 +113,7 @@ Off by default (release builds use the defaults); set in `idf.py menuconfig`:
   wake log CSV.
 - `tools/board/check_pins.py` — check an EasyEDA netlist against this board's
   ESP32-S3 pin rules and print the pin map.
+- `tools/board/bringup.py` — a new board's first checks over USB: one run, then
+  `glance hw` (crystal, USB and charge status, fuel gauge, panel), pass/fail.
 - `tools/font_subset/`, `tools/icons/`, `tools/photos/` — regenerate the baked
   fonts, icons and built-in photos.
