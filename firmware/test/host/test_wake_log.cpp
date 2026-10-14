@@ -36,6 +36,7 @@ Entry sample(uint32_t seq) {
     e.wake = wake_log::Wake::timer;
     e.result = wake_log::Result::privacy;
     e.resetReason = 8;
+    e.power = wake_log::Power::charging;
     return e;
 }
 
@@ -57,6 +58,14 @@ void testRoundTrip() {
     CHECK(back->soc256 == 78 * 256 + 128 && back->crate == -5 && back->wifiMs == 1234);
     CHECK(back->awakeMs == 17890 && back->clockDriftMs == -420 && back->rssi == -61);
     CHECK(back->wake == wake_log::Wake::timer && back->result == wake_log::Result::privacy && back->resetReason == 8);
+    CHECK(back->power == wake_log::Power::charging);
+
+    // Entries from before the power byte (reserved, zero) read as unknown.
+    Entry old = sample(8);
+    old.power = wake_log::Power::unknown;
+    auto oldBytes = wake_log::encode(old);
+    CHECK(oldBytes[28] == 0);
+    CHECK(wake_log::decode(oldBytes)->power == wake_log::Power::unknown);
 }
 
 void testBadEntries() {
@@ -112,9 +121,9 @@ void testCsv() {
     std::vector<Entry> entries = {e, unknown};
     std::string csv = wake_log::toCsv(entries, 8 * 3600);
     CHECK(csv.starts_with("seq,time,wake,result,"));
-    CHECK(csv.find("\n1,2026-10-06 08:00:00,timer,privacy,8,17.9,3.987,78.50,-1.0,1.23,-61,-420\n") !=
+    CHECK(csv.find("\n1,2026-10-06 08:00:00,timer,privacy,8,17.9,3.987,78.50,-1.0,1.23,-61,-420,charging\n") !=
           std::string::npos);
-    CHECK(csv.find("\n2,,power-on,setup,0,0.0,,,,,,\n") != std::string::npos);
+    CHECK(csv.find("\n2,,power-on,setup,0,0.0,,,,,,,\n") != std::string::npos);
 }
 
 void testHealth() {

@@ -13,15 +13,49 @@
 
 #include "app_state.hpp"
 #include "buttons.hpp"
+#include "board.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "fuel_gauge.hpp"
+#include "ota_update.hpp"
 #include "freertos/task.h"
 #include "peripherals.hpp"
+#include "power_status.hpp"
 #include "settings.hpp"
+#include "soc/rtc.h"
 #include "time_sync.hpp"
 #include "wake_log_store.hpp"
 
 namespace glance {
+namespace {
+
+// `glance hw`: what a new board needs checked (refs/private, V3.0 change
+// list, section 9), one "hw:" line each so a script can pick them out.
+void hardwareCheck() {
+    std::printf("hw: board %s, firmware %s\n", board::kName, ota_update::runningVersion());
+    const bool crystal = rtc_clk_slow_src_get() == SOC_RTC_SLOW_CLK_SRC_XTAL32K;
+    std::printf("hw: slow clock %s, %lu Hz\n", crystal ? "32.768kHz crystal" : "internal RC (crystal not running?)",
+                static_cast<unsigned long>(rtc_clk_slow_freq_get_hz()));
+    power_status::Details power = power_status::readDetails();
+    if (power.usbMillivolts < 0) {
+        std::printf("hw: power status: not on this board\n");
+    } else {
+        static constexpr const char* kNames[] = {"unknown", "battery", "USB, charging", "USB, not charging"};
+        std::printf("hw: VUSB %d mV, CHG_STAT %s (%d mV at the pin): %s\n", power.usbMillivolts,
+                    power.chargeLineHigh ? "high" : "low", power.chargeMillivolts,
+                    kNames[static_cast<int>(power.power)]);
+    }
+    if (auto battery = fuel_gauge::read()) {
+        std::printf("hw: fuel gauge %u mV, %.1f%%, %+.1f%%/h%s\n", battery->millivolts, battery->soc256 / 256.0,
+                    battery->crate * 0.208, battery->alertWasSet ? ", alert was set" : "");
+    } else {
+        std::printf("hw: fuel gauge not answering\n");
+    }
+    std::printf("hw: panel %s\n", panelResponds() ? "answers" : "not answering (or busy drawing)");
+    std::fflush(stdout);
+}
+
+}  // namespace
 
 // Polls stdin: without the USB-Serial-JTAG driver installed, reads don't
 // block, and installing it would change how the console output flows.
@@ -53,6 +87,8 @@ void serialCommandTask(void*) {
                 restartInto(false);
             } else if (line == "glance refresh") {
                 restartInto(false);
+            } else if (line == "glance hw") {
+                hardwareCheck();
             } else if (line == "glance log") {
                 std::fputs(wake_log::csvHeader().c_str(), stdout);
                 wake_log_store::forEach([](const wake_log::Entry& e) {

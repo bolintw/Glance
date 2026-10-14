@@ -1,6 +1,7 @@
 #include "peripherals.hpp"
 
 #include <atomic>
+#include <functional>
 #include <vector>
 
 #include "board.hpp"
@@ -42,26 +43,24 @@ bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOv
     return shown;
 }
 
-}  // namespace
-
-// The code below the backend selection is identical for both -- that's the
+// Powers the panel up, hands it to `use`, then powers it down again; false
+// (without touching the panel) once closePanel() has stopped drawing. The
+// code around the backend selection is identical for both -- that's the
 // point of the Display interface.
-bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
+bool withPanel(const std::function<bool(Display&)>& use) {
     PanelState idle = PanelState::idle;
     if (!gPanel.compare_exchange_strong(idle, PanelState::drawing)) {
-        return false;  // closed
+        return false;  // drawing already, or closed
     }
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
     SerialDumpDisplay display(board::kPanelSize);
-    bool shown = drawOn(display, framebuffer, overlay);
-    gPanel = PanelState::idle;
-    return shown;
+    bool result = use(display);
 #else
     Gpio peripheralPower(board::kPeripheralRailPin, Gpio::Direction::output);
     peripheralPower.write(true);
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    bool shown;
+    bool result;
     {
         SpiConfig spiConfig{
             .mosiPin = board::kEpdMosiPin,
@@ -82,7 +81,7 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
             .busyPin = board::kEpdBusyPin,
         };
         Epd7in5V2 display(epdConfig);
-        shown = drawOn(display, framebuffer, overlay);
+        result = use(display);
     }  // SPI bus released
 
     // Park the lines into the rail's chips low before cutting it: a line left
@@ -90,6 +89,9 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
     // (the status LED on that rail was seen glowing dimly with it "off").
     for (int pin : {board::kEpdMosiPin, board::kEpdClkPin, board::kEpdCsPin, board::kEpdDcPin, board::kEpdResetPin,
                     board::kFlashCsPin}) {
+        if (pin < 0) {
+            continue;  // not on this board
+        }
         auto gpio = static_cast<gpio_num_t>(pin);
         gpio_reset_pin(gpio);
         gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
@@ -98,9 +100,25 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
     // Off again before deep sleep: with the external flash powered, its SPI
     // lines leak ~300uA; with the rail cut the whole board sleeps at ~70uA.
     peripheralPower.write(false);
-    gPanel = PanelState::idle;
-    return shown;
 #endif
+    gPanel = PanelState::idle;
+    return result;
+}
+
+}  // namespace
+
+bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
+    return withPanel([&](Display& display) { return drawOn(display, framebuffer, overlay); });
+}
+
+bool panelResponds() {
+    return withPanel([](Display& display) {
+        bool ready = display.init();
+        if (ready) {
+            display.sleep();
+        }
+        return ready;
+    });
 }
 
 bool closePanel(uint32_t waitMs) {

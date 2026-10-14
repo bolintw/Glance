@@ -20,6 +20,10 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nul
 // refresh was still going when the wait ran out.
 bool closePanel(uint32_t waitMs);
 
+// Powers the panel up and back down without drawing: true if it answered
+// (development checks; false also while closePanel() has stopped drawing).
+bool panelResponds();
+
 // A title and a few centred lines (setup mode's messages).
 void showNotice(std::string_view title, std::span<const std::string_view> lines);
 

@@ -1,7 +1,24 @@
 # Glance Firmware
 
-ESP-IDF v6.0 project for the eCalendar V2.1 board (ESP32-S3-WROOM-1-N8R8). What
-it does is described in the top-level README (Firmware Features).
+ESP-IDF v6.0 project for the eCalendar boards: V2.1 (ESP32-S3-WROOM-1-N8R8) and
+V3.0 (ESP32-S3-WROOM-1-N8). What it does is described in the top-level README
+(Firmware Features).
+
+## Boards
+
+The board is picked in `idf.py menuconfig` (Glance Board); its pins are in
+`main/board.hpp`. A plain `idf.py build` is V2.1. For V3.0 in its own build
+directory, layered on the same defaults:
+
+```sh
+idf.py -B build-v3.0 -D SDKCONFIG=build-v3.0/sdkconfig \
+       -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0" build
+```
+
+A release builds both, and each board reads its own update manifest
+(`manifest.json` for V2.1, `manifest-v3.0.json` for V3.0), so a device never
+installs the other board's build. V3.0 also logs whether USB was in and the
+battery charging (`main/power_status`, the wake log's `power` column).
 
 ## Toolchain
 
@@ -45,6 +62,7 @@ idf.py build flash -p <PORT>
   - `board.hpp`: every pin, in one place
   - `app_state`: the RTC boot state shared across restarts and deep sleep, this run's wake log entry, restart and deep sleep
   - `battery`: the fuel gauge reading, the charge reminder
+  - `power_status`: USB and charging (V3.0)
   - `buttons`: what a press means (also on a wake from deep sleep)
   - `refresh`: the calendar, privacy mode, the offline screen
   - `setup_flow`: setup mode's two steps
@@ -54,10 +72,10 @@ idf.py build flash -p <PORT>
   without ESP-IDF dependencies (ICS parsing, calendar layout, setup pages,
   photo rotation, wake log format, `run_policy`'s retry and battery rules, ...)
   are also built and tested on the host.
-- `sdkconfig.defaults` — board-specific config baked in (PSRAM disabled per
-  the known GPIO35-37 conflict on this module, 8MB flash, custom partition
-  table). Run `idf.py set-target esp32s3` once after a fresh clone to
-  generate `sdkconfig`.
+- `sdkconfig.defaults` — config baked in (PSRAM disabled per the known
+  GPIO35-37 conflict on V2.1's module, 8MB flash, custom partition table);
+  `sdkconfig.board-v3.0` adds V3.0 on top. Run `idf.py set-target esp32s3`
+  once after a fresh clone to generate `sdkconfig`.
 - `partitions.csv` — two 3MB OTA app slots plus on-chip `storage` (uploaded
   photos and, in its last 64KB, the wake log). Changing it means a USB reflash
   (`idf.py erase-flash flash`), not an OTA update.
@@ -84,7 +102,8 @@ Off by default (release builds use the defaults); set in `idf.py menuconfig`:
   `glance refresh configured`, `glance wifi <name>|default`, `glance log`
   (the wake log as CSV), `glance sleep` (deep sleep until the button, for
   measuring sleep current), `glance battery <0-100>` (the next boot sees that
-  state of charge).
+  state of charge), `glance hw` (a new board's check: slow clock, USB and
+  charge status, fuel gauge, panel).
 
 ## Tools
 

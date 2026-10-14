@@ -33,12 +33,21 @@ def number(row, key):
     return float(row[key]) if row.get(key) else None
 
 
+def on_usb(row):
+    """V3.0 logs whether USB was in (the power column); older logs can't tell."""
+    return row.get("power") in ("charging", "usb")
+
+
 def latest_discharge(rows):
-    """The entries since the last charge that have a time and a battery reading."""
+    """The entries since the last charge that have a time and a battery reading.
+    A charge is a run on USB (V3.0) or, without that column, a jump in the
+    state of charge."""
     usable = [r for r in rows if r["when"] and number(r, "soc_pct") is not None]
     start = 0
-    for i in range(1, len(usable)):
-        if number(usable[i], "soc_pct") - number(usable[i - 1], "soc_pct") > CHARGE_JUMP_PCT:
+    for i in range(len(usable)):
+        if on_usb(usable[i]):
+            start = i + 1
+        elif i and number(usable[i], "soc_pct") - number(usable[i - 1], "soc_pct") > CHARGE_JUMP_PCT:
             start = i
     return usable[start:]
 

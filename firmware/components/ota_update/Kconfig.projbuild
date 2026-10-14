@@ -1,11 +1,13 @@
 menu "Glance Updates"
 
-    config GLANCE_OTA_MANIFEST_URL
-        string "Update manifest URL"
-        default "https://github.com/bolintw/Glance/releases/latest/download/manifest.json"
+    config GLANCE_OTA_RELEASE_URL
+        string "Where releases are published"
+        default "https://github.com/bolintw/Glance/releases/latest/download"
         help
-            Where to look for a newer release (published by
-            .github/workflows/release.yml). Only release builds -- version
+            The latest release's download directory (published by
+            .github/workflows/release.yml). Each board reads its own update
+            manifest there (board::kOtaManifest), so a device never installs
+            a build for another board. Only release builds -- version
             vX.Y.Z, from firmware/version.txt -- ever update themselves; a
             development build never does.
 

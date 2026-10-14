@@ -40,6 +40,16 @@ const char* wakeName(Wake wake) {
     return "?";
 }
 
+const char* powerName(Power power) {
+    switch (power) {
+        case Power::unknown: return "";
+        case Power::battery: return "battery";
+        case Power::charging: return "charging";
+        case Power::usb: return "usb";
+    }
+    return "?";
+}
+
 const char* resultName(Result result) {
     switch (result) {
         case Result::calendar: return "calendar";
@@ -76,7 +86,8 @@ std::array<uint8_t, kEntryBytes> encode(const Entry& e) {
     p[25] = static_cast<uint8_t>(e.wake);
     p[26] = static_cast<uint8_t>(e.result);
     p[27] = e.resetReason;
-    // 28-30 reserved (zero)
+    p[28] = static_cast<uint8_t>(e.power);
+    // 29-30 reserved (zero)
     out[31] = checkByte(std::span(out).first(31));
     return out;
 }
@@ -99,6 +110,7 @@ std::optional<Entry> decode(std::span<const uint8_t, kEntryBytes> bytes) {
     e.wake = static_cast<Wake>(p[25]);
     e.result = static_cast<Result>(p[26]);
     e.resetReason = p[27];
+    e.power = static_cast<Power>(p[28]);
     return e;
 }
 
@@ -180,7 +192,7 @@ void HealthTally::add(const Entry& e) {
 
 std::string csvHeader() {
     return "seq,time,wake,result,reset_reason,awake_s,battery_v,soc_pct,charge_rate_pct_per_h,wifi_s,rssi_dbm,"
-           "clock_drift_ms\n";
+           "clock_drift_ms,power\n";
 }
 
 std::string csvLine(const Entry& e, int32_t utcOffset) {
@@ -205,9 +217,9 @@ std::string csvLine(const Entry& e, int32_t utcOffset) {
                       e.crate * 0.208);
     }
     char line[192];
-    std::snprintf(line, sizeof(line), "%lu,%s,%s,%s,%u,%.1f,%s,%s,%s,%s\n", static_cast<unsigned long>(e.seq),
+    std::snprintf(line, sizeof(line), "%lu,%s,%s,%s,%u,%.1f,%s,%s,%s,%s,%s\n", static_cast<unsigned long>(e.seq),
                   when, wakeName(e.wake), resultName(e.result), e.resetReason, e.awakeMs / 1000.0, battery, wifi,
-                  e.rssi ? std::to_string(e.rssi).c_str() : "", drift);
+                  e.rssi ? std::to_string(e.rssi).c_str() : "", drift, powerName(e.power));
     return line;
 }
 

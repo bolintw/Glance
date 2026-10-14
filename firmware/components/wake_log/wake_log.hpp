@@ -34,6 +34,15 @@ enum class Result : uint8_t {
     badResetBackoff,  // crashes or brownouts kept recurring: sleeping a while before trying again
 };
 
+// Where the power came from, on boards that can tell (V3.0's USB and charge
+// status inputs); unknown on V2.1 and in entries from before.
+enum class Power : uint8_t {
+    unknown,
+    battery,   // no USB
+    charging,  // USB in, the charger charging
+    usb,       // USB in, not charging (charged, or no battery)
+};
+
 inline constexpr uint16_t kNoWifi = 0xFFFF;           // wifiMs: not tried
 inline constexpr int32_t kNoDrift = INT32_MIN;        // clockDriftMs: no clock to compare
 inline constexpr uint32_t kEmptySeq = 0xFFFFFFFF;     // erased flash
@@ -51,6 +60,7 @@ struct Entry {
     Wake wake = Wake::other;
     Result result = Result::calendar;
     uint8_t resetReason = 0;   // esp_reset_reason_t
+    Power power = Power::unknown;
 };
 
 inline constexpr size_t kEntryBytes = 32;

@@ -5,6 +5,7 @@
 #include <ctime>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <sys/time.h>
 #include <vector>
@@ -260,7 +261,7 @@ void installUpdateIfAny() {
         ESP_LOGI(kTag, "battery low: no update check");
         return;
     }
-    ota_update::checkAndInstall(CONFIG_GLANCE_OTA_MANIFEST_URL);
+    ota_update::checkAndInstall(std::string(CONFIG_GLANCE_OTA_RELEASE_URL) + "/" + board::kOtaManifest);
 }
 
 }  // namespace

@@ -32,32 +32,40 @@ jobs:
 
       # No sdkconfig in the repo (it holds local secrets), so this builds
       # from sdkconfig.defaults: the product configuration, with WiFi and
-      # calendars left for the device's setup page.
+      # calendars left for the device's setup page. One build per board:
+      # V2.1 keeps the names its devices already read (glance.bin,
+      # manifest.json); V3.0 gets its own (main/board.hpp, kOtaManifest).
       - name: Build
         shell: bash
         working-directory: firmware
         run: |
           echo "$GITHUB_REF_NAME" > version.txt
           . "$IDF_PATH/export.sh"
-          idf.py build
+          idf.py -B build build
+          idf.py -B build-v3.0 -D SDKCONFIG=build-v3.0/sdkconfig \
+                 -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0" build
 
-      - name: Write the manifest
+      - name: Write the manifests
         shell: bash
-        working-directory: firmware/build
+        working-directory: firmware
         run: |
-          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/glance.bin"
-          size=$(stat -c %s glance.bin)
-          sha=$(sha256sum glance.bin | cut -d' ' -f1)
-          printf '{"version":"%s","url":"%s","size":%s,"sha256":"%s"}\n' \
-            "$GITHUB_REF_NAME" "$url" "$size" "$sha" > manifest.json
-          cat manifest.json
+          mkdir -p out
+          release="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          manifest() {  # build dir, binary name, manifest name
+            cp "$1/glance.bin" "out/$2"
+            size=$(stat -c %s "out/$2")
+            sha=$(sha256sum "out/$2" | cut -d' ' -f1)
+            printf '{"version":"%s","url":"%s","size":%s,"sha256":"%s"}\n' \
+              "$GITHUB_REF_NAME" "$release/$2" "$size" "$sha" > "out/$3"
+            cat "out/$3"
+          }
+          manifest build glance.bin manifest.json
+          manifest build-v3.0 glance-v3.0.bin manifest-v3.0.json
 
       - uses: actions/upload-artifact@v7
         with:
           name: firmware
-          path: |
-            firmware/build/glance.bin
-            firmware/build/manifest.json
+          path: firmware/out/*
 
   # Attaching runs outside the ESP-IDF container, where the gh CLI is
   # preinstalled.
@@ -71,4 +79,6 @@ jobs:
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" glance.bin manifest.json --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          gh release upload "$GITHUB_REF_NAME" glance.bin manifest.json glance-v3.0.bin manifest-v3.0.json \
+            --clobber --repo "$GITHUB_REPOSITORY"

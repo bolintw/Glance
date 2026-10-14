@@ -28,6 +28,10 @@ jobs:
     runs-on: ubuntu-latest
     # Same ESP-IDF as development (v6.0).
     container: espressif/idf:v6.0
+    strategy:
+      matrix:
+        # Both boards a release builds (release.yml).
+        defaults: ["sdkconfig.defaults", "sdkconfig.defaults;sdkconfig.board-v3.0"]
     steps:
       - uses: actions/checkout@v7
 
@@ -38,4 +42,4 @@ jobs:
         working-directory: firmware
         run: |
           . "$IDF_PATH/export.sh"
-          idf.py build
+          idf.py -B build -D SDKCONFIG=build/sdkconfig -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}" build

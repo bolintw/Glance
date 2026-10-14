@@ -1,3 +1,22 @@
+menu "Glance Board"
+
+    choice GLANCE_BOARD
+        prompt "Board"
+        default GLANCE_BOARD_V2_1
+        help
+            Which eCalendar board this build is for: the pins (main/board.hpp)
+            and the update manifest it reads. A release builds both, and each
+            device only takes updates for its own board.
+
+        config GLANCE_BOARD_V2_1
+            bool "eCalendar V2.1"
+
+        config GLANCE_BOARD_V3_0
+            bool "eCalendar V3.0 (USB and charge status inputs, no external flash)"
+    endchoice
+
+endmenu
+
 menu "Glance Display Backend"
 
     choice GLANCE_DISPLAY_BACKEND
@@ -68,6 +87,8 @@ menu "Glance Refresh"
             Lines like "glance press short", "glance press long",
             "glance privacy on|off" and "glance refresh" act as the button
             does, so tests can drive it without anyone pressing it.
+            "glance hw" prints a check of a new board: slow clock, USB and
+            charge status, fuel gauge, panel.
 
     config GLANCE_DEEP_SLEEP
         bool "Deep sleep until the next refresh"

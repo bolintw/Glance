@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "fuel_gauge.hpp"
 #include "peripherals.hpp"
+#include "power_status.hpp"
 #include "run_policy.hpp"
 
 namespace glance {
@@ -39,6 +40,7 @@ constexpr int64_t kCriticalCheckSeconds = 3600;
 }  // namespace
 
 void checkBattery() {
+    gRun.power = power_status::read();
     auto battery = fuel_gauge::read();
     if (battery && gBoot.fakeBatteryPct >= 0) {
         ESP_LOGW(kTag, "development: battery taken as %d%% (really %.1f%%)", gBoot.fakeBatteryPct,
