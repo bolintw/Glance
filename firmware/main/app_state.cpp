@@ -43,7 +43,12 @@ void initBootState() {
              .badResets = 0,
              .lastPhoto = UINT8_MAX,
              .wakeAt = 0,
-             .fakeBatteryPct = -1};
+             .fakeBatteryPct = -1,
+             .forecastAt = 0,
+             .forecastCondition = 0,
+             .forecastRainChance = 0,
+             .forecastMinTemp = 0,
+             .forecastMaxTemp = 0};
 }
 
 void logRun(wake_log::Result result) {

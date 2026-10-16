@@ -35,6 +35,11 @@ inline constexpr uint16_t kResumeMillivolts = 3550;
 // morning doesn't.
 inline constexpr int64_t kCalendarStaleSeconds = 47 * 3600;
 
+// Privacy mode switched on by a press is drawn without going online: the
+// clock (kept by the RTC across deep sleep) gives the date, and the weather
+// is the forecast fetched earlier the same local day -- none if it's older.
+bool forecastFromToday(int64_t fetchedAt, int64_t now, int32_t utcOffset);
+
 // Whether the next wake-up is a retry (an hour on) rather than the next
 // daily refresh, after `failedRunsInARow` failed refreshes (0 after one that
 // worked).

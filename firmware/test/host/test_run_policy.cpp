@@ -110,6 +110,17 @@ void testBattery() {
     CHECK(batteryTooLow(pct(7), 3600, true));    // ...and still too low once it is
 }
 
+void testForecastFromToday() {
+    using run_policy::forecastFromToday;
+    constexpr int32_t kTaipei = 8 * 3600;
+    constexpr int64_t kMorning = 1792191600;  // 2026-10-17 07:00 Taipei
+    CHECK(!forecastFromToday(0, kMorning, kTaipei));                        // none fetched
+    CHECK(forecastFromToday(kMorning, kMorning + 3600, kTaipei));           // 08:00
+    CHECK(forecastFromToday(kMorning, kMorning + 16 * 3600 + 3599, kTaipei));  // 23:59:59
+    CHECK(!forecastFromToday(kMorning, kMorning + 17 * 3600, kTaipei));     // midnight: yesterday's
+    CHECK(!forecastFromToday(kMorning, kMorning + 22 * 3600, kTaipei));     // 05:00 the next day
+}
+
 }  // namespace
 
 int main() {
@@ -120,6 +131,7 @@ int main() {
     testOfflineScreen();
     testCalendarStale();
     testBattery();
+    testForecastFromToday();
     if (failures == 0) {
         std::printf("all run_policy tests passed\n");
     }

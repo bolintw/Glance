@@ -65,6 +65,7 @@ const char* resultName(Result result) {
         case Result::calendarError: return "calendar-error";
         case Result::stuck: return "stuck";
         case Result::badResetBackoff: return "bad-reset-backoff";
+        case Result::privacyCached: return "privacy-cached";
     }
     return "?";
 }

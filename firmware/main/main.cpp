@@ -55,8 +55,11 @@ constexpr uint32_t kPanelFinishWaitMs = 20 * 1000;
 // When to wake next, counting this run in (see run_policy::nextWake).
 run_policy::NextWake scheduleNext(bool refreshed) {
     gBoot.failedRuns = refreshed ? 0 : gBoot.failedRuns + 1;
+    // A run that didn't go online can't stand in for a daily refresh due
+    // within the hour: privacy mode switched on at 06:30 still wakes at 07:00.
+    const int64_t minGap = gRun.result == wake_log::Result::privacyCached ? 0 : kMinRefreshGapSeconds;
     return run_policy::nextWake(gBoot.failedRuns, time(nullptr), time_sync::kUtcOffsetSeconds,
-                                CONFIG_GLANCE_REFRESH_HOUR, CONFIG_GLANCE_RETRY_MINUTES, kMinRefreshGapSeconds);
+                                CONFIG_GLANCE_REFRESH_HOUR, CONFIG_GLANCE_RETRY_MINUTES, minGap);
 }
 
 // Crashes or brownouts keep recurring (run_policy::backOffAfterBadResets):
@@ -144,7 +147,9 @@ void noteWakeCause() {
     ESP_LOGW(kTag, "deep sleep disabled (menuconfig -> Glance Refresh), waiting awake instead");
     gPhase = Phase::waiting;
 #if CONFIG_GLANCE_DEV_SETUP_ON_LAN
-    if (setup_mode::startOnLan(settings) == ESP_OK) {
+    // A run that didn't go online (privacy mode on a press) never brought the
+    // network stack up: starting the web server on it hangs.
+    if (gRun.result != wake_log::Result::privacyCached && setup_mode::startOnLan(settings) == ESP_OK) {
         ESP_LOGW(kTag, "development: setup pages served on the home network");
     }
 #else

@@ -51,6 +51,11 @@ bool calendarStale(uint32_t failingSince, int64_t now) {
     return failingSince != 0 && now - static_cast<int64_t>(failingSince) >= kCalendarStaleSeconds;
 }
 
+bool forecastFromToday(int64_t fetchedAt, int64_t now, int32_t utcOffset) {
+    constexpr int64_t kDay = 24 * 3600;
+    return fetchedAt > 0 && (fetchedAt + utcOffset) / kDay == (now + utcOffset) / kDay;
+}
+
 bool batteryLow(uint16_t soc256) { return soc256 < kLowBatteryPct * 256; }
 
 bool batteryTooLow(uint16_t soc256, uint16_t millivolts, bool reminderUp) {

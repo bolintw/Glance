@@ -17,7 +17,7 @@ inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E37;  // "GLN7" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E38;  // "GLN8" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
@@ -33,6 +33,14 @@ struct BootState {
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
     int64_t wakeAt;     // when the timer is due (Unix time; 0 = none), for a button wake-up that goes back to sleep
     int8_t fakeBatteryPct;  // development: the next boot's state of charge instead of the gauge's (-1 = none)
+    // The last forecast fetched, for privacy mode switched on by a press
+    // (drawn offline; see run_policy::forecastFromToday). The drawing doesn't
+    // use CWA's wording, so it isn't kept.
+    int64_t forecastAt;          // when it was fetched (Unix time; 0 = none)
+    uint8_t forecastCondition;   // weather::Condition
+    int8_t forecastRainChance;   // percent
+    int8_t forecastMinTemp;      // Celsius
+    int8_t forecastMaxTemp;
 };
 extern BootState gBoot;
 

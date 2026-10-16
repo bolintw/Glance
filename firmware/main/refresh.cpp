@@ -95,6 +95,31 @@ std::optional<GrayOverlay> grayOverlayFor([[maybe_unused]] const PrivacyPhoto& p
 #endif
 }
 
+// The forecast, kept in gBoot for privacy mode switched on later today.
+std::optional<weather::Forecast> fetchForecast(const Settings& settings) {
+    auto forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
+    if (forecast) {
+        gBoot.forecastAt = time(nullptr);
+        gBoot.forecastCondition = static_cast<uint8_t>(forecast->condition);
+        gBoot.forecastRainChance = static_cast<int8_t>(std::clamp(forecast->rainChance, 0, 100));
+        gBoot.forecastMinTemp = static_cast<int8_t>(std::clamp(forecast->minTemp, -99, 99));
+        gBoot.forecastMaxTemp = static_cast<int8_t>(std::clamp(forecast->maxTemp, -99, 99));
+    }
+    return forecast;
+}
+
+// The forecast fetched earlier today, if there is one.
+std::optional<weather::Forecast> cachedForecast() {
+    if (!run_policy::forecastFromToday(gBoot.forecastAt, time(nullptr), time_sync::kUtcOffsetSeconds)) {
+        return std::nullopt;
+    }
+    return weather::Forecast{.condition = static_cast<weather::Condition>(gBoot.forecastCondition),
+                             .description = {},
+                             .rainChance = gBoot.forecastRainChance,
+                             .minTemp = gBoot.forecastMinTemp,
+                             .maxTemp = gBoot.forecastMaxTemp};
+}
+
 // Fetches every configured calendar into one EventCollector. nullopt if
 // calendars are configured but none could be fetched -- an empty list would
 // wrongly read as "nothing coming up". Logs the slot number, never the URL,
@@ -269,7 +294,15 @@ void installUpdateIfAny() {
 bool refreshPrivate(Settings& settings) {
     std::optional<weather::Forecast> forecast;
     bool online = false;
-    {
+    // A press only switches what's shown: draw it at once, without going
+    // online, when the clock can give the date. The daily refresh still goes
+    // online (scheduleNext doesn't let this run stand in for it).
+    const bool offlineByChoice = gBoot.pressed && time_sync::clockIsPlausible();
+    if (offlineByChoice) {
+        forecast = cachedForecast();
+        ESP_LOGI(kTag, "privacy mode on a press: not going online (%s)",
+                 forecast ? "this morning's weather" : "no weather from today");
+    } else {
         WifiManager wifi;
         esp_err_t err = joinWifi(wifi, settings);
         if (err == ESP_OK) {
@@ -278,7 +311,7 @@ bool refreshPrivate(Settings& settings) {
         }
         gBoot.wifiFailures = online ? 0 : gBoot.wifiFailures + 1;
         if (online) {
-            forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
+            forecast = fetchForecast(settings);
         } else {
             ESP_LOGE(kTag, "offline (%s), drawing privacy mode without weather", esp_err_to_name(err));
         }
@@ -288,7 +321,7 @@ bool refreshPrivate(Settings& settings) {
     Canvas canvas(framebuffer, board::kPanelSize);
     PrivacyPhoto photo = pickPhoto();
     calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono,
-                                 {.offline = !online, .lowBattery = gLowBattery});
+                                 {.offline = !online && !offlineByChoice, .lowBattery = gLowBattery});
     auto overlay = grayOverlayFor(photo);
     ESP_LOGI(kTag, "showing privacy mode%s", overlay ? " (4-gray)" : "");
     if (!show(framebuffer, overlay ? &*overlay : nullptr)) {
@@ -296,12 +329,14 @@ bool refreshPrivate(Settings& settings) {
         gRun.result = wake_log::Result::panelFailed;
         return false;
     }
-    gBoot.offlineShown = !online;
-    gRun.result = online ? wake_log::Result::privacy : wake_log::Result::offlineShown;
+    gBoot.offlineShown = !online && !offlineByChoice;
+    gRun.result = online            ? wake_log::Result::privacy
+                  : offlineByChoice ? wake_log::Result::privacyCached
+                                    : wake_log::Result::offlineShown;
     if (online) {
         installUpdateIfAny();
     }
-    return online;
+    return online || offlineByChoice;
 }
 
 bool refresh(Settings& settings) {
@@ -328,7 +363,7 @@ bool refresh(Settings& settings) {
         gRun.result = wake_log::Result::fetchFailed;
         return false;
     }
-    auto forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
+    auto forecast = fetchForecast(settings);
     if (!events) {
         // Nothing to draw a calendar with, for two days now: say so rather
         // than leave an ever older calendar up.
