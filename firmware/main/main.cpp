@@ -169,6 +169,7 @@ void noteWakeCause() {
 extern "C" void app_main(void)
 {
     using namespace glance;
+    time_sync::useLocalTimezone();
     noteWakeCause();
     initBootState();
     xTaskCreate(runDeadlineTask, "run_deadline", 4096, nullptr, 10, nullptr);

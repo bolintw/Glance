@@ -149,7 +149,7 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
     for (const auto& e : events) {
         time_t start = static_cast<time_t>(e.start);
         struct tm local;
-        localtime_r(&start, &local);  // TZ was set by time_sync
+        localtime_r(&start, &local);  // TZ set at boot (time_sync::useLocalTimezone)
         char when[24];
         strftime(when, sizeof(when), e.allDay ? "%m/%d (all day)" : "%m/%d %H:%M", &local);
         ESP_LOGI(kTag, "  %-16s %s", when, e.summary.empty() ? "(no title)" : e.summary.c_str());

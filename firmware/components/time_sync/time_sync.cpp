@@ -32,9 +32,13 @@ namespace time_sync {
 
 bool clockIsPlausible() { return time(nullptr) >= kPlausibleEpoch; }
 
-esp_err_t sync(uint32_t timeoutMs) {
+void useLocalTimezone() {
     setenv("TZ", kTaiwanTz, 1);
     tzset();
+}
+
+esp_err_t sync(uint32_t timeoutMs) {
+    useLocalTimezone();
     // The RTC keeps time through deep sleep; how far NTP has to move it
     // shows how much the RTC clock drifted since the last sync.
     int64_t clockBeforeUs = wallClockUs();
