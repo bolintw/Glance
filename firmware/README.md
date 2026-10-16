@@ -15,6 +15,11 @@ idf.py -B build-v3.0 -D SDKCONFIG=build-v3.0/sdkconfig \
        -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0" build
 ```
 
+For a development build (serial commands, no deep sleep -- what
+`tools/board/bringup.py` needs), add `sdkconfig.dev` last:
+`-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0;sdkconfig.dev"`
+with its own build directory, e.g. `build-v3.0-dev`.
+
 A release builds both, and each board reads its own update manifest
 (`manifest.json` for V2.1, `manifest-v3.0.json` for V3.0), so a device never
 installs the other board's build. V3.0 also logs whether USB was in and the
