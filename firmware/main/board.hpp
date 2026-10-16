@@ -11,7 +11,9 @@
 namespace board {
 
 inline constexpr FrameSize kPanelSize{.width = 800, .height = 480};
-inline constexpr uint32_t kEpdSpiClockHz = 1'000'000;
+// The panel takes a write clock cycle down to 100ns (10MHz, spec 3.3-3);
+// 4MHz leaves margin for the FPC. A frame is two 48KB planes: ~0.87s at 1MHz.
+inline constexpr uint32_t kEpdSpiClockHz = 4'000'000;
 
 // IO1: the button, with an external pull-up (R31) on the always-on rail, so
 // it reads high through deep sleep until pressed. Same on both boards.
