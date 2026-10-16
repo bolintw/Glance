@@ -23,6 +23,7 @@ using HttpClient = std::unique_ptr<std::remove_pointer_t<esp_http_client_handle_
 namespace calendar_fetch {
 
 esp_err_t fetchLines(const char* url, const ics::LineReader::LineHandler& onLine) {
+    const int64_t startUs = esp_timer_get_time();
     esp_http_client_config_t config = {};
     config.url = url;
     config.timeout_ms = kTimeoutMs;
@@ -46,6 +47,7 @@ esp_err_t fetchLines(const char* url, const ics::LineReader::LineHandler& onLine
         return ESP_FAIL;
     }
 
+    const int64_t connectedUs = esp_timer_get_time();  // TLS handshake and headers done
     ics::LineReader reader(onLine);
     char buf[kReadChunkBytes];
     int totalBytes = 0;
@@ -65,7 +67,9 @@ esp_err_t fetchLines(const char* url, const ics::LineReader::LineHandler& onLine
         ESP_LOGE(kTag, "read failed after %d bytes", totalBytes);
         return ESP_FAIL;
     }
-    ESP_LOGI(kTag, "received %d bytes", totalBytes);
+    const int64_t doneUs = esp_timer_get_time();
+    ESP_LOGI(kTag, "received %d bytes: connecting %lld ms, reading %lld ms", totalBytes,
+             (connectedUs - startUs) / 1000, (doneUs - connectedUs) / 1000);
     return ESP_OK;
 }
 

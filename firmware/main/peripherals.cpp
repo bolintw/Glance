@@ -7,6 +7,8 @@
 #include "board.hpp"
 #include "canvas.hpp"
 #include "driver/gpio.h"
+#include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "setup_view.hpp"
@@ -35,11 +37,16 @@ std::atomic<PanelState> gPanel = PanelState::idle;
 bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
     // No clear() first: a full refresh already drives every pixel through
     // the whole waveform, so clearing only doubled the time and flicker.
+    int64_t startUs = esp_timer_get_time();
     bool ready = display.init();
+    int64_t readyUs = esp_timer_get_time();
     bool shown = ready && (overlay ? display.flushGray(framebuffer, *overlay) : display.flush(framebuffer));
     if (ready) {
         display.sleep();
     }
+    // The flush includes the refresh, which the driver logs on its own.
+    ESP_LOGI("panel", "init %lld ms, frame and refresh %lld ms", (readyUs - startUs) / 1000,
+             (esp_timer_get_time() - readyUs) / 1000);
     return shown;
 }
 
