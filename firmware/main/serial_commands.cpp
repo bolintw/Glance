@@ -46,8 +46,9 @@ void hardwareCheck() {
                     kNames[static_cast<int>(power.power)]);
     }
     if (auto battery = fuel_gauge::read()) {
-        std::printf("hw: fuel gauge %u mV, %.1f%%, %+.1f%%/h%s\n", battery->millivolts, battery->soc256 / 256.0,
-                    battery->crate * 0.208, battery->alertWasSet ? ", alert was set" : "");
+        std::printf("hw: fuel gauge %u mV, %.1f%%, %+.1f%%/h, %s%s\n", battery->millivolts, battery->soc256 / 256.0,
+                    battery->crate * 0.208, battery->hibernating ? "hibernating" : "active (sampling every 250ms)",
+                    battery->alertWasSet ? ", alert was set" : "");
     } else {
         std::printf("hw: fuel gauge not answering\n");
     }

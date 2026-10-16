@@ -13,6 +13,7 @@ struct Reading {
     uint16_t soc256;   // state of charge, % * 256
     int16_t crate;     // charge rate, 0.208 %/h per LSB (positive: charging)
     bool alertWasSet;  // the ALRT pin was pulled low (and has been released)
+    bool hibernating;  // sampling every 45s (vs 250ms): readings up to 45s old
 };
 
 // Takes the bus, reads the gauge, clears any alert -- an asserted ALRT pin

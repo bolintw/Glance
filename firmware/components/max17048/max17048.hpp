@@ -11,6 +11,7 @@ inline constexpr uint8_t kAddress = 0x36;
 
 inline constexpr uint8_t kVcell = 0x02;    // 78.125 uV per LSB
 inline constexpr uint8_t kSoc = 0x04;      // % in the high byte, 1/256 % in the low
+inline constexpr uint8_t kMode = 0x06;     // Quick-Start EnSleep HibStat
 inline constexpr uint8_t kVersion = 0x08;  // 0x001_
 inline constexpr uint8_t kHibrt = 0x0A;    // HibThr | ActThr: when to hibernate
 inline constexpr uint8_t kConfig = 0x0C;   // RCOMP | SLEEP ALSC ALRT ATHD[4:0]
@@ -18,6 +19,7 @@ inline constexpr uint8_t kCrate = 0x16;    // signed, 0.208 %/h per LSB
 inline constexpr uint8_t kStatus = 0x1A;   // alert causes in the high byte
 
 inline constexpr uint16_t kConfigAlert = 1 << 5;    // set with the ALRT pin pulled low
+inline constexpr uint16_t kModeHibernating = 1 << 12;  // HibStat, read only
 inline constexpr uint16_t kStatusAlerts = 0x3F00;   // RI VH VL VR HD SC: write 0 to clear
 // Always hibernate: an ADC sample every 45s (~4uA) instead of every 250ms
 // (~23uA). The default (0x8030) only hibernates after 6 minutes of a low

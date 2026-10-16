@@ -131,6 +131,8 @@ def main():
     if gauge:
         mv = int(gauge.group(1))
         report.check(True, "fuel gauge answers", f"{mv} mV, {gauge.group(2)}%")
+        if "hibernating" not in hw:
+            report.note("fuel gauge not hibernating yet (~19uA more in sleep); it should be from the next boot on")
         if mv > 4300:
             report.note(f"{mv} mV is above a full cell: no battery (V2.1: its Q2 feeds VBAT from USB)")
     else:
