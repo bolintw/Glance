@@ -31,6 +31,11 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # (MBEDTLS_ERR_X509_FATAL_ERROR). Costs ~700 bytes of heap.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
 
+# No random 0-5s wait before the first NTP request (RFC 4330's spread for
+# many devices powered up at once): it made the clock sync take 0.4-4.7s,
+# the most variable step of a refresh (eight runs on V2.1, 2026-10-16).
+CONFIG_LWIP_SNTP_STARTUP_DELAY=n
+
 # Both boards have a 32.768kHz crystal on GPIO15/16 (U2). The default internal
 # RC oscillator drifts noticeably with temperature, which adds up over a
 # day of deep sleep between refreshes.
