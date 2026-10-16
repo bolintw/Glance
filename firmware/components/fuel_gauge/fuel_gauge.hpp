@@ -16,7 +16,8 @@ struct Reading {
 };
 
 // Takes the bus, reads the gauge, clears any alert -- an asserted ALRT pin
-// would leak ~330uA through its pull-up all night -- and lets go of the bus.
+// would leak ~330uA through its pull-up all night -- puts the gauge in
+// hibernate for good (about 19uA less, all the time) and lets go of the bus.
 std::optional<Reading> read();
 
 }  // namespace fuel_gauge

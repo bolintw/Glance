@@ -89,6 +89,10 @@ std::optional<Reading> read() {
         gauge.write(max17048::kConfig, *config & ~max17048::kConfigAlert);
         ESP_LOGW(kTag, "alert cleared (status 0x%04x)", *status);
     }
+    if (gauge.read(max17048::kHibrt) != max17048::kHibrtAlways) {
+        bool set = gauge.write(max17048::kHibrt, max17048::kHibrtAlways);
+        ESP_LOGI(kTag, "hibernate always: %s", set ? "set" : "write failed");
+    }
     return Reading{max17048::millivolts(*vcell), *soc, static_cast<int16_t>(*crate), alert};
 }
 
