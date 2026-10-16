@@ -36,6 +36,11 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
 # the most variable step of a refresh (eight runs on V2.1, 2026-10-16).
 CONFIG_LWIP_SNTP_STARTUP_DELAY=n
 
+# Precomputed curve tables in flash (~29KB) speed up the fixed-point part of
+# the TLS handshake's elliptic-curve math, which the ESP32-S3 has no
+# accelerator for: connecting to a calendar took ~2.67s.
+CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
+
 # Both boards have a 32.768kHz crystal on GPIO15/16 (U2). The default internal
 # RC oscillator drifts noticeably with temperature, which adds up over a
 # day of deep sleep between refreshes.
