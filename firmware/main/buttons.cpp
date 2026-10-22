@@ -34,8 +34,32 @@ bool waitForRelease(const Button& button) {
 
 void actOnPress(bool isLong, const std::function<bool()>& waitForRelease) {
     ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
-    if (gPhase == Phase::setup) {
-        restartInto(false);
+    switch (gPhase.load()) {
+        case Phase::setupStarting:
+            // Its screen is on the way (a few seconds of WiFi and panel):
+            // pressing again would only start it over, again and again.
+            blinkStatusLed();
+            ESP_LOGI(kTag, "setup starting: press ignored");
+            return;
+        case Phase::setupClosed:
+            restartInto(false);  // a second device closed setup: start over
+        case Phase::setup:
+            if (!isLong) {
+                blinkStatusLed();
+                ESP_LOGI(kTag, "setup: short press ignored");
+                return;
+            }
+            // A long press leaves setup: back to the calendar, or on a first
+            // setup, a fresh start (a new password).
+            statusLedOn();
+            if (waitForRelease()) {
+                restartInto(false);
+            }
+            statusLedOff();
+            return;
+        case Phase::refreshing:
+        case Phase::waiting:
+            break;
     }
     if (!isLong && (gBoot.offlineShown || gPhotoFrame)) {
         ESP_LOGI(kTag, "%s: short press ignored", gPhotoFrame ? "no calendars" : "offline");
@@ -92,6 +116,9 @@ void actOnWakePress(bool noCalendars) {
         released = waitForRelease(button);
     } else {
         ESP_LOGI(kTag, "button: short press (from wake-up)");
+        // The press got through: say so at once. Whatever it leads to takes
+        // seconds to reach the panel, and without this people press again.
+        blinkStatusLed();
     }
     switch (run_policy::decideWakePress(held, released, gBoot.offlineShown || noCalendars, gBoot.wakeAt,
                                         time(nullptr))) {

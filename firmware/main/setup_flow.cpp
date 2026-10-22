@@ -36,7 +36,6 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
 
 // Either setup step's events, until it ends in a restart.
 [[noreturn]] void runSetupEvents(bool onAccessPoint, const std::string& accessPointUrl) {
-    gPhase = Phase::setup;
     while (true) {
         switch (setup_mode::waitForEvent(kSetupIdleTimeoutMs, kSetupSessionLimitMs)) {
             case setup_mode::Event::saved:
@@ -71,7 +70,8 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                 // makes a new password or token.
                 setup_mode::close();
                 showScreen([](Canvas& canvas) { setup_view::renderIntruder(canvas); });
-                break;  // stays here until a press, or the idle timeout
+                gPhase = Phase::setupClosed;
+                break;  // stays here until a press (any press starts over), or the idle timeout
             }
         }
     }
@@ -80,6 +80,9 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
 // The WiFi step, on the access point: the QR code joins it.
 [[noreturn]] void runAccessPointSetup(const Settings& current) {
     ESP_LOGI(kTag, "entering setup mode: WiFi step on the access point");
+    // From here a press is setup's, even before the access point and its
+    // screen are up -- never a privacy toggle written into settings.
+    gPhase = Phase::setupStarting;
     std::string error;
     if (gBoot.wifiFailed) {
         error = "連不上「" + current.wifiSsid + "」，請確認網路名稱和密碼";
@@ -93,6 +96,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     Canvas canvas(framebuffer, board::kPanelSize);
     setup_view::render(canvas, ap.qrPayload, ap.ssid, ap.password, ap.url);
     show(framebuffer);
+    gPhase = Phase::setup;
     runSetupEvents(true, ap.url);
 }
 
@@ -101,6 +105,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
 // saved WiFi doesn't connect.
 [[noreturn]] void runHomeSetup(const Settings& current) {
     ESP_LOGI(kTag, "entering setup mode on the home network");
+    gPhase = Phase::setupStarting;  // as on the access point
     WifiManager wifi;  // stays up for the session
     if (wifi.connect(current.wifiSsid, current.wifiPassword, kWifiConnectTimeoutMs) != ESP_OK) {
         // The access point brings WiFi up its own way, so it needs a fresh boot.
@@ -118,6 +123,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     Canvas canvas(framebuffer, board::kPanelSize);
     setup_view::renderLan(canvas, home.qrPayload);
     show(framebuffer);
+    gPhase = Phase::setup;
     runSetupEvents(false, {});
 }
 

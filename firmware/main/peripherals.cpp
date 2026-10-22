@@ -160,6 +160,12 @@ void statusLedOn() {
 
 void statusLedOff() { gpio_set_level(kStatusLed, 1); }
 
+void blinkStatusLed() {
+    statusLedOn();
+    vTaskDelay(pdMS_TO_TICKS(150));
+    statusLedOff();
+}
+
 void peripheralsOff() {
     gpio_set_direction(kStatusLed, GPIO_MODE_OUTPUT);
     gpio_set_level(kStatusLed, 0);  // parked low: nothing to feed back into the unpowered rail

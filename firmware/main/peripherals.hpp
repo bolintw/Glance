@@ -31,6 +31,8 @@ void showNotice(std::string_view title, std::span<const std::string_view> lines)
 // the rail left on (a refresh may be about to use it).
 void statusLedOn();
 void statusLedOff();
+// One short blink: a press got through.
+void blinkStatusLed();
 
 // End of a run: the rail and the LED off, whether or not the panel was drawn
 // (show() cuts the rail itself, but a run that never got to draw left the

@@ -48,7 +48,10 @@ extern BootState gBoot;
 void initBootState();
 
 // What the device is doing, for the button task to decide what a press means.
-enum class Phase { refreshing, waiting, setup };
+// In setup mode: setupStarting until its QR code is on the panel (presses are
+// ignored: the screen is coming), setup while it's up (a long press leaves),
+// setupClosed once a second device closed it (any press starts over).
+enum class Phase { refreshing, waiting, setupStarting, setup, setupClosed };
 extern std::atomic<Phase> gPhase;
 // No calendars configured: a photo frame, always privacy mode's layout.
 extern std::atomic<bool> gPhotoFrame;
