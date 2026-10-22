@@ -4,6 +4,7 @@
 #include <string>
 
 #include "fonts.hpp"
+#include "icons.hpp"
 #include "qrcodegen.h"
 
 namespace setup_view {
@@ -18,7 +19,6 @@ constexpr Color kInk = Color::white;
 constexpr int kQrX = 40;
 constexpr int kQrMaxSize = 400;
 constexpr int kQuietZone = 4;
-constexpr int kTextX = 460;
 constexpr int kLinePitch = 42;
 
 void drawQr(Canvas& canvas, std::string_view payload) {
@@ -44,49 +44,93 @@ void drawQr(Canvas& canvas, std::string_view payload) {
     }
 }
 
-// A QR code on the left, lines of text beside it.
-void renderWithQr(Canvas& canvas, std::string_view qrPayload, std::span<const std::string> lines) {
-    canvas.fill(kBackground);
-    drawQr(canvas, qrPayload);
-    int y = (static_cast<int>(canvas.frame().height) - static_cast<int>(lines.size()) * kLinePitch) / 2;
-    for (const std::string& line : lines) {
-        canvas.drawText(kTextX, y, line, kNotoSansTcBold30, kInk);
-        y += kLinePitch;
+constexpr int kWidth = 800;
+constexpr int kHeight = 480;
+constexpr int kRightCentre = 620;  // the column right of the QR code
+constexpr int kDotRadius = 8;
+
+// Draws an icon from kSetupIcons with its box's bottom-left at (x, bottom).
+void drawIcon(Canvas& canvas, int x, int bottom, std::string_view icon) {
+    canvas.drawText(x, bottom - kSetupIcons.ascent, icon, kSetupIcons, kInk);
+}
+
+int iconWidth(std::string_view icon) { return measureText(icon, kSetupIcons); }
+
+// The icon centred on `centreX`, its box's bottom at `bottom`.
+void drawIconCentred(Canvas& canvas, int centreX, int bottom, std::string_view icon) {
+    drawIcon(canvas, centreX - iconWidth(icon) / 2, bottom, icon);
+}
+
+// Which of the two setup steps this is: a filled dot for it, a ring for
+// the other.
+void drawStepDots(Canvas& canvas, int centreX, int y, int step) {
+    for (int i = 0; i < 2; i++) {
+        int cx = centreX + (i == 0 ? -20 : 20);
+        for (int dy = -kDotRadius; dy <= kDotRadius; dy++) {
+            for (int dx = -kDotRadius; dx <= kDotRadius; dx++) {
+                int d2 = dx * dx + dy * dy;
+                bool inside = d2 <= kDotRadius * kDotRadius;
+                bool ring = inside && d2 >= (kDotRadius - 3) * (kDotRadius - 3);
+                if (i + 1 == step ? inside : ring) {
+                    canvas.setPixel(cx + dx, y + dy, kInk);
+                }
+            }
+        }
     }
+}
+
+// A small icon and a value after it, e.g. the password after a key; `y`
+// is the line's top, as for drawText.
+void drawValue(Canvas& canvas, int x, int y, std::string_view icon, std::string_view value) {
+    const Font& font = kNotoSansTcBold30;
+    // Latin text sits on the baseline with room below for descenders; the
+    // icon's bottom lines up a little under it.
+    int baseline = y + font.ascent;
+    drawIcon(canvas, x, baseline + 4, icon);
+    canvas.drawText(x + iconWidth(icon) + 12, y, value, font, kInk);
 }
 
 }  // namespace
 
 void render(Canvas& canvas, std::string_view qrPayload, std::string_view ssid, std::string_view password,
             std::string_view url) {
-    const std::string lines[] = {
-        "設定 WiFi",
-        "",
-        "1. 相機掃描 QR code",
-        "2. 稍等設定頁跳出",
-        "3. 選擇家裡的 WiFi",
-        "",
-        "沒有跳出來的話請開啟",
-        std::string(url),
-        "",
-        "網路：" + std::string(ssid),
-        "密碼：" + std::string(password),
-    };
-    renderWithQr(canvas, qrPayload, lines);
+    canvas.fill(kBackground);
+    drawQr(canvas, qrPayload);
+    drawIconCentred(canvas, kRightCentre, 190, icons::kSetupWifi);
+    drawStepDots(canvas, kRightCentre, 226, 1);
+    int x = kRightCentre - 150;
+    drawValue(canvas, x, 262, icons::kSetupSmallWifi, ssid);
+    drawValue(canvas, x, 312, icons::kSetupSmallKey, password);
+    drawValue(canvas, x, 362, icons::kSetupSmallGlobe, url);
 }
 
 void renderLan(Canvas& canvas, std::string_view qrPayload) {
-    const std::string lines[] = {
-        "設定行事曆與天氣",
-        "",
-        "1. 手機連家裡的 WiFi",
-        "2. 相機掃描 QR code",
-        "3. 在頁面上填寫",
-        "",
-        "網址含一次性驗證碼",
-        "請用 QR code 開啟",
-    };
-    renderWithQr(canvas, qrPayload, lines);
+    canvas.fill(kBackground);
+    drawQr(canvas, qrPayload);
+    drawIconCentred(canvas, kRightCentre, 300, icons::kSetupGear);
+    drawStepDots(canvas, kRightCentre, 340, 2);
+}
+
+void renderPhoneJoined(Canvas& canvas, std::string_view url) {
+    canvas.fill(kBackground);
+    drawIconCentred(canvas, kWidth / 2, url.empty() ? 340 : 310, icons::kSetupPhoneHand);
+    if (!url.empty()) {
+        const Font& font = kNotoSansTcBold30;
+        int width = iconWidth(icons::kSetupSmallGlobe) + 12 + measureText(url, font);
+        drawValue(canvas, (kWidth - width) / 2, 360, icons::kSetupSmallGlobe, url);
+    }
+}
+
+void renderIntruder(Canvas& canvas) {
+    canvas.fill(kBackground);
+    drawIconCentred(canvas, kWidth / 2, 330, icons::kSetupTwoPhones);
+    // The button is at the frame's lower right, behind: point there.
+    drawIcon(canvas, kWidth - 24 - iconWidth(icons::kSetupRestartButton), kHeight - 20, icons::kSetupRestartButton);
+}
+
+void renderShip(Canvas& canvas) {
+    canvas.fill(kBackground);
+    drawIconCentred(canvas, kWidth / 2, 370, icons::kSetupShip);
 }
 
 void renderNotice(Canvas& canvas, std::string_view title, std::span<const std::string_view> lines) {

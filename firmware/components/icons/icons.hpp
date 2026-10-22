@@ -8,6 +8,8 @@
 // position is the icon box's bottom-left corner (weather icons share a
 // 101x80 box, status icons a 24x24 one).
 extern const Font kWeatherIcons;
+// The setup screens' icons (draw_setup_icons.py), each in its own box.
+extern const Font kSetupIcons;
 
 namespace icons {
 inline constexpr const char* kSunny = "\xEE\x80\x80";  // U+E000
@@ -19,4 +21,13 @@ inline constexpr const char* kRaindrop = "\xEE\x80\x85";  // U+E005
 inline constexpr const char* kWifiOff = "\xEE\x80\x86";  // U+E006
 inline constexpr const char* kBatteryLow = "\xEE\x80\x87";  // U+E007
 inline constexpr const char* kCalendarError = "\xEE\x80\x88";  // U+E008
+inline constexpr const char* kSetupWifi = "\xEE\x84\x80";  // U+E100
+inline constexpr const char* kSetupGear = "\xEE\x84\x81";  // U+E101
+inline constexpr const char* kSetupPhoneHand = "\xEE\x84\x82";  // U+E102
+inline constexpr const char* kSetupTwoPhones = "\xEE\x84\x83";  // U+E103
+inline constexpr const char* kSetupRestartButton = "\xEE\x84\x84";  // U+E104
+inline constexpr const char* kSetupShip = "\xEE\x84\x85";  // U+E105
+inline constexpr const char* kSetupSmallWifi = "\xEE\x84\x86";  // U+E106
+inline constexpr const char* kSetupSmallKey = "\xEE\x84\x87";  // U+E107
+inline constexpr const char* kSetupSmallGlobe = "\xEE\x84\x88";  // U+E108
 }  // namespace icons

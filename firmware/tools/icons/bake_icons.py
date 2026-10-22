@@ -33,6 +33,21 @@ ICONS = [
     ("calendar_error.png", 0xE008, "kCalendarError"),  # drawn by draw_status_icons.py
 ]
 
+# The setup screens' icons (drawn by draw_setup_icons.py into src/setup/),
+# in a font of their own so their size doesn't change kWeatherIcons' metrics.
+# Each sits in its own box, pen at the box's bottom-left. Append only.
+SETUP_ICONS = [
+    ("setup/wifi.png", 0xE100, "kSetupWifi"),
+    ("setup/gear.png", 0xE101, "kSetupGear"),
+    ("setup/phone_hand.png", 0xE102, "kSetupPhoneHand"),
+    ("setup/two_phones.png", 0xE103, "kSetupTwoPhones"),
+    ("setup/restart_button.png", 0xE104, "kSetupRestartButton"),
+    ("setup/ship.png", 0xE105, "kSetupShip"),
+    ("setup/small_wifi.png", 0xE106, "kSetupSmallWifi"),
+    ("setup/small_key.png", 0xE107, "kSetupSmallKey"),
+    ("setup/small_globe.png", 0xE108, "kSetupSmallGlobe"),
+]
+
 
 def bake(path, codepoint):
     """Glyph tuple with the pen at the source image's bottom-left corner."""
@@ -60,9 +75,9 @@ def utf8_escape(codepoint):
     return "".join(f"\\x{b:02X}" for b in chr(codepoint).encode("utf-8"))
 
 
-def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    glyphs = [bake(HERE / "src" / name, cp) for name, cp, _ in ICONS]
+def font_source(icons, font_name):
+    """The .cpp defining one icon font, and its bitmap byte count."""
+    glyphs = [bake(HERE / "src" / name, cp) for name, cp, _ in icons]
     ascent = max(g[7] for g in glyphs)
 
     lines = [
@@ -82,7 +97,7 @@ def main():
     for i in range(0, len(blob), 20):
         lines.append("    " + ", ".join(f"0x{b:02x}" for b in blob[i : i + 20]) + ",")
     lines += ["};", "", "constexpr Glyph kGlyphs[] = {"]
-    for (name, _, _), g, offset in zip(ICONS, glyphs, offsets):
+    for (name, _, _), g, offset in zip(icons, glyphs, offsets):
         cp, width, height, bx, by, advance = g[:6]
         lines.append(f"    {{0x{cp:04x}, {offset}, {width}, {height}, {bx}, {by}, {advance}}},  // {name}")
     lines += [
@@ -90,10 +105,18 @@ def main():
         "",
         "}  // namespace",
         "",
-        f"constexpr Font kWeatherIcons{{kGlyphs, kBitmaps, {ascent}, {ascent}}};",
+        f"constexpr Font {font_name}{{kGlyphs, kBitmaps, {ascent}, {ascent}}};",
         "",
     ]
-    (OUT_DIR / "weather_icons.cpp").write_text("\n".join(lines), encoding="utf-8")
+    return "\n".join(lines), len(blob)
+
+
+def main():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    weather, weather_bytes = font_source(ICONS, "kWeatherIcons")
+    (OUT_DIR / "weather_icons.cpp").write_text(weather, encoding="utf-8")
+    setup, setup_bytes = font_source(SETUP_ICONS, "kSetupIcons")
+    (OUT_DIR / "setup_icons.cpp").write_text(setup, encoding="utf-8")
 
     header = [
         "#pragma once",
@@ -106,21 +129,23 @@ def main():
         "// position is the icon box's bottom-left corner (weather icons share a",
         "// 101x80 box, status icons a 24x24 one).",
         "extern const Font kWeatherIcons;",
+        "// The setup screens' icons (draw_setup_icons.py), each in its own box.",
+        "extern const Font kSetupIcons;",
         "",
         "namespace icons {",
     ]
-    for _, cp, symbol in ICONS:
+    for _, cp, symbol in ICONS + SETUP_ICONS:
         header.append(f'inline constexpr const char* {symbol} = "{utf8_escape(cp)}";  // U+{cp:04X}')
     header += ["}  // namespace icons", ""]
     (OUT_DIR / "icons.hpp").write_text("\n".join(header), encoding="utf-8")
 
     (OUT_DIR / "CMakeLists.txt").write_text(
-        'idf_component_register(SRCS "weather_icons.cpp"\n'
+        'idf_component_register(SRCS "weather_icons.cpp" "setup_icons.cpp"\n'
         '                    INCLUDE_DIRS "."\n'
         "                    REQUIRES canvas)\n",
         encoding="utf-8",
     )
-    print(f"{len(glyphs)} icons, {len(blob)} bitmap bytes")
+    print(f"{len(ICONS)} weather/status icons, {weather_bytes} bytes; {len(SETUP_ICONS)} setup icons, {setup_bytes} bytes")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 #include "setup_flow.hpp"
 
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +19,14 @@
 
 namespace glance {
 namespace {
+
+// Draws one of setup_view's screens onto the panel.
+void showScreen(const std::function<void(Canvas&)>& draw) {
+    std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
+    Canvas canvas(framebuffer, board::kPanelSize);
+    draw(canvas);
+    show(framebuffer);
+}
 
 // Setup mode gives up (and goes back to the calendar) after this long
 // without anyone loading its page.
@@ -43,23 +53,18 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                 esp_restart();
             case setup_mode::Event::joined: {
                 // The phone is in: take the QR code (and the access point's
-                // password) off the screen so nobody else can use them.
-                const std::string fallback = "沒有跳出來的話請開啟 " + accessPointUrl;
-                if (onAccessPoint) {
-                    const std::string_view lines[] = {"請在手機上完成設定", fallback};
-                    showNotice("手機已連上", lines);
-                } else {
-                    const std::string_view lines[] = {"請在手機上完成設定"};
-                    showNotice("手機已連上", lines);
-                }
+                // password) off the screen so nobody else can use them. On
+                // the access point, the page's address stays in case it
+                // didn't pop up.
+                const std::string url = onAccessPoint ? accessPointUrl : std::string();
+                showScreen([&](Canvas& canvas) { setup_view::renderPhoneJoined(canvas, url); });
                 break;
             }
             case setup_mode::Event::intruder: {
                 // A second device has the secret: close up. Setting up again
                 // makes a new password or token.
                 setup_mode::close();
-                const std::string_view lines[] = {onAccessPoint ? "已關閉熱點" : "已關閉設定頁", "請長按按鈕重新設定"};
-                showNotice("偵測到第二台裝置連線", lines);
+                showScreen([](Canvas& canvas) { setup_view::renderIntruder(canvas); });
                 break;  // stays here until a press, or the idle timeout
             }
         }
