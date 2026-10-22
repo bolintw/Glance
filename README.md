@@ -1,6 +1,6 @@
 # Project Glance - an e-ink display calendar
 
-This document provides a comprehensive overview of the eCalendar board (V2.1), covering the project's design philosophy, hardware implementation, firmware architecture, and future considerations.
+This document provides an overview of the eCalendar board (V3.0), covering the project's design philosophy, hardware implementation, firmware features and security notes.
 
 ---
 
@@ -11,72 +11,68 @@ The eCalendar is designed as an ultra-low-power, "glanceable" information applia
 ### Core Principles
 -   **Deep Sleep Dominance:** The device spends the vast majority of its time in a deep sleep state to conserve energy.
 -   **Daily Update Cycle:** It wakes up once per day to connect to Wi-Fi, download the latest calendar data, and refresh the e-paper display.
--   **Switched Power Rails:** A key feature is the `V33_2` switched power rail, which completely cuts power to peripherals like the external flash and e-paper display during sleep, eliminating quiescent current draw.
+-   **Switched Power Rails:** A key feature is the `V33_2` switched power rail, which completely cuts power to the e-paper panel's driver circuit and the status LED during sleep, eliminating their quiescent current draw.
 
 ### Minimalist Interaction Model
 The device is a passive information radiator, not an interactive hub. Calendar management is handled on a user's phone or computer.
 -   **Single, Multi-Function Button:** The single user button is for secondary tasks like toggling a "privacy mode" to hide event details or entering a one-time setup mode. It is not for daily navigation.
+-   **No words on the panel's setup screens:** a QR code and an icon say what to do next; the phone's setup page explains.
 -   **Exclusion of Additional Sensors:** Features like environmental sensors were intentionally excluded to maintain a focused product scope and avoid unnecessary power consumption.
 
 ---
 
 ## 2. Hardware Details
 
+V3.0 is the current board and the only one the firmware supports. V2.1 (schematics in `hardware/v2.1/`) is retired: its USB/battery power-path MOSFET was fitted the wrong way round, so USB charged the battery directly, past the charger's 4.2V limit. Its last firmware is v0.2.0.
+
 ### Key Components
-| Designator | Component          | Value/Type                  | Description                                      |
-|------------|--------------------|-----------------------------|--------------------------------------------------|
-| U1         | ESP32-S3-wroom     | ESP32-S3-WROOM-1-N8R8       | Main microcontroller with Wi-Fi and Bluetooth. 8MB flash, Octal PSRAM. PSRAM conflicts with GPIO35-37, so it's currently disabled via menuconfig. |
-| U14        | MAX17048G+T10      | Fuel Gauge                  | Monitors battery charge level via I2C.           |
-| U4         | TPS63031DSKR       | Buck-boost converter        | Main 3.3V power supply for the board.            |
-| U12        | TP4057             | Li-Ion Charger              | Manages charging of a single-cell Li-Ion battery.|
-| U8         | W25Q128JVSIQ       | Flash Memory                | 128Mbit SPI flash for data storage.              |
-| FPC1       | FPC Connector      | 24-pin, 0.5mm pitch         | Connects to an external Waveshare 7.5" 800*480 monocolor e-paper display. |
-| USB1       | USB Type-C         | 16-pin                      | For power and data (programming/debugging).      |
+| Component          | Value/Type                  | Description                                      |
+|--------------------|-----------------------------|--------------------------------------------------|
+| ESP32-S3 module    | ESP32-S3-WROOM-1-N8         | Main microcontroller with Wi-Fi and Bluetooth. 8MB flash, no PSRAM. GPIO35-37 are left free for a future module with Octal PSRAM. |
+| MAX17048           | Fuel Gauge                  | Monitors the battery's voltage and state of charge via I2C; kept in hibernate (about 4µA). |
+| TPS63802 (U3)      | Buck-boost converter        | Main 3.3V supply, from a 3.0V battery up to the ~4.6V USB path; about 11µA quiescent, automatic power-save mode. |
+| TP4057             | Li-Ion Charger              | Charges the single-cell battery from USB at about 213mA (R15 = 4.7kΩ). |
+| FPC connector      | 24-pin, 0.5mm pitch         | Connects to a Waveshare 7.5" 800×480 black-and-white e-paper panel, with its boost and charge-pump circuit on the board. |
+| USB Type-C         | 16-pin                      | For power, charging and data (programming and the serial console, through the ESP32-S3's own USB). |
 
 ### Power Subsystem
--   **Power Input:** USB Type-C or a single-cell Li-Ion battery.
--   **Charging:** The TP4057 (U12) charges the battery from USB power.
--   **Battery Management:** The MAX17048G+T10 (U14) provides accurate battery level monitoring.
--   **Voltage Regulation:** The TPS63031DSKR (U4) buck-boost converter provides a stable 3.3V, forced into Power-Save Mode for high efficiency.
+-   **Power Input:** USB Type-C or a 1S Li-Po battery (1000mAh, JST PH 2.0).
+-   **Power path:** with USB in, the system runs from USB (through a Schottky diode) and the battery only charges through the TP4057; on battery, a P-MOSFET (Q2) passes it with little drop. Plugging or unplugging USB doesn't reset the device.
+-   **Reverse-polarity protection:** a P-MOSFET (Q1) in series with the battery connector.
+-   **USB and charge status:** VUSB through a 100k/100k divider on an ADC pin, and the TP4057's CHRG# output, both read at each wake-up.
+-   **Switched rail:** `V33_2` (panel circuit, LED) switches through Q5/Q4 with a soft start; a pull-down keeps it off in deep sleep and during reset.
 -   **USB-C Compatibility:** CC1/CC2 pins have 5.1kΩ pull-down resistors, ensuring compatibility with all USB-C cables and chargers.
 
 ### User Interface
--   **Buttons:** `BOOT` (for flashing), `RST` (for reset), and a single multi-function `BTN` for user interaction (privacy/setup modes).
--   **LEDs:** A white general-purpose `LED` and a red `CHG` indicator for battery charging status. (Note: The white `LED` is active-low, meaning setting its GPIO to 0 turns it on).
+-   **Buttons:** `BOOT` (for flashing), `RST` (for reset), and a single multi-function `BTN` for user interaction (privacy/setup modes), plus a connector for an external button in parallel with it.
+-   **LEDs:** A white general-purpose `LED` (on `V33_2`, active-low) and a red `CHG` indicator for battery charging status.
 
-### ESP32-S3 Core Connections
-This table maps critical signals to their corresponding GPIO pins on the ESP32-S3 module (U1).
+### ESP32-S3 Connections
 
-| Net Name  | Module Pin (U1) | ESP32-S3 GPIO | Description                               |
-|-----------|-----------------|---------------|-------------------------------------------|
-| **Power Control** | | | |
-| PWR       | 22              | GPIO14        | Controls the power switch for `V33_2` rail (peripherals) |
-| **User Interface** | | | |
-| LED       | 25              | GPIO48        | Drives the white general-purpose LED      |
-| BTN       | 39              | GPIO1         | User-programmable button input            |
-| **E-Paper Display (SPI)** | | | |
-| EPD_BSY   | 33              | GPIO40        | E-Paper Busy signal                       |
-| EPD_RST   | 32              | GPIO39        | E-Paper Reset signal                      |
-| EPD_DC    | 31              | GPIO38        | E-Paper Data/Command signal               |
-| EPD_CS    | 30              | GPIO37        | E-Paper Chip Select                       |
-| **External Flash (SPI)** | | | |
-| FLS_CS    | 23              | GPIO21        | External Flash Chip Select                |
-| **Shared SPI Bus** | | | |
-| CLK       | 29              | GPIO36        | SPI Clock for E-Paper and Flash           |
-| MOSI      | 28              | GPIO35        | SPI MOSI for E-Paper and Flash            |
-| MISO      | 24              | GPIO47        | SPI MISO for Flash (E-Paper does not use) |
-| **I2C Bus** | | | |
-| SDA       | 15              | GPIO3         | I2C Data for Fuel Gauge                   |
-| SCL       | 17              | GPIO9         | I2C Clock for Fuel Gauge                  |
-| ALRT      | 18              | GPIO10        | Fuel Gauge Alert signal                   |
-| **USB** | | | |
-| D-        | 13              | USB_D- (GPIO19) | USB Negative signal                     |
-| D+        | 14              | USB_D+ (GPIO20) | USB Positive signal                     |
-
-### Known Issues (V2.1)
--   **The USB/battery power-path MOSFET (Q2) is fitted the wrong way round.** Its source is on VBAT and its drain on VSYS, so with USB plugged in the body diode feeds VSYS into the battery, bypassing the TP4057's 4.2V regulation: the battery was measured at 4.5V, and only its own protection board stopped it. Don't leave a battery charging unattended on V2.1. Fix on an existing board: replace Q2 with a Schottky diode from VBAT (anode) to VSYS (cathode), or rework it so the drain is on VBAT. V3.0 fixes it.
--   **The SPI bus uses GPIO35-37**, which the module's Octal PSRAM also uses, so PSRAM stays disabled. V3.0 moves the panel off those pins.
--   **R15 = 1.5kΩ sets about 667mA**, over the TP4057's 500mA rating; fit 4.7kΩ (about 213mA).
+| Net Name  | ESP32-S3 GPIO | Description                               |
+|-----------|---------------|-------------------------------------------|
+| **Power** | | |
+| PWR       | GPIO41        | Switches the `V33_2` rail (panel circuit, LED) |
+| USB_DETEC | GPIO4         | VUSB through a divider (ADC1)             |
+| CHG_STAT  | GPIO5         | The charger's CHRG# output                |
+| **User Interface** | | |
+| LED       | GPIO38        | White general-purpose LED                 |
+| BTN       | GPIO1         | Button input (RTC GPIO, wakes from deep sleep) |
+| BOOT      | GPIO0         | Boot button only                          |
+| **E-Paper Display (SPI)** | | |
+| MOSI      | GPIO10        | SPI data                                  |
+| CLK       | GPIO11        | SPI clock                                 |
+| EPD_CS    | GPIO12        | Chip select                               |
+| EPD_DC    | GPIO13        | Data/command                              |
+| EPD_RST   | GPIO14        | Reset                                     |
+| EPD_BSY   | GPIO21        | Busy                                      |
+| **I2C Bus (fuel gauge)** | | |
+| SDA       | GPIO3         | I2C data                                  |
+| SCL       | GPIO9         | I2C clock                                 |
+| ALRT      | GPIO8         | Fuel gauge alert                          |
+| **Clock and USB** | | |
+| 32.768kHz | GPIO15 / GPIO16 | Crystal for the RTC through deep sleep  |
+| D- / D+   | GPIO19 / GPIO20 | USB                                     |
 
 ---
 
@@ -87,16 +83,17 @@ The firmware (`firmware/`, ESP-IDF v6.0) wakes once a day, draws the panel and g
 -   **Calendar:** up to five private iCal (ICS) URLs, merged into the next ten events, shown as date and title only, two columns of five. Recurring events, exceptions and time zones are expanded on the device.
 -   **Weather:** today's forecast for a Taiwan county from the Central Weather Administration (an API key is entered at setup).
 -   **Daily refresh at 07:00.** A failed refresh is retried hourly, at most three times in a row (07:00, 08:00, 09:00); then it waits for the next day.
--   **The button:** a short press toggles privacy mode; a long press (3 s, the LED lights when it's long enough) opens setup mode. It wakes the device from deep sleep.
--   **Privacy mode:** date, weather and a photo instead of the events, for when guests are around. Photos are uploaded from the setup page, cropped and dithered in the browser (zoom out to fit a whole photo, gaps filled white or black), and shown in 4 shades of gray. A fresh upload is shown next, then the photos rotate in shuffled rounds. Two Hokusai prints are built in.
+-   **The button:** a short press toggles privacy mode; a long press (3 s, the LED lights when it's long enough) opens setup mode. It wakes the device from deep sleep, and the LED blinks at once to show the press got through.
+-   **Privacy mode:** date, weather and a photo instead of the events, for when guests are around. Switched on by a press, it is drawn at once without going online: the clock keeps time through deep sleep, and the weather is the forecast fetched earlier that day (none if it's older). Photos are uploaded from the setup page, cropped and dithered in the browser (zoom out to fit a whole photo, gaps filled white or black), and shown in 4 shades of gray. A fresh upload is shown next, then the photos rotate in shuffled rounds. Two Hokusai prints are built in.
 -   **Photo frame:** with no calendar configured at all, the device always shows privacy mode's layout.
--   **Setup in two steps**, each opened by a QR code on the panel: first a WiFi access point to enter the home WiFi, then a page on the home network (with a one-time token) for calendars, weather, photos and the WiFi itself, so the phone keeps its internet while looking up calendar URLs. A second device joining closes setup. A newly saved WiFi that doesn't connect falls back to the last one that did. Both pages can erase everything, after a confirmation page.
+-   **Setup in two steps**, each opened by a QR code on the panel: first a WiFi access point to enter the home WiFi (a WiFi icon beside the QR code), then a page on the home network (a gear icon; with a one-time token) for calendars, weather, photos and the WiFi itself, so the phone keeps its internet while looking up calendar URLs. A second device on at the same time closes setup. A newly saved WiFi that doesn't connect falls back to the last one that did. In setup mode a short press does nothing and a long press leaves it.
+-   **Erasing everything** (on either setup page, after a confirmation page) readies the device to change hands: settings, photos and the wake log go, the panel shows a picture of a finger on the button at the back, and the device sleeps until that button wakes it into a first setup.
 -   **Status icons** appear in the top-right corner only when something is wrong: a crossed-out WiFi (can't get online) and an empty battery (low). After a few failed refreshes, or right after setup, the panel switches to an offline screen (privacy mode's layout with the icon) rather than leaving a stale calendar up.
--   **Battery:** read from the MAX17048 fuel gauge each wake-up. Under 15% the icon shows and updates wait; under 5% (or 3.45V at rest) a "please charge" screen goes up and the device only checks the gauge hourly until it's back above 10% and 3.55V.
+-   **Battery:** read from the MAX17048 fuel gauge each wake-up. Under 15% the icon shows and updates wait; under 5% (or 3.45V at rest) a "please charge" screen goes up and the device only checks the gauge hourly until it's back above 10% and 3.55V. With USB in, the wake log also notes whether it was charging.
 -   **Wake log:** every wake-up records the battery, what the run did and how long it took, in a ring of 2048 entries on flash. The setup page offers it as CSV; `firmware/tools/battery/analyze_wake_log.py` turns it into battery life and clock drift.
 -   **Updates:** after a successful refresh the device checks this repository's latest GitHub release and installs a newer `vX.Y.Z` build over HTTPS, rolling back if it doesn't boot. Releases are built by `.github/workflows/release.yml`.
 
-Measured on V2.1: about 66µA in deep sleep with the peripheral rail cut, about 15s awake per refresh.
+Measured on V3.0 (PPK2, checked against a multimeter): about 27µA in deep sleep, and about 0.16mAh over 12s awake per refresh, so about 0.8mAh a day.
 
 ---
 
@@ -105,16 +102,16 @@ Measured on V2.1: about 66µA in deep sleep with the peripheral rail cut, about 
 Glance is a personal project, not a hardened product. This is what it protects and where it is known to fall short.
 
 ### Setup
--   **Step 1, WiFi (access point):** a WPA2 access point whose random 8-character password is shown only on the panel. Anyone who can see the panel while setup mode is open can join. The first device to join takes the QR code and password off the screen, and a second device closes the access point. If someone else joins before the owner does, they get the page; the owner's phone then counts as the second device and closes the access point, so the owner notices and starts over.
--   **Step 2, calendars, weather and photos (home network):** served over plain HTTP. The pages are gated by a 128-bit one-time token from the panel's QR code and bound to the first device that uses it. Anyone else who presents the token or that session closes the pages. Not protected against:
-    -   Someone on the same WiFi capturing the traffic. It is not encrypted, so calendar URLs and the API key travel in the clear, and members of a WPA2-PSK network can decrypt each other's traffic.
+-   **Step 1, WiFi (access point):** a WPA2 access point whose random 8-character password is shown only on the panel. Anyone who can see the panel while setup mode is open can join. The first device to join takes the QR code and password off the screen, and a second device on the access point at the same time closes it. A device that drops off and comes back with a new address (as iPhones may, with private Wi-Fi addresses) is taken for the same phone, so someone who copied the password before the QR code came down could slip in while the owner's phone is away. If someone else joins before the owner does, they get the page; the owner's phone joining while they're still on closes the access point, so the owner notices and starts over.
+-   **Step 2, calendars, weather and photos (home network):** served over plain HTTP. The pages are gated by a 128-bit one-time token from the panel's QR code and bound to the first device that uses it, by address and a session cookie. The cookie is let in from a new address (the phone's private address may change), and the device is bound there from then on; anyone else who presents the token closes the pages. Not protected against:
+    -   Someone on the same WiFi capturing the traffic. It is not encrypted, so calendar URLs and the API key travel in the clear, and members of a WPA2-PSK network can decrypt each other's traffic. That includes the session cookie, which is enough to use the pages from another device.
     -   Someone on the network spoofing the bound device's IP address.
 -   Both steps close after 10 minutes without use. Neither protects against physical access: pressing the button and setting the device up again is the intended way in.
 
 ### Stored Secrets
 -   The WiFi password (and that of the last network that connected, kept to fall back on when a newly saved one doesn't work), the private calendar URLs (each one grants read access to its calendar) and the CWA API key are stored in NVS **without flash encryption**. Anyone with the device and a USB cable can read them out with `esptool`. Flash encryption and secure boot would close this, but neither is configured.
 -   The setup pages never send stored secrets back to the browser; a saved value shows only as "已設定".
--   "清除所有資料" on either setup page erases all of these, along with the uploaded photos. It is a logical erase: the flash is not overwritten, so it does not defeat someone reading the chip afterwards. (Development builds then fall back to the values in their local `sdkconfig`.)
+-   "清除所有資料" on either setup page erases all of these, along with the uploaded photos and the wake log. It is a logical erase: the flash is not overwritten, so it does not defeat someone reading the chip afterwards. (Development builds then fall back to the values in their local `sdkconfig`.)
 
 ### Updates
 -   OTA installs any newer `vX.Y.Z` release of this GitHub repository over certificate-checked HTTPS. Images are **not signed**, so whoever can publish a release here can update every device. App signing is not set up.
