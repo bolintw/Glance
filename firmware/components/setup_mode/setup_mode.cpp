@@ -382,8 +382,9 @@ esp_err_t handleResetConfirm(httpd_req_t* req) {
     return sendHtml(req, setup_page::renderResetConfirm());
 }
 
-// POST /reset (from the confirmation page): erases every setting and photo,
-// then restarts into a first setup.
+// POST /reset (from the confirmation page): erases every setting, photo and
+// the wake log; the device then shows the shipping screen and sleeps until
+// the button (setup_flow).
 esp_err_t handleReset(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
@@ -400,6 +401,7 @@ esp_err_t handleReset(httpd_req_t* req) {
         photo_store::remove(slot);
     }
     settings::eraseAll();
+    wake_log_store::eraseAll();
     ESP_LOGW(kTag, "everything erased");
     esp_err_t err = sendHtml(req, setup_page::renderErased());
     xEventGroupSetBits(gEvents, kErasedBit);

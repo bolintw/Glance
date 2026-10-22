@@ -18,4 +18,7 @@ esp_err_t append(wake_log::Entry entry);
 // be ~75KB of RAM as a vector).
 void forEach(const std::function<void(const wake_log::Entry&)>& visit);
 
+// Forgets every entry (erasing all data, before the device changes hands).
+esp_err_t eraseAll();
+
 }  // namespace wake_log_store

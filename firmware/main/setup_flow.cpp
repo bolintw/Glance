@@ -48,9 +48,15 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
                 restartInto(false);
             case setup_mode::Event::erased:
-                ESP_LOGW(kTag, "everything erased, starting over");
+                // Ready to change hands: the shipping screen stays up on the
+                // panel with no power, and a press wakes it into a first
+                // setup (no WiFi saved). No timer: it can sit for years.
+                ESP_LOGW(kTag, "everything erased: the shipping screen, then asleep until the button");
+                setup_mode::close();
+                showScreen([](Canvas& canvas) { setup_view::renderShip(canvas); });
+                peripheralsOff();
                 gBoot.magic = 0;  // forget this boot state too
-                esp_restart();
+                deepSleep(std::nullopt);
             case setup_mode::Event::joined: {
                 // The phone is in: take the QR code (and the access point's
                 // password) off the screen so nobody else can use them. On

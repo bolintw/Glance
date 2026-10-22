@@ -84,4 +84,13 @@ void forEach(const std::function<void(const wake_log::Entry&)>& visit) {
     wake_log::forEachInOrder(region.bytes(), visit);
 }
 
+esp_err_t eraseAll() {
+    if (!partition()) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_err_t err = esp_partition_erase_range(partition(), regionOffset(), kRegionBytes);
+    ESP_LOGW(kTag, "wake log erased: %s", esp_err_to_name(err));
+    return err;
+}
+
 }  // namespace wake_log_store

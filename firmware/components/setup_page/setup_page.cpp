@@ -361,8 +361,9 @@ std::string renderSaved() {
 std::string renderResetConfirm() {
     return std::string(kPageHead) +
            "<h1>確定要清除所有資料嗎？</h1>\n"
-           "<p>WiFi、行事曆、天氣設定、授權碼和上傳的照片都會刪除，無法復原。"
-           "裝置會重新啟動，回到第一次設定的狀態。</p>\n"
+           "<p>WiFi、行事曆、天氣設定、授權碼、上傳的照片和醒來紀錄都會刪除，無法復原。"
+           "清除後裝置會畫出「按背後按鈕」的圖，然後關機，適合送人或寄出前使用。"
+           "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p>\n"
            "<form method=\"post\" action=\"/reset\"><input type=\"hidden\" name=\"confirm\" value=\"yes\">"
            "<button type=\"submit\" class=\"danger\">確定清除</button></form>\n"
            "<p><a href=\"/\">取消，回到設定</a></p></body></html>\n";
@@ -370,7 +371,8 @@ std::string renderResetConfirm() {
 
 std::string renderErased() {
     return std::string(kPageHead) +
-           "<h1>已清除</h1><p>所有資料都已刪除，裝置正在重新啟動，接著會進入第一次設定。</p></body></html>\n";
+           "<h1>已清除</h1><p>所有資料都已刪除。裝置會畫出提示畫面後關機；"
+           "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p></body></html>\n";
 }
 
 bool confirmsReset(std::string_view body) {
