@@ -17,9 +17,10 @@ inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E38;  // "GLN8" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E39;  // "GLN9" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
+    bool eraseAll;          // a press held to kEraseHoldMs asked to erase everything
     bool accessPointSetup;  // ...and it has to be the WiFi step on the access point
     bool wifiFailed;        // ...because the saved WiFi didn't connect (say so on the form)
     bool justConfigured;    // setup mode just saved; report WiFi trouble at once
@@ -64,6 +65,9 @@ extern wake_log::Entry gRun;
 void logRun(wake_log::Result result);
 
 [[noreturn]] void restartInto(bool enterSetup);
+// Restarts into erasing everything (see eraseAndShip): from a clean boot, so
+// nothing a run was in the middle of gets in the way.
+[[noreturn]] void restartToErase();
 
 // Deep sleep until `wakeAt` (Unix time) or a press of the button, whichever
 // comes first; with no `wakeAt`, until the button only. The button wakes

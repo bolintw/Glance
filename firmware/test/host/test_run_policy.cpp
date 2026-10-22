@@ -62,13 +62,16 @@ void testWakePress() {
     using run_policy::WakePress;
     using run_policy::decideWakePress;
     const int64_t now = 1791327620;
-    CHECK(decideWakePress(true, true, false, now + 3600, now) == WakePress::setup);
-    CHECK(decideWakePress(true, true, true, now + 3600, now) == WakePress::setup);  // setup works offline too
-    CHECK(decideWakePress(true, false, false, now + 3600, now) == WakePress::stuck);
-    CHECK(decideWakePress(false, true, false, now + 3600, now) == WakePress::togglePrivacy);
-    CHECK(decideWakePress(false, true, true, now + 3600, now) == WakePress::backToSleep);
-    CHECK(decideWakePress(false, true, true, now + 30, now) == WakePress::refresh);  // due anyway
-    CHECK(decideWakePress(false, true, true, 0, now) == WakePress::refresh);         // no timer was set
+    CHECK(decideWakePress(true, true, false, false, now + 3600, now) == WakePress::setup);
+    CHECK(decideWakePress(true, true, false, true, now + 3600, now) == WakePress::setup);  // setup works offline too
+    CHECK(decideWakePress(true, false, false, false, now + 3600, now) == WakePress::stuck);
+    CHECK(decideWakePress(true, true, true, false, now + 3600, now) == WakePress::erase);
+    CHECK(decideWakePress(true, true, true, true, now + 3600, now) == WakePress::erase);   // offline too
+    CHECK(decideWakePress(true, false, true, false, now + 3600, now) == WakePress::stuck);  // never let go: nothing
+    CHECK(decideWakePress(false, true, false, false, now + 3600, now) == WakePress::togglePrivacy);
+    CHECK(decideWakePress(false, true, false, true, now + 3600, now) == WakePress::backToSleep);
+    CHECK(decideWakePress(false, true, false, true, now + 30, now) == WakePress::refresh);  // due anyway
+    CHECK(decideWakePress(false, true, false, true, 0, now) == WakePress::refresh);         // no timer was set
 }
 
 void testOfflineScreen() {

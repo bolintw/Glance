@@ -56,6 +56,10 @@ Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs);
 // serving the home-network pages.
 void close();
 
+// Erases every setting, uploaded photo and the wake log (the setup page's
+// "清除所有資料", or the button held to glance::kEraseHoldMs).
+void eraseEverything();
+
 // Development aid (GLANCE_DEV_SETUP_ON_LAN): the same pages served on the
 // home network the device is already connected to, so a computer on that
 // network can drive them -- no access point, no DNS. Adds POST /restart.

@@ -14,11 +14,19 @@ namespace glance {
 //          to, so it's ignored (no blink either: asleep, as the device
 //          mostly will be, it couldn't blink anyway)
 //   long:  setup mode
-//   in setup mode, any press leaves it
-// `waitForRelease` runs once a long press has lit the LED: setup mode starts
-// when the button is let go. It returns false if the button never was (see
-// kStuckButtonMs): then the press is ignored.
-void actOnPress(bool isLong, const std::function<bool()>& waitForRelease);
+//   in setup mode, a long press leaves it
+//   held to kEraseHoldMs (the LED blinks fast): erase everything and ship
+//          (see eraseAndShip) -- the last resort when the setup page can't
+//          be reached, e.g. a WiFi the phone can't get to
+// `waitForRelease` runs once a long press has lit the LED: what it asked for
+// happens when the button is let go. It says how long it was held -- stuck
+// if it never came up (see kStuckButtonMs): then the press is ignored.
+enum class Hold { released, heldToErase, stuck };
+void actOnPress(bool isLong, const std::function<Hold()>& waitForRelease);
+
+// Held this long (from when it went down) and then let go, a press erases
+// everything.
+inline constexpr uint32_t kEraseHoldMs = 15 * 1000;
 
 // A button held this long isn't being pressed: it's stuck (a shorted cable,
 // something resting on it), and waiting for it to come up would keep the
@@ -31,7 +39,7 @@ void buttonTask(void*);
 
 // A press woke the device from deep sleep. Times it from the wake-up (the
 // button task only starts afterwards): held to the long-press time, setup
-// mode; otherwise a short press -- privacy mode toggled for this run, or,
+// mode (or held to kEraseHoldMs, erase everything); otherwise a short press -- privacy mode toggled for this run, or,
 // with no calendar to switch to (offline, photo frame), straight back to
 // sleep until the timer was due.
 void actOnWakePress(bool noCalendars);

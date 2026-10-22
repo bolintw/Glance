@@ -17,22 +17,44 @@ namespace glance {
 namespace {
 constexpr uint32_t kLongPressMs = 3000;
 
-// Waits for `button` to come up, for at most kStuckButtonMs. False if it
-// didn't.
-bool waitForRelease(const Button& button) {
-    const int64_t deadline = esp_timer_get_time() + static_cast<int64_t>(kStuckButtonMs) * 1000;
+// Waits for `button`, down since `downAtUs` (esp_timer time) with the LED
+// lit, to come up: for at most kStuckButtonMs from then. Once it's been held
+// to kEraseHoldMs the LED blinks fast: letting go now erases everything.
+Hold waitForRelease(const Button& button, int64_t downAtUs) {
+    const int64_t eraseAt = downAtUs + static_cast<int64_t>(kEraseHoldMs) * 1000;
+    const int64_t deadline = downAtUs + static_cast<int64_t>(kStuckButtonMs) * 1000;
     while (button.isDown()) {
-        if (esp_timer_get_time() > deadline) {
+        const int64_t now = esp_timer_get_time();
+        if (now > deadline) {
             ESP_LOGW(kTag, "button held for %lu s: stuck, ignoring it", static_cast<unsigned long>(kStuckButtonMs / 1000));
-            return false;
+            statusLedOff();
+            return Hold::stuck;
+        }
+        if (now >= eraseAt) {
+            ((now - eraseAt) / 100000 % 2 ? statusLedOff : statusLedOn)();
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    return true;
+    return esp_timer_get_time() >= eraseAt ? Hold::heldToErase : Hold::released;
+}
+
+// A long press was let go: what it asked for. In setup mode it leaves setup;
+// otherwise it opens it.
+void afterLongPress(Hold hold, bool intoSetup) {
+    switch (hold) {
+        case Hold::released:
+            restartInto(intoSetup);
+        case Hold::heldToErase:
+            ESP_LOGW(kTag, "button held for %lu s: erasing everything", static_cast<unsigned long>(kEraseHoldMs / 1000));
+            restartToErase();
+        case Hold::stuck:
+            statusLedOff();
+            return;
+    }
 }
 }  // namespace
 
-void actOnPress(bool isLong, const std::function<bool()>& waitForRelease) {
+void actOnPress(bool isLong, const std::function<Hold()>& waitForRelease) {
     ESP_LOGI(kTag, "button: %s press", isLong ? "long" : "short");
     switch (gPhase.load()) {
         case Phase::setupStarting:
@@ -52,10 +74,7 @@ void actOnPress(bool isLong, const std::function<bool()>& waitForRelease) {
             // A long press leaves setup: back to the calendar, or on a first
             // setup, a fresh start (a new password).
             statusLedOn();
-            if (waitForRelease()) {
-                restartInto(false);
-            }
-            statusLedOff();
+            afterLongPress(waitForRelease(), false);
             return;
         case Phase::refreshing:
         case Phase::waiting:
@@ -69,11 +88,8 @@ void actOnPress(bool isLong, const std::function<bool()>& waitForRelease) {
     // long press, so you know when to let go.
     statusLedOn();
     if (isLong) {
-        if (!waitForRelease()) {
-            statusLedOff();
-            return;
-        }
-        restartInto(true);
+        afterLongPress(waitForRelease(), true);
+        return;
     }
     vTaskDelay(pdMS_TO_TICKS(300));  // long enough to see the LED blink
     bool privacy = !settings::loadPrivacyMode();
@@ -90,12 +106,13 @@ void buttonTask(void*) {
         if (!button.isDown()) {
             continue;
         }
+        const int64_t downAt = esp_timer_get_time();
         Button::Press press = button.readPress(kLongPressMs);
         if (press == Button::Press::none) {
             ESP_LOGI(kTag, "button: released within the debounce time, ignored");
             continue;
         }
-        actOnPress(press == Button::Press::longPress, [&] { return waitForRelease(button); });
+        actOnPress(press == Button::Press::longPress, [&] { return waitForRelease(button, downAt); });
         // A stuck button is still down: don't take it for a new press each time round.
         while (button.isDown()) {
             vTaskDelay(pdMS_TO_TICKS(200));
@@ -109,22 +126,25 @@ void actOnWakePress(bool noCalendars) {
         vTaskDelay(pdMS_TO_TICKS(20));
     }
     const bool held = button.isDown();
-    bool released = true;
+    Hold hold = Hold::released;
     if (held) {
         ESP_LOGI(kTag, "button: long press (from wake-up)");
         statusLedOn();
-        released = waitForRelease(button);
+        hold = waitForRelease(button, 0);  // down since the wake-up
     } else {
         ESP_LOGI(kTag, "button: short press (from wake-up)");
         // The press got through: say so at once. Whatever it leads to takes
         // seconds to reach the panel, and without this people press again.
         blinkStatusLed();
     }
-    switch (run_policy::decideWakePress(held, released, gBoot.offlineShown || noCalendars, gBoot.wakeAt,
-                                        time(nullptr))) {
+    switch (run_policy::decideWakePress(held, hold != Hold::stuck, hold == Hold::heldToErase,
+                                        gBoot.offlineShown || noCalendars, gBoot.wakeAt, time(nullptr))) {
         case run_policy::WakePress::setup:
             gBoot.enterSetup = true;
             return;
+        case run_policy::WakePress::erase:
+            ESP_LOGW(kTag, "button held for %lu s: erasing everything", static_cast<unsigned long>(kEraseHoldMs / 1000));
+            restartToErase();
         case run_policy::WakePress::stuck:
             statusLedOff();
             return;  // carry on with the run as if it hadn't been pressed

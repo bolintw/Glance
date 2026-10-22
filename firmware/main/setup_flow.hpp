@@ -9,4 +9,8 @@ namespace glance {
 // save, or when nobody used it -- so the next boot starts clean.
 [[noreturn]] void runSetupMode(const Settings& current);
 
+// Erases everything and readies the device to change hands: the shipping
+// screen, then asleep until the button, which starts a first setup.
+[[noreturn]] void eraseAndShip();
+
 }  // namespace glance

@@ -28,6 +28,17 @@ void showScreen(const std::function<void(Canvas&)>& draw) {
     show(framebuffer);
 }
 
+// Ready to change hands: the shipping screen stays up on the panel with no
+// power, and a press wakes it into a first setup (no WiFi saved). No timer:
+// it can sit for years.
+[[noreturn]] void ship() {
+    ESP_LOGW(kTag, "everything erased: the shipping screen, then asleep until the button");
+    showScreen([](Canvas& canvas) { setup_view::renderShip(canvas); });
+    peripheralsOff();
+    gBoot.magic = 0;  // forget this boot state too
+    deepSleep(std::nullopt);
+}
+
 // Setup mode gives up (and goes back to the calendar) after this long
 // without anyone loading its page.
 constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
@@ -47,15 +58,8 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
                 restartInto(false);
             case setup_mode::Event::erased:
-                // Ready to change hands: the shipping screen stays up on the
-                // panel with no power, and a press wakes it into a first
-                // setup (no WiFi saved). No timer: it can sit for years.
-                ESP_LOGW(kTag, "everything erased: the shipping screen, then asleep until the button");
                 setup_mode::close();
-                showScreen([](Canvas& canvas) { setup_view::renderShip(canvas); });
-                peripheralsOff();
-                gBoot.magic = 0;  // forget this boot state too
-                deepSleep(std::nullopt);
+                ship();
             case setup_mode::Event::joined: {
                 // The phone is in: take the QR code (and the access point's
                 // password) off the screen so nobody else can use them. On
@@ -136,6 +140,11 @@ void runSetupMode(const Settings& current) {
         runAccessPointSetup(current);
     }
     runHomeSetup(current);
+}
+
+void eraseAndShip() {
+    setup_mode::eraseEverything();
+    ship();
 }
 
 }  // namespace glance

@@ -397,12 +397,7 @@ esp_err_t handleReset(httpd_req_t* req) {
     if (!setup_page::confirmsReset(*body)) {
         return sendText(req, "400 Bad Request", "text/plain", "not confirmed");
     }
-    for (int slot : photo_store::list()) {
-        photo_store::remove(slot);
-    }
-    settings::eraseAll();
-    wake_log_store::eraseAll();
-    ESP_LOGW(kTag, "everything erased");
+    setup_mode::eraseEverything();
     esp_err_t err = sendHtml(req, setup_page::renderErased());
     xEventGroupSetBits(gEvents, kErasedBit);
     return err;
@@ -638,6 +633,15 @@ Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
             return Event::idle;
         }
     }
+}
+
+void eraseEverything() {
+    for (int slot : photo_store::list()) {
+        photo_store::remove(slot);
+    }
+    settings::eraseAll();
+    wake_log_store::eraseAll();
+    ESP_LOGW(kTag, "everything erased");
 }
 
 void close() {

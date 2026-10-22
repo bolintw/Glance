@@ -179,6 +179,9 @@ extern "C" void app_main(void)
     initBootState();
     xTaskCreate(runDeadlineTask, "run_deadline", 4096, nullptr, 10, nullptr);
     ESP_ERROR_CHECK(settings::initStorage());
+    if (std::exchange(gBoot.eraseAll, false)) {
+        eraseAndShip();
+    }
     backOffIfResetsKeepRecurring();
     checkBattery();  // doesn't return while the battery is too low to run
 

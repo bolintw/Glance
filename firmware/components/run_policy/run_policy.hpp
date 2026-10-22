@@ -71,14 +71,15 @@ inline constexpr uint8_t kBadResetsBeforeBackoff = 3;
 bool backOffAfterBadResets(uint8_t badResetsInARow);
 
 // What a press that woke the device from deep sleep means, timed from the
-// wake-up: held to the long-press time and let go, setup mode; held past
-// that and still down, a stuck button -- carry on as if it weren't pressed;
+// wake-up: held to the long-press time and let go, setup mode -- or, held to
+// the erase time (see glance::kEraseHoldMs) first, erase everything; still
+// down at the stuck time, a stuck button -- carry on as if it weren't pressed;
 // a short press toggles privacy mode, unless there's no calendar to switch
 // to (offline, photo frame): then straight back to sleep until the timer
 // was due -- or the refresh, if that's within a minute anyway.
-enum class WakePress { setup, stuck, togglePrivacy, backToSleep, refresh };
-WakePress decideWakePress(bool heldToLongPress, bool released, bool noCalendarToSwitchTo, int64_t timerDueAt,
-                          int64_t now);
+enum class WakePress { setup, erase, stuck, togglePrivacy, backToSleep, refresh };
+WakePress decideWakePress(bool heldToLongPress, bool released, bool heldToErase, bool noCalendarToSwitchTo,
+                          int64_t timerDueAt, int64_t now);
 
 // Whether a calendar run that couldn't get online should put up the offline
 // screen: right after setup (most likely a mistyped password), after a press

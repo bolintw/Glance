@@ -31,6 +31,7 @@ void initBootState() {
     }
     gBoot = {.magic = BootState::kMagic,
              .enterSetup = false,
+             .eraseAll = false,
              .accessPointSetup = false,
              .wifiFailed = false,
              .justConfigured = false,
@@ -65,6 +66,11 @@ void logRun(wake_log::Result result) {
     ota_update::markRunningAppValid();  // a deliberate restart isn't a failed update
     gBoot.enterSetup = enterSetup;
     esp_restart();
+}
+
+[[noreturn]] void restartToErase() {
+    gBoot.eraseAll = true;
+    restartInto(false);
 }
 
 [[noreturn]] void deepSleep(std::optional<int64_t> wakeAt, bool buttonOnExt0) {

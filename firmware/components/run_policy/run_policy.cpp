@@ -32,10 +32,10 @@ ResetKind classifyReset(uint8_t resetReason) {
 
 bool backOffAfterBadResets(uint8_t badResetsInARow) { return badResetsInARow >= kBadResetsBeforeBackoff; }
 
-WakePress decideWakePress(bool heldToLongPress, bool released, bool noCalendarToSwitchTo, int64_t timerDueAt,
-                          int64_t now) {
+WakePress decideWakePress(bool heldToLongPress, bool released, bool heldToErase, bool noCalendarToSwitchTo,
+                          int64_t timerDueAt, int64_t now) {
     if (heldToLongPress) {
-        return released ? WakePress::setup : WakePress::stuck;
+        return !released ? WakePress::stuck : heldToErase ? WakePress::erase : WakePress::setup;
     }
     if (!noCalendarToSwitchTo) {
         return WakePress::togglePrivacy;

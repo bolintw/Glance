@@ -82,7 +82,7 @@ void serialCommandTask(void*) {
             }
             ESP_LOGW(kTag, "serial command: %s", line.c_str());
             if (line == "glance press short" || line == "glance press long") {
-                actOnPress(line.ends_with("long"), [] { return true; });
+                actOnPress(line.ends_with("long"), [] { return Hold::released; });
             } else if (line == "glance privacy on" || line == "glance privacy off") {
                 settings::savePrivacyMode(line.ends_with("on"));
                 restartInto(false);
