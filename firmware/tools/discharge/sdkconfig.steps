@@ -1,0 +1,2 @@
+# Load steps for comparing boards instead of a discharge (see README.md).
+CONFIG_DISCHARGE_STEPS=y

@@ -1,0 +1,16 @@
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_SPIRAM=n
+
+# The firmware's own partition table, so flashing this tool and then the
+# firmware back leaves NVS (the device's settings) and storage (wake log,
+# photos) where they were. The tool itself never opens NVS.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../partitions.csv"
+# No PHY calibration data written to NVS either.
+CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n
+
+# Full load: both cores spin at 240MHz, so the idle tasks never run.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n

@@ -1,0 +1,40 @@
+menu "Discharge tool"
+
+    config DISCHARGE_STEPS
+        bool "Load steps instead of a discharge"
+        default n
+        help
+            For comparing boards' current draw: forever, 10s each of
+            (1) idle -- CPU idle, Wi-Fi stopped, (2) both cores spinning,
+            (3) both cores spinning and Wi-Fi scanning. The peripheral rail
+            stays off (no LED), and the fuel gauge isn't used.
+
+    config DISCHARGE_TARGET_MV
+        int "Stop at this resting battery voltage (mV)"
+        range 3000 4100
+        default 3500
+        help
+            Read with the load off for DISCHARGE_REST_SECONDS, so it's close
+            to the cell's open-circuit voltage. 3500 is about 5% left; 3000
+            is empty by a cell's rated-capacity definition -- charge it
+            soon after, since sitting at that voltage wears it.
+
+    config DISCHARGE_LOAD_MINUTES
+        int "Minutes at full load between readings"
+        range 1 60
+        default 5
+
+    config DISCHARGE_REST_SECONDS
+        int "Seconds with the load off before each reading"
+        range 10 600
+        default 60
+
+    config DISCHARGE_LED_PIN
+        int "Status LED pin (active low; V2.1: 48, V3.0: 38)"
+        default 48
+
+    config DISCHARGE_RAIL_PIN
+        int "Peripheral rail switch pin (V2.1: 14, V3.0: 41)"
+        default 14
+
+endmenu

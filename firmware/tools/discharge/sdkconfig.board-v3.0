@@ -1,0 +1,3 @@
+# V3.0 pins, layered on sdkconfig.defaults (see README.md).
+CONFIG_DISCHARGE_LED_PIN=38
+CONFIG_DISCHARGE_RAIL_PIN=41
