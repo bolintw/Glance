@@ -1,6 +1,0 @@
-# eCalendar V3.0, layered on sdkconfig.defaults:
-#   idf.py -B build-v3.0 -D SDKCONFIG=build-v3.0/sdkconfig \
-#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0" build
-# (what .github/workflows/release.yml does). Module: ESP32-S3-WROOM-1-N8,
-# 8MB flash and no PSRAM; the pins are in main/board.hpp.
-CONFIG_GLANCE_BOARD_V3_0=y

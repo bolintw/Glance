@@ -3,7 +3,7 @@
 #
 # Release tags must be vX.Y.Z: the tag becomes the firmware version
 # (firmware/version.txt), and only such versions ever install updates.
-# Devices read releases/latest/download/manifest.json, so drafts and
+# Devices read releases/latest/download/manifest-v3.0.json, so drafts and
 # pre-releases are never picked up.
 name: Release firmware
 
@@ -32,9 +32,9 @@ jobs:
 
       # No sdkconfig in the repo (it holds local secrets), so this builds
       # from sdkconfig.defaults: the product configuration, with WiFi and
-      # calendars left for the device's setup page. One build per board:
-      # V2.1 keeps the names its devices already read (glance.bin,
-      # manifest.json); V3.0 gets its own (main/board.hpp, kOtaManifest).
+      # calendars left for the device's setup page. V3.0 only (V2.1 was
+      # dropped after v0.2.0); the names are what its devices read
+      # (main/board.hpp, kOtaManifest).
       - name: Build
         shell: bash
         working-directory: firmware
@@ -42,8 +42,6 @@ jobs:
           echo "$GITHUB_REF_NAME" > version.txt
           . "$IDF_PATH/export.sh"
           idf.py -B build build
-          idf.py -B build-v3.0 -D SDKCONFIG=build-v3.0/sdkconfig \
-                 -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0" build
 
       - name: Write the manifests
         shell: bash
@@ -59,8 +57,7 @@ jobs:
               "$GITHUB_REF_NAME" "$release/$2" "$size" "$sha" > "out/$3"
             cat "out/$3"
           }
-          manifest build glance.bin manifest.json
-          manifest build-v3.0 glance-v3.0.bin manifest-v3.0.json
+          manifest build glance-v3.0.bin manifest-v3.0.json
 
       - uses: actions/upload-artifact@v7
         with:
@@ -80,5 +77,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" glance.bin manifest.json glance-v3.0.bin manifest-v3.0.json \
+          gh release upload "$GITHUB_REF_NAME" glance-v3.0.bin manifest-v3.0.json \
             --clobber --repo "$GITHUB_REPOSITORY"

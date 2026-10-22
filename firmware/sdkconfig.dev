@@ -1,7 +1,7 @@
-# Development settings, layered last on top of a board's defaults, e.g. for
+# Development settings, layered last on top of sdkconfig.defaults, e.g. for
 # a new board's first checks (tools/board/bringup.py):
-#   idf.py -B build-v3.0-dev -D SDKCONFIG=build-v3.0-dev/sdkconfig \
-#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.board-v3.0;sdkconfig.dev" build
+#   idf.py -B build-dev -D SDKCONFIG=build-dev/sdkconfig \
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.dev" build
 # Button commands and `glance hw` on the USB serial console; stays awake
 # between refreshes, so the console doesn't disappear into deep sleep.
 CONFIG_GLANCE_DEV_SERIAL_COMMANDS=y

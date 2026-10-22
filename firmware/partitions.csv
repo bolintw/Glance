@@ -1,7 +1,6 @@
 # 8MB internal flash, OTA-ready. App partitions must be 64KB-aligned, which
 # is why nvs is the standard 16KB rather than larger (ota_0 needs to start
-# at 0x10000). The board also has a separate 16MB external W25Q128 for bulk
-# data; "storage" here is for small on-chip data only.
+# at 0x10000). "storage" holds the uploaded photos and the wake log.
 # Name,   Type, SubType, Offset,   Size
 nvs,      data, nvs,     0x9000,   0x4000
 otadata,  data, ota,     0xd000,   0x2000

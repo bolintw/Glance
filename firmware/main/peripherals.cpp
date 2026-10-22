@@ -94,18 +94,14 @@ bool withPanel(const std::function<bool(Display&)>& use) {
     // Park the lines into the rail's chips low before cutting it: a line left
     // high feeds the unpowered rail through the chips' protection diodes
     // (the status LED on that rail was seen glowing dimly with it "off").
-    for (int pin : {board::kEpdMosiPin, board::kEpdClkPin, board::kEpdCsPin, board::kEpdDcPin, board::kEpdResetPin,
-                    board::kFlashCsPin}) {
-        if (pin < 0) {
-            continue;  // not on this board
-        }
+    for (int pin : {board::kEpdMosiPin, board::kEpdClkPin, board::kEpdCsPin, board::kEpdDcPin, board::kEpdResetPin}) {
         auto gpio = static_cast<gpio_num_t>(pin);
         gpio_reset_pin(gpio);
         gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
         gpio_set_level(gpio, 0);
     }
-    // Off again before deep sleep: with the external flash powered, its SPI
-    // lines leak ~300uA; with the rail cut the whole board sleeps at ~70uA.
+    // Off again before deep sleep: the panel's circuit and the LED are on
+    // this rail; with it cut the whole board sleeps at ~27uA.
     peripheralPower.write(false);
 #endif
     gPanel = PanelState::idle;

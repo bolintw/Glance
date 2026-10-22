@@ -2,13 +2,13 @@
 """Battery life from the device's wake log (setup page -> 下載每次醒來的紀錄,
 or `glance log` on a development build). Standard library only.
 
-    python3 analyze_wake_log.py glance-wake-log.csv [--capacity-mah 800] [--sleep-ua 66]
+    python3 analyze_wake_log.py glance-wake-log.csv [--capacity-mah 1000] [--sleep-ua 27]
 
 Works on the latest stretch on battery: the log is cut wherever the state
 of charge jumps up (a charge). The trend is a least-squares line through
 state of charge over time, so a week or two is enough to extrapolate.
 With --capacity-mah, it also splits the daily use into sleep (--sleep-ua,
-measured: 66uA on V2.1) and the wake-ups.
+measured: 27uA on V3.0) and the wake-ups.
 """
 import argparse
 import csv
@@ -64,7 +64,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("csv")
     parser.add_argument("--capacity-mah", type=float, help="the battery's real capacity")
-    parser.add_argument("--sleep-ua", type=float, default=66.0, help="measured deep-sleep current")
+    parser.add_argument("--sleep-ua", type=float, default=27.0, help="measured deep-sleep current (V3.0)")
     args = parser.parse_args()
 
     rows = load(args.csv)

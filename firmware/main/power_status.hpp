@@ -2,8 +2,8 @@
 
 #include "wake_log.hpp"
 
-// Whether USB is plugged in and the battery charging, on boards that can
-// tell (V3.0: USB_DETEC and CHG_STAT, see board.hpp). V2.1 can't: unknown.
+// Whether USB is plugged in and the battery charging (USB_DETEC and
+// CHG_STAT, see board.hpp).
 namespace glance::power_status {
 
 wake_log::Power read();

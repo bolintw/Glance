@@ -38,7 +38,7 @@ void hardwareCheck() {
                 static_cast<unsigned long>(rtc_clk_slow_freq_get_hz()));
     power_status::Details power = power_status::readDetails();
     if (power.usbMillivolts < 0) {
-        std::printf("hw: power status: not on this board\n");
+        std::printf("hw: power status: no reading (ADC didn't start)\n");
     } else {
         static constexpr const char* kNames[] = {"unknown", "battery", "USB, charging", "USB, not charging"};
         std::printf("hw: VUSB %d mV, CHG_STAT %s (%d mV at the pin): %s\n", power.usbMillivolts,

@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-// Deciding whether to install an update, from the manifest.json the release
+// Deciding whether to install an update, from the manifest the release
 // workflow (.github/workflows/release.yml) publishes next to glance.bin.
 // Pure C++, tested on the host; the download is in components/ota_update.
 namespace ota_manifest {

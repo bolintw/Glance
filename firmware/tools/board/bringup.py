@@ -77,7 +77,7 @@ class Report:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("port")
-    parser.add_argument("--board", help="the board it should report (V2.1, V3.0); default: whatever it reports")
+    parser.add_argument("--board", help="the board it should report (V3.0); default: whatever it reports")
     parser.add_argument("--no-reset", action="store_true", help="don't restart it, just ask for the check")
     args = parser.parse_args()
 
@@ -116,9 +116,7 @@ def main():
                  re.search(r"hw: slow clock (.*)", hw).group(1) if "slow clock" in hw else "")
 
     power = re.search(r"hw: VUSB (-?\d+) mV, CHG_STAT (high|low) \((-?\d+) mV at the pin\): (.*)", hw)
-    if "not on this board" in hw:
-        report.note("no USB or charge status inputs on this board")
-    elif power:
+    if power:
         vusb, level, charge_mv, verdict = int(power.group(1)), power.group(2), int(power.group(3)), power.group(4)
         report.check(vusb > 4500, "USB detected (running from USB)", f"VUSB {vusb} mV")
         clear = charge_mv <= CHARGE_LOW_MAX_MV if level == "low" else charge_mv >= CHARGE_HIGH_MIN_MV
@@ -134,7 +132,7 @@ def main():
         if "hibernating" not in hw:
             report.note("fuel gauge not hibernating yet (~19uA more in sleep); it should be from the next boot on")
         if mv > 4300:
-            report.note(f"{mv} mV is above a full cell: no battery (V2.1: its Q2 feeds VBAT from USB)")
+            report.note(f"{mv} mV is above a full cell: is a battery in?")
     else:
         report.check(False, "fuel gauge answers")
     report.check("hw: panel answers" in hw, "panel answers")

@@ -1,12 +1,8 @@
 #include "power_status.hpp"
 
-#include "board.hpp"
-#include "sdkconfig.h"
-
-#if CONFIG_GLANCE_BOARD_V3_0
-
 #include <optional>
 
+#include "board.hpp"
 #include "driver/gpio.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
@@ -112,14 +108,3 @@ wake_log::Power read() {
 }
 
 }  // namespace glance::power_status
-
-#else  // V2.1: nothing to read
-
-namespace glance::power_status {
-
-wake_log::Power read() { return wake_log::Power::unknown; }
-Details readDetails() { return {}; }
-
-}  // namespace glance::power_status
-
-#endif

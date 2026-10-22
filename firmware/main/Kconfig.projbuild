@@ -2,14 +2,11 @@ menu "Glance Board"
 
     choice GLANCE_BOARD
         prompt "Board"
-        default GLANCE_BOARD_V2_1
+        default GLANCE_BOARD_V3_0
         help
             Which eCalendar board this build is for: the pins (main/board.hpp)
-            and the update manifest it reads. A release builds both, and each
-            device only takes updates for its own board.
-
-        config GLANCE_BOARD_V2_1
-            bool "eCalendar V2.1"
+            and the update manifest it reads. V3.0 is the only one (V2.1 was
+            dropped on 2026-10-22); a new board becomes another choice here.
 
         config GLANCE_BOARD_V3_0
             bool "eCalendar V3.0 (USB and charge status inputs, no external flash)"
