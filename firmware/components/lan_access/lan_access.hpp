@@ -8,7 +8,8 @@
 // can reach the device, so the pages need a secret only someone in front of
 // the panel has: a token in the URL behind the QR code. The first device to
 // open it is bound (by address, plus a session cookie) and becomes the only
-// one let in; anyone else showing up with the token or that session means
+// one let in. The cookie follows the phone to a new address (a rotating
+// private Wi-Fi address); another device showing up with the token means
 // the secret got out. Pure C++, tested on the host.
 class LanAccess {
 public:

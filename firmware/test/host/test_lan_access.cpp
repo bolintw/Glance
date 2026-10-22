@@ -50,14 +50,26 @@ void testSomeoneElseWithTheSecret() {
     // Without the token or session another device is just turned away...
     CHECK(a.check("10.0.0.9", "", "", makeSession).verdict == V::deny);
     CHECK(a.check("10.0.0.9", "guess", "guess", makeSession).verdict == V::deny);
-    // ...but with either, the secret has leaked: close for everyone.
-    CHECK(a.check("10.0.0.9", "", session, makeSession).verdict == V::intruder);
+    // ...but with the token, the secret has leaked: close for everyone.
+    CHECK(a.check("10.0.0.9", kToken, "", makeSession).verdict == V::intruder);
     CHECK(a.check("10.0.0.5", "", session, makeSession).verdict == V::deny);
     CHECK(a.check("10.0.0.5", kToken, "", makeSession).verdict == V::deny);
 
     LanAccess b(kToken);
     b.check("10.0.0.5", kToken, "", makeSession);
     CHECK(b.check("10.0.0.9", kToken, "", makeSession).verdict == V::intruder);
+}
+
+void testThePhoneAtANewAddress() {
+    // iOS's rotating private address: the same phone (its cookie) from a new
+    // address is let in and bound there.
+    LanAccess a(kToken);
+    std::string session = a.check("10.0.0.5", kToken, "", makeSession).newSession;
+    auto moved = a.check("10.0.0.7", "", session, makeSession);
+    CHECK(moved.verdict == V::allow && moved.newSession.empty() && !moved.firstVisit);
+    CHECK(a.check("10.0.0.7", "", session, makeSession).verdict == V::allow);
+    CHECK(a.check("10.0.0.5", "", "", makeSession).verdict == V::deny);  // the old address is nobody now
+    CHECK(a.check("10.0.0.5", kToken, "", makeSession).verdict == V::intruder);
 }
 
 void testQueryAndCookieParsing() {
@@ -79,6 +91,7 @@ int main() {
     testNeedsTheToken();
     testFirstVisitorIsBound();
     testSomeoneElseWithTheSecret();
+    testThePhoneAtANewAddress();
     testQueryAndCookieParsing();
     if (failures) {
         std::printf("%d failure(s)\n", failures);

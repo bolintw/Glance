@@ -23,7 +23,14 @@ LanAccess::Result LanAccess::check(std::string_view client, std::string_view tok
         // camera's preview to Safari -- may rescan the QR code.
         return rightToken ? Result{Verdict::allow, session_} : Result{Verdict::deny, {}};
     }
-    if (rightToken || rightSession) {
+    if (rightSession) {
+        // The cookie only lives in the bound phone's browser: that phone,
+        // at a new address (iOS's rotating private Wi-Fi address brings a
+        // new DHCP lease). It's bound there from now on.
+        boundClient_ = std::string(client);
+        return {Verdict::allow, {}};
+    }
+    if (rightToken) {
         closed_ = true;
         return {Verdict::intruder, {}};
     }

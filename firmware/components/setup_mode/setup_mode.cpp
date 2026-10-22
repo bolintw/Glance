@@ -88,6 +88,14 @@ void onStationJoined(void*, esp_event_base_t, int32_t, void* data) {
     }
 }
 
+void onStationLeft(void*, esp_event_base_t, int32_t, void* data) {
+    auto* event = static_cast<wifi_event_ap_stadisconnected_t*>(data);
+    StationWatch::Mac mac;
+    std::copy(std::begin(event->mac), std::end(event->mac), mac.begin());
+    ESP_LOGI(kTag, "station left: ..:%02x:%02x:%02x", mac[3], mac[4], mac[5]);
+    gStations.onLeft(mac);
+}
+
 void touch() { gLastActivityUs = esp_timer_get_time(); }
 
 std::string randomHex(size_t bytes) {
@@ -537,6 +545,8 @@ esp_err_t start(const Settings& current, AccessPoint& out, std::string_view wifi
     ap.ap.max_connection = 2;
     ap.ap.channel = 1;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED, onStationJoined,
+                                                        nullptr, nullptr));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, WIFI_EVENT_AP_STADISCONNECTED, onStationLeft,
                                                         nullptr, nullptr));
     ESP_ERROR_CHECK(esp_wifi_stop());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));

@@ -31,7 +31,7 @@ void testFirstHidesQr() {
 void testSecondShutsDown() {
     StationWatch w;
     w.onJoined(kPhone);
-    CHECK(w.onJoined(kOther) == Action::shutDown);
+    CHECK(w.onJoined(kOther) == Action::shutDown);  // while the phone is on
     // After that, nothing more happens.
     CHECK(w.onJoined(kOther) == Action::none);
     CHECK(w.onJoined(kPhone) == Action::none);
@@ -39,10 +39,29 @@ void testSecondShutsDown() {
 
 void testIntruderFirstStillHidesQr() {
     // Whoever joins first gets the page; the QR comes down either way, and
-    // the real user's phone joining next shuts the access point.
+    // the real user's phone joining while it's on shuts the access point.
     StationWatch w;
     CHECK(w.onJoined(kOther) == Action::hideQr);
     CHECK(w.onJoined(kPhone) == Action::shutDown);
+}
+
+void testNewAddressAfterLeavingIsTheSamePhone() {
+    // iOS may drop off a network without internet and come back with a new
+    // private address: one at a time is fine.
+    StationWatch w;
+    CHECK(w.onJoined(kPhone) == Action::hideQr);
+    w.onLeft(kPhone);
+    CHECK(w.onJoined(kOther) == Action::none);
+    w.onLeft(kOther);
+    CHECK(w.onJoined(kPhone) == Action::none);
+    CHECK(w.onJoined(kOther) == Action::shutDown);  // but not both at once
+}
+
+void testLeavingSomeoneElseChangesNothing() {
+    StationWatch w;
+    w.onJoined(kPhone);
+    w.onLeft(kOther);  // never on
+    CHECK(w.onJoined(kOther) == Action::shutDown);
 }
 
 }  // namespace
@@ -51,6 +70,8 @@ int main() {
     testFirstHidesQr();
     testSecondShutsDown();
     testIntruderFirstStillHidesQr();
+    testNewAddressAfterLeavingIsTheSamePhone();
+    testLeavingSomeoneElseChangesNothing();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;
