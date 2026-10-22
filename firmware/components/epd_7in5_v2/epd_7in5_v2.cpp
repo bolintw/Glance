@@ -16,6 +16,7 @@ void delayMs(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
 Epd7in5V2::Epd7in5V2(const EpdConfig& config)
     : frame_(config.frame),
+      upsideDown_(config.upsideDown),
       spi_(config.spiDevice),
       dc_(config.dcPin, Gpio::Direction::output),
       reset_(config.resetPin, Gpio::Direction::output),
@@ -184,9 +185,12 @@ void Epd7in5V2::setPowerSetting() {
 }
 
 void Epd7in5V2::setPanelSetting() {
+    using namespace epd::Config::Panel;
     sendCommand(epd::Command::PSR);
-    sendData(epd::Config::Panel::kScanUp | epd::Config::Panel::kShiftRight |
-              epd::Config::Panel::kBoosterOn | epd::Config::Panel::kNoReset | 0x01);
+    // 0x1F upright, as in Waveshare's driver; upside down, the gates and the
+    // source both run the other way.
+    sendData(kResLutOtp | kModeKw | (upsideDown_ ? kScanDown | kShiftLeft : kScanUp | kShiftRight) | kBoosterOn |
+             kNoReset);
 }
 
 void Epd7in5V2::setResolutionSetting() {

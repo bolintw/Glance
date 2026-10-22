@@ -57,18 +57,19 @@ enum class Command : uint8_t {
 namespace Config {
 
 namespace Panel {
+// PSR's data byte, D5..D0: REG, KW/R, UD, SHL, SHD_N, RST_N (the panel spec's PSR command).
 inline constexpr uint8_t kResLutOtp = 0x00;
-inline constexpr uint8_t kResLutReg = 0x80;
+inline constexpr uint8_t kResLutReg = 0x20;
 inline constexpr uint8_t kModeKwr = 0x00;
-inline constexpr uint8_t kModeKw = 0x20;
+inline constexpr uint8_t kModeKw = 0x10;
 inline constexpr uint8_t kScanDown = 0x00;
-inline constexpr uint8_t kScanUp = 0x10;
+inline constexpr uint8_t kScanUp = 0x08;
 inline constexpr uint8_t kShiftLeft = 0x00;
-inline constexpr uint8_t kShiftRight = 0x08;
+inline constexpr uint8_t kShiftRight = 0x04;
 inline constexpr uint8_t kBoosterOff = 0x00;
-inline constexpr uint8_t kBoosterOn = 0x04;
+inline constexpr uint8_t kBoosterOn = 0x02;
 inline constexpr uint8_t kSoftReset = 0x00;
-inline constexpr uint8_t kNoReset = 0x02;
+inline constexpr uint8_t kNoReset = 0x01;
 }  // namespace Panel
 
 namespace Power {

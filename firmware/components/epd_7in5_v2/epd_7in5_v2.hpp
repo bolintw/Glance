@@ -15,6 +15,7 @@ struct EpdConfig {
     uint8_t dcPin;
     uint8_t resetPin;
     uint8_t busyPin;
+    bool upsideDown = false;  // scan the gates and source the other way: the image rotated 180 degrees
 };
 
 // Modern-C++ port of Waveshare's 7.5" e-Paper V2 (SSD1683) reference driver.
@@ -68,6 +69,8 @@ private:
     void setTconSetting();
 
     FrameSize frame_;
+
+    bool upsideDown_;
     Spi& spi_;
     Gpio dc_;
     Gpio reset_;
