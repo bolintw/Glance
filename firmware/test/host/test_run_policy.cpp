@@ -98,19 +98,19 @@ void testCalendarStale() {
 void testBattery() {
     using run_policy::batteryLow;
     using run_policy::batteryTooLow;
-    CHECK(batteryLow(pct(14.9)));
-    CHECK(!batteryLow(pct(15)));
+    CHECK(batteryLow(pct(4.9)));
+    CHECK(!batteryLow(pct(5)));
 
     // Going down: critical under 5%, or under 3.45V whatever the gauge says.
-    CHECK(!batteryTooLow(pct(5), 3600, false));
-    CHECK(batteryTooLow(pct(4.9), 3600, false));
+    CHECK(!batteryTooLow(pct(2), 3600, false));
+    CHECK(batteryTooLow(pct(1.9), 3600, false));
     CHECK(batteryTooLow(pct(50), 3440, false));
-    // Coming back: only from 10% and 3.55V, so it doesn't flap at 5%.
-    CHECK(batteryTooLow(pct(9.9), 3700, true));
+    // Coming back: only from 4% and 3.55V, so it doesn't flap at 2%.
+    CHECK(batteryTooLow(pct(3.9), 3700, true));
     CHECK(batteryTooLow(pct(12), 3540, true));
-    CHECK(!batteryTooLow(pct(10), 3550, true));
-    CHECK(!batteryTooLow(pct(7), 3600, false));  // between the two: fine while the reminder isn't up
-    CHECK(batteryTooLow(pct(7), 3600, true));    // ...and still too low once it is
+    CHECK(!batteryTooLow(pct(4), 3550, true));
+    CHECK(!batteryTooLow(pct(3), 3600, false));  // between the two: fine while the reminder isn't up
+    CHECK(batteryTooLow(pct(3), 3600, true));    // ...and still too low once it is
 }
 
 void testForecastFromToday() {

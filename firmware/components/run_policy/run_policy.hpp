@@ -23,11 +23,14 @@ inline constexpr uint8_t kAttemptsInARow = 3;
 // Critical: the charge reminder, then just an hourly look at the gauge
 // until it's back past the resume levels -- the gap keeps it from flapping.
 // The voltage guard is for worn cells whose voltage gives out before the
-// gauge's estimate does.
-inline constexpr int kLowBatteryPct = 15;
-inline constexpr int kCriticalPct = 5;
+// gauge's estimate does. Low enough to use most of the cell: the device
+// takes about 0.8 mAh a day, so 1% of a 1000 mAh cell lasts some 12 days --
+// the icon gives about two months' notice, and 2% (about 3.5V at rest,
+// measured on V3.0) leaves weeks of sleep after the reminder.
+inline constexpr int kLowBatteryPct = 5;
+inline constexpr int kCriticalPct = 2;
 inline constexpr uint16_t kCriticalMillivolts = 3450;
-inline constexpr int kResumePct = 10;
+inline constexpr int kResumePct = 4;
 inline constexpr uint16_t kResumeMillivolts = 3550;
 
 // A calendar that has failed this long -- two daily refreshes in a row (an
