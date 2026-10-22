@@ -83,6 +83,11 @@ int main(int argc, char** argv) {
         if (screen.starts_with("gray")) {
             overlay = calendar_view::photoOverlay(photos::kBuiltInGray[index]);
         }
+    } else if (screen == "guest" || screen == "guestlow") {  // privacy mode with the guest WiFi QR code
+        calendar_view::Status status{.lowBattery = screen == "guestlow"};
+        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], status,
+                                     setup_page::wifiQrPayload("Glance-Guest", "welcome-2026"));
+        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
     } else if (screen == "lan") {
         setup_view::renderLan(canvas, "http://192.168.0.249/?t=8f3a1c0d9e2b4f6a8c1d3e5f7a9b0c2d");
     } else if (screen == "joined") {  // on the access point; "joinedlan" on the home network

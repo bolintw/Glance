@@ -77,9 +77,13 @@ struct FormResult {
 FormResult applyWifiForm(const Settings& current, std::string_view body);
 FormResult applyForm(const Settings& current, std::string_view body);
 
-// The standard WiFi QR code payload ("WIFI:T:WPA;S:...;P:...;;") that phone
-// cameras join directly.
+// The standard WiFi QR code payload ("WIFI:T:WPA;S:...;P:...;;", or
+// T:nopass without a password) that phone cameras join directly.
 std::string wifiQrPayload(std::string_view ssid, std::string_view password);
+
+// The payload for privacy mode's guest WiFi QR code, from settings.guestWifi;
+// empty when there's none to show.
+std::string guestWifiQrPayload(const Settings& settings);
 
 // A WPA2 password (8 characters, no look-alikes like 0/O or 1/l) for the
 // setup access point, drawn from `random`.

@@ -16,6 +16,10 @@ constexpr const char* kIcsUrlKeys[Settings::kMaxCalendars] = {"ics_url_1", "ics_
 constexpr const char* kCwaApiKeyKey = "cwa_key";
 constexpr const char* kWeatherLocationKey = "wx_location";
 constexpr const char* kPrivacyModeKey = "privacy";
+constexpr const char* kUpsideDownKey = "upside_down";  // u8
+constexpr const char* kGuestWifiKey = "guest_wifi";    // u8, Settings::GuestWifi
+constexpr const char* kGuestSsidKey = "guest_ssid";
+constexpr const char* kGuestPasswordKey = "guest_pass";
 constexpr const char* kPhotoNextKey = "photo_next";    // u8, 0xFF = none
 constexpr const char* kPhotoShownKey = "photo_shown";  // u32 bitmask
 constexpr const char* kWorkingSsidKey = "wifi_ok_ssid";
@@ -111,6 +115,12 @@ Settings load() {
     }
     s.cwaApiKey = nvs.read(kCwaApiKeyKey, CONFIG_GLANCE_CWA_API_KEY);
     s.weatherLocation = nvs.read(kWeatherLocationKey, CONFIG_GLANCE_WEATHER_LOCATION);
+    s.upsideDown = nvs.readU8(kUpsideDownKey, 0) != 0;
+    uint8_t guest = nvs.readU8(kGuestWifiKey, 0);
+    s.guestWifi = guest <= static_cast<uint8_t>(Settings::GuestWifi::other) ? static_cast<Settings::GuestWifi>(guest)
+                                                                           : Settings::GuestWifi::off;
+    s.guestSsid = nvs.read(kGuestSsidKey, "");
+    s.guestPassword = nvs.read(kGuestPasswordKey, "");
     ESP_LOGI(kTag, "loaded (%s)", nvs.ok() ? "device settings" : "menuconfig fallback");
     return s;
 }
@@ -133,6 +143,14 @@ esp_err_t save(const Settings& s) {
     }
     write(kCwaApiKeyKey, s.cwaApiKey);
     write(kWeatherLocationKey, s.weatherLocation);
+    write(kGuestSsidKey, s.guestSsid);
+    write(kGuestPasswordKey, s.guestPassword);
+    if (err == ESP_OK) {
+        err = nvs.writeU8(kUpsideDownKey, s.upsideDown ? 1 : 0);
+    }
+    if (err == ESP_OK) {
+        err = nvs.writeU8(kGuestWifiKey, static_cast<uint8_t>(s.guestWifi));
+    }
     if (err == ESP_OK) {
         err = nvs.commit();
     }
@@ -233,6 +251,8 @@ esp_err_t saveCalendarFailures(const CalendarFailures& failures) {
     esp_err_t err = nvs.writeBlob(kCalendarFailuresKey, failures.data(), sizeof(failures));
     return err == ESP_OK ? nvs.commit() : err;
 }
+
+bool loadUpsideDown() { return Nvs(NVS_READONLY).readU8(kUpsideDownKey, 0) != 0; }
 
 bool loadPrivacyMode() { return Nvs(NVS_READONLY).readU8(kPrivacyModeKey, 0) != 0; }
 

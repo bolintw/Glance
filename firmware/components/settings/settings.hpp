@@ -53,6 +53,9 @@ using CalendarFailures = std::array<uint32_t, Settings::kMaxCalendars>;
 CalendarFailures loadCalendarFailures();
 esp_err_t saveCalendarFailures(const CalendarFailures& failures);
 
+// Settings::upsideDown alone, for drawing on the panel.
+bool loadUpsideDown();
+
 // Privacy mode, toggled by the button. Kept apart from Settings so saving
 // the setup page never touches it. Off if never saved.
 bool loadPrivacyMode();

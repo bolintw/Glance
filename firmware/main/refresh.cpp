@@ -27,6 +27,7 @@
 #include "photos.hpp"
 #include "run_policy.hpp"
 #include "settings.hpp"
+#include "setup_page.hpp"
 #include "time_sync.hpp"
 #include "weather_fetch.hpp"
 #include "wifi_manager.hpp"
@@ -321,7 +322,8 @@ bool refreshPrivate(Settings& settings) {
     Canvas canvas(framebuffer, board::kPanelSize);
     PrivacyPhoto photo = pickPhoto();
     calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono,
-                                 {.offline = !online && !offlineByChoice, .lowBattery = gLowBattery});
+                                 {.offline = !online && !offlineByChoice, .lowBattery = gLowBattery},
+                                 setup_page::guestWifiQrPayload(settings));
     auto overlay = grayOverlayFor(photo);
     ESP_LOGI(kTag, "showing privacy mode%s", overlay ? " (4-gray)" : "");
     if (!show(framebuffer, overlay ? &*overlay : nullptr)) {

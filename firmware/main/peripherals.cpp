@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "settings.hpp"
 #include "setup_view.hpp"
 
 #ifdef CONFIG_GLANCE_DISPLAY_BACKEND_SIMULATOR
@@ -86,6 +87,7 @@ bool withPanel(const std::function<bool(Display&)>& use) {
             .dcPin = board::kEpdDcPin,
             .resetPin = board::kEpdResetPin,
             .busyPin = board::kEpdBusyPin,
+            .upsideDown = settings::loadUpsideDown(),
         };
         Epd7in5V2 display(epdConfig);
         result = use(display);

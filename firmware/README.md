@@ -89,8 +89,8 @@ idf.py build flash -p <PORT>
 ```sh
 make -C test/host                              # unit tests (host compiler, no board)
 make -C test/host preview SCREEN=calendar      # build/preview.png; also setup, lan, joined,
-                                               # intruder, privacy[1], gray[1], offline,
-                                               # lowbattery, charge
+                                               # intruder, privacy[1], gray[1], guest[low],
+                                               # offline, lowbattery, charge
 make -C test/host dither-check                 # browser photo dithering vs tools/photos
 ```
 

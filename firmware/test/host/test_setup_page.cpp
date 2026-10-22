@@ -212,6 +212,44 @@ void testWifiQrPayload() {
     CHECK(setup_page::wifiQrPayload("Glance-AB12", "abcd2345") == "WIFI:T:WPA;S:Glance-AB12;P:abcd2345;;");
     // Every special character gets a backslash; the password here is p:q\"
     CHECK(setup_page::wifiQrPayload("a;b,c", R"(p:q\")") == R"(WIFI:T:WPA;S:a\;b\,c;P:p\:q\\\";;)");
+    CHECK(setup_page::wifiQrPayload("Cafe", "") == "WIFI:T:nopass;S:Cafe;;");  // an open network
+}
+
+void testGuestWifiAndOrientation() {
+    using GuestWifi = Settings::GuestWifi;
+    std::string home = setup_page::renderForm(configured(), {}, {});
+    CHECK(contains(home, "value=\"off\" checked"));
+    CHECK(contains(home, "name=\"upside_down\">"));  // unchecked
+
+    auto own = setup_page::applyForm(configured(), "display=1&guest_wifi=own&guest_ssid=&guest_pass=&upside_down=on");
+    CHECK(own.errors.empty());
+    CHECK(own.settings.guestWifi == GuestWifi::own);
+    CHECK(own.settings.upsideDown);
+    CHECK(setup_page::guestWifiQrPayload(own.settings) == R"(WIFI:T:WPA;S:Home \"5G\" <net>;P:secret-wifi-pass;;)");
+    std::string ownPage = setup_page::renderForm(own.settings, {}, {});
+    CHECK(contains(ownPage, "value=\"own\" checked"));
+    CHECK(contains(ownPage, "name=\"upside_down\" checked"));
+
+    auto other = setup_page::applyForm(configured(), "display=1&guest_wifi=other&guest_ssid=+Guest+&guest_pass=welcome-2026");
+    CHECK(other.errors.empty());
+    CHECK(!other.settings.upsideDown);  // no checkbox sent: unchecked
+    CHECK(setup_page::guestWifiQrPayload(other.settings) == "WIFI:T:WPA;S:Guest;P:welcome-2026;;");
+    CHECK(!contains(setup_page::renderForm(other.settings, {}, {}), "welcome-2026"));  // a secret, never shown
+    auto kept = setup_page::applyForm(other.settings, "display=1&guest_wifi=other&guest_ssid=Guest&guest_pass=");
+    CHECK(kept.settings.guestPassword == "welcome-2026");
+    auto renamed = setup_page::applyForm(other.settings, "display=1&guest_wifi=other&guest_ssid=Guest2&guest_pass=");
+    CHECK(renamed.settings.guestPassword.empty());  // a new network: the old password is no use
+    auto removed = setup_page::applyForm(other.settings, "display=1&guest_wifi=other&guest_ssid=Guest&guest_pass_remove=on");
+    CHECK(setup_page::guestWifiQrPayload(removed.settings) == "WIFI:T:nopass;S:Guest;;");
+    auto off = setup_page::applyForm(other.settings, "display=1&guest_wifi=off&guest_ssid=Guest");
+    CHECK(setup_page::guestWifiQrPayload(off.settings).empty());
+    CHECK(off.settings.guestPassword == "welcome-2026");  // kept for when it's switched back on
+
+    CHECK(hasError(setup_page::applyForm(configured(), "display=1&guest_wifi=other&guest_ssid="), "訪客 WiFi"));
+    CHECK(hasError(setup_page::applyForm(configured(), "display=1&guest_wifi=other&guest_ssid=G&guest_pass=short"),
+                   "8 到 63"));
+    auto untouched = setup_page::applyForm(own.settings, "ics1=");  // no display fields at all
+    CHECK(untouched.settings.upsideDown && untouched.settings.guestWifi == GuestWifi::own);
 }
 
 void testAccessPointPassword() {
@@ -252,6 +290,7 @@ int main() {
     testReplaceAndRemove();
     testValidation();
     testWifiQrPayload();
+    testGuestWifiAndOrientation();
     testAccessPointPassword();
     testPhotosPage();
     if (failures) {

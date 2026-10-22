@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <ctime>
+#include <tuple>
 
 namespace setup_page {
 namespace {
@@ -26,6 +27,7 @@ h1{font-size:1.4rem}h2{font-size:1.1rem;margin:1.6rem 0 .4rem}
 label{display:block;margin:.6rem 0 .2rem;font-weight:600}
 input[type=text],input[type=password],input[type=url],select{width:100%;box-sizing:border-box;padding:.5rem;font-size:1rem}
 .remove{font-weight:400;display:inline;margin-left:.5rem}
+.choice{font-weight:400;margin:.3rem 0}
 .note{color:#555;font-size:.9rem}
 .errors{background:#fde8e8;border:1px solid #c00;padding:.5rem 1rem}
 .notice{background:#fff6dc;border:1px solid #b80;padding:.5rem 1rem}
@@ -277,6 +279,60 @@ void applyWifi(const std::vector<Field>& fields, Settings& s, std::vector<std::s
         errors.push_back("WiFi 密碼應為 8 到 63 個字元");
     }
 }
+
+// Privacy mode's guest WiFi QR code and the panel's orientation.
+void displayFields(std::string& html, const Settings& current) {
+    using GuestWifi = Settings::GuestWifi;
+    html += "<h2>訪客 WiFi</h2>\n<p class=\"note\">隱私模式時，右上角改成顯示一個 QR code（取代天氣），"
+            "朋友用手機相機掃描就能連上 WiFi。</p>\n<input type=\"hidden\" name=\"display\" value=\"1\">";
+    for (auto [value, choice, text] : {std::tuple{"off", GuestWifi::off, "不顯示"},
+                                       std::tuple{"own", GuestWifi::own, "顯示這台裝置連的 WiFi"},
+                                       std::tuple{"other", GuestWifi::other, "顯示另一個網路（填在下面）"}}) {
+        html += "<label class=\"choice\"><input type=\"radio\" name=\"guest_wifi\" value=\"";
+        html += value;
+        html += current.guestWifi == choice ? "\" checked> " : "\"> ";
+        html += text;
+        html += "</label>";
+    }
+    html += "\n<label for=\"guest_ssid\">另一個網路的名稱</label>";
+    html += "<input type=\"text\" id=\"guest_ssid\" name=\"guest_ssid\" autocomplete=\"off\" value=\"" +
+            htmlEscape(current.guestSsid) + "\">\n<label>密碼</label>";
+    if (!current.guestPassword.empty()) {
+        removeBox(html, "guest_pass");
+    }
+    secretInput(html, "password", "guest_pass", !current.guestPassword.empty(), "開放網路留空");
+    html += "\n<p class=\"note\">QR code 裡含有密碼，看得到螢幕的人都能連上。"
+            "建議在路由器開一個訪客網路，選「另一個網路」顯示它。</p>\n";
+
+    html += "<h2>畫面</h2>\n<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
+    html += current.upsideDown ? " checked" : "";
+    html += "> 上下顛倒（裝置倒過來擺時使用）</label>\n";
+}
+
+void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
+    using GuestWifi = Settings::GuestWifi;
+    s.upsideDown = find(fields, "upside_down") != nullptr;  // a checkbox: sent only when checked
+    if (const std::string* guest = find(fields, "guest_wifi")) {
+        s.guestWifi = *guest == "own" ? GuestWifi::own : *guest == "other" ? GuestWifi::other : GuestWifi::off;
+    }
+    std::string previousSsid = s.guestSsid;
+    if (const std::string* ssid = find(fields, "guest_ssid")) {
+        s.guestSsid = trim(*ssid);
+    }
+    if (s.guestSsid != previousSsid) {
+        s.guestPassword.clear();
+    }
+    applySecret(fields, "guest_pass", s.guestPassword, [](std::string_view v) { return std::string(v); });
+
+    if (s.guestSsid.size() > kMaxSsidBytes) {
+        errors.push_back("訪客 WiFi 的網路名稱太長");
+    } else if (s.guestWifi == GuestWifi::other && s.guestSsid.empty()) {
+        errors.push_back("請填寫訪客 WiFi 的網路名稱");
+    }
+    if (!s.guestPassword.empty() && (s.guestPassword.size() < 8 || s.guestPassword.size() > 63)) {
+        errors.push_back("訪客 WiFi 密碼應為 8 到 63 個字元");
+    }
+}
 }  // namespace
 
 std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
@@ -341,6 +397,7 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
     html += "<h2>WiFi</h2>\n";
     wifiFields(html, current, nearbySsids);
     html += "<p class=\"note\">新的 WiFi 連不上時，螢幕會顯示通知；長按按鈕會開啟設定熱點重新設定。</p>\n";
+    displayFields(html, current);
 
     html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
     // A tab of its own, so whatever is typed above survives a visit.
@@ -403,6 +460,9 @@ FormResult applyForm(const Settings& current, std::string_view body) {
     if (find(fields, "ssid")) {
         applyWifi(fields, s, errors);
     }
+    if (find(fields, "display")) {
+        applyDisplay(fields, s, errors);
+    }
     for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
         const std::string& url = s.icsUrls[i];
         if (url.empty()) {
@@ -438,7 +498,22 @@ std::string wifiQrPayload(std::string_view ssid, std::string_view password) {
         }
         return out;
     };
+    if (password.empty()) {
+        return "WIFI:T:nopass;S:" + escape(ssid) + ";;";
+    }
     return "WIFI:T:WPA;S:" + escape(ssid) + ";P:" + escape(password) + ";;";
+}
+
+std::string guestWifiQrPayload(const Settings& settings) {
+    switch (settings.guestWifi) {
+        case Settings::GuestWifi::own:
+            return settings.wifiSsid.empty() ? "" : wifiQrPayload(settings.wifiSsid, settings.wifiPassword);
+        case Settings::GuestWifi::other:
+            return settings.guestSsid.empty() ? "" : wifiQrPayload(settings.guestSsid, settings.guestPassword);
+        case Settings::GuestWifi::off:
+            break;
+    }
+    return "";
 }
 
 std::string makeAccessPointPassword(const std::function<uint32_t()>& random) {

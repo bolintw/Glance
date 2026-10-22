@@ -8,6 +8,7 @@
 #include "icons.hpp"
 #include "photos.hpp"
 #include "ics_datetime.hpp"
+#include "qrcodegen.h"
 
 namespace calendar_view {
 
@@ -63,6 +64,15 @@ constexpr int kMaxTextWidth = 331;
 // The photo sits inside the box's 2px border with a 2px gap.
 constexpr int kPhotoX = kBoxX + 4, kPhotoY = kBoxY + 4;
 static_assert(photos::kWidth == kBoxWidth - 8 && photos::kHeight == kBoxHeight - 8);
+
+// The guest WiFi QR code, in privacy mode, where the weather goes: a frame
+// like the photo box's, right-aligned with it, and the code on white inside
+// with a black gap. The status icons move left of the frame.
+constexpr int kGuestFrameSize = 144, kGuestFrameY = 8;
+constexpr int kGuestFrameX = kBoxX + kBoxWidth - kGuestFrameSize;
+constexpr int kGuestQrMaxSize = kGuestFrameSize - 12;  // inside the 2px border and a 4px gap
+constexpr int kGuestQuietZone = 2;  // modules; the white around the code
+constexpr int kGuestStatusRight = kGuestFrameX - 10;
 
 constexpr const char* kMonths[] = {"Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.",
                                    "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."};
@@ -129,13 +139,36 @@ void drawWeather(Canvas& canvas, const weather::Forecast& forecast) {
     drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20);
 }
 
-void drawStatus(Canvas& canvas, Status status) {
-    int right = kStatusIconRight;
+void drawStatus(Canvas& canvas, Status status, int right = kStatusIconRight) {
     for (auto [shown, icon] : {std::pair{status.lowBattery, icons::kBatteryLow}, std::pair{status.offline, icons::kWifiOff},
                                std::pair{status.calendarError, icons::kCalendarError}}) {
         if (shown) {
             drawOnBaseline(canvas, right - kStatusIconSize, kStatusIconBaseline, icon, kWeatherIcons);
             right -= kStatusIconSize + kStatusIconGap;
+        }
+    }
+}
+
+void drawGuestWifi(Canvas& canvas, std::string_view payload) {
+    std::string text(payload);
+    uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
+    uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
+    if (!qrcodegen_encodeText(text.c_str(), temp, qr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 10,
+                              qrcodegen_Mask_AUTO, true)) {
+        return;  // too long for version 10; can't happen for an SSID + password
+    }
+    canvas.roundedRect(kGuestFrameX, kGuestFrameY, kGuestFrameSize, kGuestFrameSize, kBoxRadius, 2, kInk);
+    int modules = qrcodegen_getSize(qr);
+    int scale = kGuestQrMaxSize / (modules + 2 * kGuestQuietZone);
+    int size = (modules + 2 * kGuestQuietZone) * scale;
+    int left = kGuestFrameX + (kGuestFrameSize - size) / 2, top = kGuestFrameY + (kGuestFrameSize - size) / 2;
+    canvas.fillRect(left, top, size, size, Color::white);
+    for (int y = 0; y < modules; y++) {
+        for (int x = 0; x < modules; x++) {
+            if (qrcodegen_getModule(qr, x, y)) {
+                canvas.fillRect(left + (kGuestQuietZone + x) * scale, top + (kGuestQuietZone + y) * scale, scale,
+                                scale, Color::black);
+            }
         }
     }
 }
@@ -183,15 +216,21 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 }
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status) {
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status,
+                   std::string_view guestWifi) {
     canvas.fill(kBackground);
     if (now) {
         drawHeader(canvas, localDate(*now, utcOffset));
     }
-    if (forecast) {
-        drawWeather(canvas, *forecast);
+    if (!guestWifi.empty()) {
+        drawGuestWifi(canvas, guestWifi);
+        drawStatus(canvas, status, kGuestStatusRight);
+    } else {
+        if (forecast) {
+            drawWeather(canvas, *forecast);
+        }
+        drawStatus(canvas, status);
     }
-    drawStatus(canvas, status);
     drawBox(canvas);
     canvas.drawBitmap(kPhotoX, kPhotoY, photo);
 }

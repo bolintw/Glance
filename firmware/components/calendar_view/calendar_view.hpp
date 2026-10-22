@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 
 #include "canvas.hpp"
 #include "ics_event_collector.hpp"
@@ -28,9 +29,12 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 
 // Privacy mode: the same header and weather, with a photo in the event box
 // instead of the events. `photo` should be photos::kWidth x photos::kHeight;
-// without a clock (`now` nullopt) the date is left out.
+// without a clock (`now` nullopt) the date is left out. With `guestWifi` (a
+// WIFI: QR payload, see setup_page::wifiQrPayload) a QR code for joining
+// the network takes the weather's place.
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status = {});
+                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status = {},
+                   std::string_view guestWifi = {});
 
 // The battery is too low to keep going: a big empty battery and "請充電",
 // left on the panel while the device sleeps until it's charged.
