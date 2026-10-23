@@ -14,6 +14,7 @@
 #include <ctime>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "app_state.hpp"
 #include "battery.hpp"
@@ -38,9 +39,17 @@
 namespace glance {
 namespace {
 
-// A wake-up this close before the daily refresh time counts as that
-// refresh, so waking slightly early doesn't redraw twice in one morning.
-constexpr int64_t kMinRefreshGapSeconds = 3600;
+// A wake-up this close before a daily refresh time counts as that refresh,
+// so waking slightly early doesn't redraw twice in one morning. The 32 kHz
+// crystal keeps the clock within seconds a day, so a few minutes is plenty;
+// any more and a refresh run by hand (or a setup save) shortly before a
+// refresh time would skip it.
+constexpr int64_t kMinRefreshGapSeconds = 10 * 60;
+static_assert(kMinRefreshGapSeconds < Settings::kMinRefreshGapMinutes * 60);
+
+// The daily refresh times (Settings::refreshMinutes and the optional
+// second), set once the settings are loaded.
+std::vector<int> gRefreshMinutes{CONFIG_GLANCE_REFRESH_HOUR * 60};
 
 // The longest a run may take from wake-up to sleep. A normal one takes about
 // 15s; every step failing in turn about two minutes; an update download adds
@@ -58,8 +67,8 @@ run_policy::NextWake scheduleNext(bool refreshed) {
     // A run that didn't go online can't stand in for a daily refresh due
     // within the hour: privacy mode switched on at 06:30 still wakes at 07:00.
     const int64_t minGap = gRun.result == wake_log::Result::privacyCached ? 0 : kMinRefreshGapSeconds;
-    return run_policy::nextWake(gBoot.failedRuns, time(nullptr), time_sync::kUtcOffsetSeconds,
-                                CONFIG_GLANCE_REFRESH_HOUR, CONFIG_GLANCE_RETRY_MINUTES, minGap);
+    return run_policy::nextWake(gBoot.failedRuns, time(nullptr), time_sync::kUtcOffsetSeconds, gRefreshMinutes,
+                                CONFIG_GLANCE_RETRY_MINUTES, minGap);
 }
 
 // Crashes or brownouts keep recurring (run_policy::backOffAfterBadResets):
@@ -186,6 +195,10 @@ extern "C" void app_main(void)
     checkBattery();  // doesn't return while the battery is too low to run
 
     Settings settings = settings::load();
+    gRefreshMinutes = {settings.refreshMinutes};
+    if (settings.secondRefreshMinutes != Settings::kNoRefresh) {
+        gRefreshMinutes.push_back(settings.secondRefreshMinutes);
+    }
     bool noCalendars = std::ranges::all_of(settings.icsUrls, [](const std::string& url) { return url.empty(); });
     if (gRun.wake == wake_log::Wake::button) {
         actOnWakePress(noCalendars);

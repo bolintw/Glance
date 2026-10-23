@@ -67,6 +67,17 @@ void testOtherTimes() {
           taipei(2026, 10, 6, 0, 0));
 }
 
+void testSeveralTimes() {
+    const int twice[] = {7 * 60, 19 * 60 + 30};
+    auto next = [&](int64_t now) { return refresh_schedule::nextOf(now, kTaipei, twice, kHour); };
+    CHECK(next(taipei(2026, 10, 5, 7, 0)) == taipei(2026, 10, 5, 19, 30));
+    CHECK(next(taipei(2026, 10, 5, 19, 30)) == taipei(2026, 10, 6, 7, 0));
+    CHECK(next(taipei(2026, 10, 5, 3, 0)) == taipei(2026, 10, 5, 7, 0));
+    CHECK(next(taipei(2026, 10, 5, 18, 45)) == taipei(2026, 10, 6, 7, 0));  // waking early counts as 19:30's
+    const int once[] = {7 * 60};
+    CHECK(refresh_schedule::nextOf(taipei(2026, 10, 5, 7, 0), kTaipei, once, kHour) == taipei(2026, 10, 6, 7, 0));
+}
+
 }  // namespace
 
 int main() {
@@ -75,6 +86,7 @@ int main() {
     testUtcDayBoundary();
     testMonthAndYearRollover();
     testOtherTimes();
+    testSeveralTimes();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;

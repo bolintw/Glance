@@ -35,7 +35,7 @@ struct BootState {
     int64_t wakeAt;     // when the timer is due (Unix time; 0 = none), for a button wake-up that goes back to sleep
     int8_t fakeBatteryPct;  // development: the next boot's state of charge instead of the gauge's (-1 = none)
     // The last forecast fetched, for privacy mode switched on by a press
-    // (drawn offline; see run_policy::forecastFromToday). The drawing doesn't
+    // (drawn offline; see run_policy::forecastStillCurrent). The drawing doesn't
     // use CWA's wording, so it isn't kept.
     int64_t forecastAt;          // when it was fetched (Unix time; 0 = none)
     uint8_t forecastCondition;   // weather::Condition

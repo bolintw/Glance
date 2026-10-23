@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 
 // The decisions a run makes from counts and readings -- when to retry, when
 // the offline screen goes up, how low the battery may go -- kept free of
@@ -38,10 +39,17 @@ inline constexpr uint16_t kResumeMillivolts = 3550;
 // morning doesn't.
 inline constexpr int64_t kCalendarStaleSeconds = 47 * 3600;
 
+// Which forecast a refresh at `now` shows, as a moment in its 12-hour
+// period: today's daytime (noon) before 12:00, tomorrow's from then on. The
+// panel keeps it until the next refresh, often the next morning, so an
+// evening refresh says whether tomorrow needs an umbrella.
+int64_t forecastFor(int64_t now, int32_t utcOffset);
+
 // Privacy mode switched on by a press is drawn without going online: the
 // clock (kept by the RTC across deep sleep) gives the date, and the weather
-// is the forecast fetched earlier the same local day -- none if it's older.
-bool forecastFromToday(int64_t fetchedAt, int64_t now, int32_t utcOffset);
+// is the forecast fetched earlier -- as long as it's for today or later
+// (see forecastFor), none if it's older.
+bool forecastStillCurrent(int64_t fetchedAt, int64_t now, int32_t utcOffset);
 
 // Whether the next wake-up is a retry (an hour on) rather than the next
 // daily refresh, after `failedRunsInARow` failed refreshes (0 after one that
@@ -49,8 +57,8 @@ bool forecastFromToday(int64_t fetchedAt, int64_t now, int32_t utcOffset);
 bool retrySoon(uint8_t failedRunsInARow);
 
 // When to wake next after `failedRunsInARow` failed runs: the next daily
-// refresh at `refreshHour` (local, `utcOffset`), or `retryMinutes` on for a
-// retry. A failed run may not even have a synced clock, so a retry is a
+// refresh at one of `refreshMinutes` (minutes after local midnight,
+// `utcOffset`), or `retryMinutes` on for a retry. A failed run may not even have a synced clock, so a retry is a
 // plain delay rather than a time of day. `minGapSeconds`: a wake-up this
 // close before the daily time counts as that refresh (see
 // refresh_schedule::nextDaily).
@@ -58,8 +66,8 @@ struct NextWake {
     int64_t at;
     bool retry;
 };
-NextWake nextWake(uint8_t failedRunsInARow, int64_t now, int32_t utcOffset, int refreshHour, int retryMinutes,
-                  int64_t minGapSeconds);
+NextWake nextWake(uint8_t failedRunsInARow, int64_t now, int32_t utcOffset, std::span<const int> refreshMinutes,
+                  int retryMinutes, int64_t minGapSeconds);
 
 // Why the chip last reset (esp_reset_reason_t), as far as runs care: a crash
 // (panic, a watchdog, a CPU lock-up), the power (a brownout or a glitch), or

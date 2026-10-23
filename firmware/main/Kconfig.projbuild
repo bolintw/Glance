@@ -55,8 +55,9 @@ menu "Glance Refresh"
         range 0 23
         default 7
         help
-            The panel is redrawn once a day at this hour (minute 0). Press
-            RST to redraw it right away.
+            The panel is redrawn once a day at this hour (minute 0), until
+            the setup page sets other times (one or two a day). Press RST to
+            redraw it right away.
 
     config GLANCE_RETRY_MINUTES
         int "Retry after a failed refresh (minutes)"

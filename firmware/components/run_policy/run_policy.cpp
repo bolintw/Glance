@@ -6,12 +6,12 @@ namespace run_policy {
 
 bool retrySoon(uint8_t failedRunsInARow) { return failedRunsInARow % kAttemptsInARow != 0; }
 
-NextWake nextWake(uint8_t failedRunsInARow, int64_t now, int32_t utcOffset, int refreshHour, int retryMinutes,
-                  int64_t minGapSeconds) {
+NextWake nextWake(uint8_t failedRunsInARow, int64_t now, int32_t utcOffset, std::span<const int> refreshMinutes,
+                  int retryMinutes, int64_t minGapSeconds) {
     if (retrySoon(failedRunsInARow)) {
         return {now + static_cast<int64_t>(retryMinutes) * 60, true};
     }
-    return {refresh_schedule::nextDaily(now, utcOffset, refreshHour, 0, minGapSeconds), false};
+    return {refresh_schedule::nextOf(now, utcOffset, refreshMinutes, minGapSeconds), false};
 }
 
 ResetKind classifyReset(uint8_t resetReason) {
@@ -51,9 +51,16 @@ bool calendarStale(uint32_t failingSince, int64_t now) {
     return failingSince != 0 && now - static_cast<int64_t>(failingSince) >= kCalendarStaleSeconds;
 }
 
-bool forecastFromToday(int64_t fetchedAt, int64_t now, int32_t utcOffset) {
+int64_t forecastFor(int64_t now, int32_t utcOffset) {
     constexpr int64_t kDay = 24 * 3600;
-    return fetchedAt > 0 && (fetchedAt + utcOffset) / kDay == (now + utcOffset) / kDay;
+    int64_t localMidnight = (now + utcOffset) / kDay * kDay - utcOffset;
+    int64_t noon = localMidnight + 12 * 3600;
+    return now < noon ? noon : noon + kDay;
+}
+
+bool forecastStillCurrent(int64_t fetchedAt, int64_t now, int32_t utcOffset) {
+    constexpr int64_t kDay = 24 * 3600;
+    return fetchedAt > 0 && (forecastFor(fetchedAt, utcOffset) + utcOffset) / kDay >= (now + utcOffset) / kDay;
 }
 
 bool batteryLow(uint16_t soc256) { return soc256 < kLowBatteryPct * 256; }

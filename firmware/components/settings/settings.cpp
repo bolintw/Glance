@@ -17,6 +17,8 @@ constexpr const char* kCwaApiKeyKey = "cwa_key";
 constexpr const char* kWeatherLocationKey = "wx_location";
 constexpr const char* kPrivacyModeKey = "privacy";
 constexpr const char* kUpsideDownKey = "upside_down";  // u8
+constexpr const char* kRefreshKey = "refresh_1";       // u32, minutes after midnight
+constexpr const char* kSecondRefreshKey = "refresh_2";  // u32, minutes after midnight; none if out of range
 constexpr const char* kGuestWifiKey = "guest_wifi";    // u8, Settings::GuestWifi
 constexpr const char* kGuestSsidKey = "guest_ssid";
 constexpr const char* kGuestPasswordKey = "guest_pass";
@@ -116,6 +118,11 @@ Settings load() {
     s.cwaApiKey = nvs.read(kCwaApiKeyKey, CONFIG_GLANCE_CWA_API_KEY);
     s.weatherLocation = nvs.read(kWeatherLocationKey, CONFIG_GLANCE_WEATHER_LOCATION);
     s.upsideDown = nvs.readU8(kUpsideDownKey, 0) != 0;
+    constexpr uint32_t kDay = 24 * 60;
+    uint32_t first = nvs.readU32(kRefreshKey, CONFIG_GLANCE_REFRESH_HOUR * 60);
+    s.refreshMinutes = static_cast<int>(first < kDay ? first : CONFIG_GLANCE_REFRESH_HOUR * 60);
+    uint32_t second = nvs.readU32(kSecondRefreshKey, UINT32_MAX);
+    s.secondRefreshMinutes = second < kDay ? static_cast<int>(second) : Settings::kNoRefresh;
     uint8_t guest = nvs.readU8(kGuestWifiKey, 0);
     s.guestWifi = guest <= static_cast<uint8_t>(Settings::GuestWifi::other) ? static_cast<Settings::GuestWifi>(guest)
                                                                            : Settings::GuestWifi::off;
@@ -150,6 +157,14 @@ esp_err_t save(const Settings& s) {
     }
     if (err == ESP_OK) {
         err = nvs.writeU8(kGuestWifiKey, static_cast<uint8_t>(s.guestWifi));
+    }
+    if (err == ESP_OK) {
+        err = nvs.writeU32(kRefreshKey, static_cast<uint32_t>(s.refreshMinutes));
+    }
+    if (err == ESP_OK) {
+        err = nvs.writeU32(kSecondRefreshKey, s.secondRefreshMinutes == Settings::kNoRefresh
+                                                  ? UINT32_MAX
+                                                  : static_cast<uint32_t>(s.secondRefreshMinutes));
     }
     if (err == ESP_OK) {
         err = nvs.commit();

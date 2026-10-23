@@ -19,6 +19,14 @@ struct Settings {
 
     bool upsideDown = false;  // the panel drawn rotated 180 degrees
 
+    // The daily refreshes, in minutes after local midnight: one, and an
+    // optional second at least kMinRefreshGapMinutes from it either way
+    // round the clock -- more than a failed refresh's retries take.
+    static constexpr int kNoRefresh = -1;
+    static constexpr int kMinRefreshGapMinutes = 3 * 60;
+    int refreshMinutes = 7 * 60;
+    int secondRefreshMinutes = kNoRefresh;
+
     // A QR code for guests to join a WiFi, in privacy mode: none, the
     // network the device uses, or another one (e.g. the router's guest network).
     enum class GuestWifi : uint8_t { off, own, other };

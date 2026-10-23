@@ -1,8 +1,12 @@
 #include "setup_page.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
+#include <optional>
 #include <tuple>
+#include <utility>
 
 namespace setup_page {
 namespace {
@@ -282,7 +286,47 @@ void applyWifi(const std::vector<Field>& fields, Settings& s, std::vector<std::s
     }
 }
 
-// Privacy mode's guest WiFi QR code and the panel's orientation.
+// "07:30" for 450.
+std::string clockTime(int minutes) {
+    char text[16];
+    std::snprintf(text, sizeof(text), "%02d:%02d", minutes / 60, minutes % 60);
+    return text;
+}
+
+// A choice of times every half hour, the value in minutes after midnight;
+// with `noneLabel`, a first choice for none (Settings::kNoRefresh).
+void timeSelect(std::string& html, const char* name, int selected, const char* noneLabel) {
+    html += "<select id=\"";
+    html += name;
+    html += "\" name=\"";
+    html += name;
+    html += "\">";
+    if (noneLabel) {
+        html += selected == Settings::kNoRefresh ? "<option value=\"none\" selected>" : "<option value=\"none\">";
+        html += noneLabel;
+        html += "</option>";
+    }
+    for (int minutes = 0; minutes < 24 * 60; minutes += 30) {
+        html += "<option value=\"" + std::to_string(minutes) + (minutes == selected ? "\" selected>" : "\">") +
+                clockTime(minutes) + "</option>";
+    }
+    html += "</select>";
+}
+
+// A refresh time from a timeSelect: nullopt unless it's one of its choices.
+std::optional<int> parseRefreshTime(const std::string& value) {
+    if (value == "none") {
+        return Settings::kNoRefresh;
+    }
+    if (value.empty() || value.size() > 4 || value.find_first_not_of("0123456789") != std::string::npos) {
+        return std::nullopt;
+    }
+    int minutes = std::stoi(value);
+    return minutes < 24 * 60 && minutes % 30 == 0 ? std::optional(minutes) : std::nullopt;
+}
+
+// Privacy mode's guest WiFi QR code, the panel's orientation and when it's
+// redrawn.
 void displayFields(std::string& html, const Settings& current) {
     using GuestWifi = Settings::GuestWifi;
     html += "<h2>訪客 WiFi</h2>\n<p class=\"note\">隱私模式時，右上角改成顯示一個 QR code（取代天氣），"
@@ -309,6 +353,13 @@ void displayFields(std::string& html, const Settings& current) {
     html += "<h2>畫面</h2>\n<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
     html += current.upsideDown ? " checked" : "";
     html += "> 上下顛倒（裝置倒過來擺時使用）</label>\n";
+
+    html += "<label for=\"refresh_1\">每天更新畫面的時間</label>";
+    timeSelect(html, "refresh_1", current.refreshMinutes, nullptr);
+    html += "<label for=\"refresh_2\">第二次更新的時間</label>";
+    timeSelect(html, "refresh_2", current.secondRefreshMinutes, "不更新");
+    html += "\n<p class=\"note\">每次更新畫面會閃幾秒。中午以前更新顯示今天白天的天氣，中午以後顯示明天白天的。"
+            "第二次更新耗電多約兩成，兩次要相隔至少 3 小時。</p>\n";
 }
 
 void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
@@ -333,6 +384,23 @@ void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std
     }
     if (!s.guestPassword.empty() && (s.guestPassword.size() < 8 || s.guestPassword.size() > 63)) {
         errors.push_back("訪客 WiFi 密碼應為 8 到 63 個字元");
+    }
+
+    for (auto [name, target] : {std::pair{"refresh_1", &s.refreshMinutes}, std::pair{"refresh_2", &s.secondRefreshMinutes}}) {
+        if (const std::string* value = find(fields, name)) {
+            auto minutes = parseRefreshTime(*value);
+            if (!minutes || (target == &s.refreshMinutes && *minutes == Settings::kNoRefresh)) {
+                errors.push_back("更新時間不在選項中");
+            } else {
+                *target = *minutes;
+            }
+        }
+    }
+    if (s.secondRefreshMinutes != Settings::kNoRefresh) {
+        int gap = std::abs(s.secondRefreshMinutes - s.refreshMinutes);
+        if (std::min(gap, 24 * 60 - gap) < Settings::kMinRefreshGapMinutes) {
+            errors.push_back("兩次更新要相隔至少 3 小時");
+        }
     }
 }
 }  // namespace

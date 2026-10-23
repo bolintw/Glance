@@ -36,12 +36,17 @@ void testNextWake() {
     // 2026-10-06 07:00:20 in Taiwan (23:00:20 UTC the day before).
     const int64_t morning = 1791327620;
     const int32_t taipei = 8 * 3600;
-    auto ok = nextWake(0, morning, taipei, 7, 60, 3600);
+    const int once[] = {7 * 60};
+    auto ok = nextWake(0, morning, taipei, once, 60, 3600);
     CHECK(!ok.retry && ok.at == morning - 20 + 24 * 3600);  // tomorrow 07:00
-    auto retry = nextWake(1, morning, taipei, 7, 60, 3600);
+    auto retry = nextWake(1, morning, taipei, once, 60, 3600);
     CHECK(retry.retry && retry.at == morning + 3600);
-    auto giveUp = nextWake(3, morning + 2 * 3600, taipei, 7, 60, 3600);  // the 09:00 attempt failed too
+    auto giveUp = nextWake(3, morning + 2 * 3600, taipei, once, 60, 3600);  // the 09:00 attempt failed too
     CHECK(!giveUp.retry && giveUp.at == morning - 20 + 24 * 3600);
+    // Twice a day: the evening one comes first.
+    const int twice[] = {7 * 60, 19 * 60 + 30};
+    CHECK(nextWake(0, morning, taipei, twice, 60, 3600).at == morning - 20 + 12 * 3600 + 1800);
+    CHECK(nextWake(0, morning + 13 * 3600, taipei, twice, 60, 3600).at == morning - 20 + 24 * 3600);  // 20:00
 }
 
 void testResets() {
@@ -113,15 +118,29 @@ void testBattery() {
     CHECK(batteryTooLow(pct(3), 3600, true));    // ...and still too low once it is
 }
 
-void testForecastFromToday() {
-    using run_policy::forecastFromToday;
+void testForecastDay() {
+    using run_policy::forecastFor;
+    using run_policy::forecastStillCurrent;
     constexpr int32_t kTaipei = 8 * 3600;
+    constexpr int64_t kHour = 3600;
     constexpr int64_t kMorning = 1792191600;  // 2026-10-17 07:00 Taipei
-    CHECK(!forecastFromToday(0, kMorning, kTaipei));                        // none fetched
-    CHECK(forecastFromToday(kMorning, kMorning + 3600, kTaipei));           // 08:00
-    CHECK(forecastFromToday(kMorning, kMorning + 16 * 3600 + 3599, kTaipei));  // 23:59:59
-    CHECK(!forecastFromToday(kMorning, kMorning + 17 * 3600, kTaipei));     // midnight: yesterday's
-    CHECK(!forecastFromToday(kMorning, kMorning + 22 * 3600, kTaipei));     // 05:00 the next day
+    constexpr int64_t kNoon = kMorning + 5 * kHour;
+    // Before noon, today's daytime; from noon on, tomorrow's.
+    CHECK(forecastFor(kMorning - 7 * kHour, kTaipei) == kNoon);  // midnight
+    CHECK(forecastFor(kMorning, kTaipei) == kNoon);
+    CHECK(forecastFor(kNoon - 1, kTaipei) == kNoon);
+    CHECK(forecastFor(kNoon, kTaipei) == kNoon + 24 * kHour);
+    CHECK(forecastFor(kMorning + 12 * kHour, kTaipei) == kNoon + 24 * kHour);  // 19:00
+
+    CHECK(!forecastStillCurrent(0, kMorning, kTaipei));                       // none fetched
+    CHECK(forecastStillCurrent(kMorning, kMorning + kHour, kTaipei));         // 08:00
+    CHECK(forecastStillCurrent(kMorning, kMorning + 16 * kHour + 3599, kTaipei));  // 23:59:59: today's still
+    CHECK(!forecastStillCurrent(kMorning, kMorning + 17 * kHour, kTaipei));   // midnight: yesterday's
+    // Fetched at 19:00, for tomorrow: good that evening and the next day.
+    const int64_t evening = kMorning + 12 * kHour;
+    CHECK(forecastStillCurrent(evening, evening + 2 * kHour, kTaipei));
+    CHECK(forecastStillCurrent(evening, kMorning + 23 * kHour, kTaipei));     // 06:00 the next day
+    CHECK(!forecastStillCurrent(evening, kMorning + 41 * kHour, kTaipei));    // midnight after that
 }
 
 }  // namespace
@@ -134,7 +153,7 @@ int main() {
     testOfflineScreen();
     testCalendarStale();
     testBattery();
-    testForecastFromToday();
+    testForecastDay();
     if (failures == 0) {
         std::printf("all run_policy tests passed\n");
     }

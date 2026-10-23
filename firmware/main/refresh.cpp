@@ -96,9 +96,11 @@ std::optional<GrayOverlay> grayOverlayFor([[maybe_unused]] const PrivacyPhoto& p
 #endif
 }
 
-// The forecast, kept in gBoot for privacy mode switched on later today.
+// The forecast (today's or tomorrow's daytime, see run_policy::forecastFor),
+// kept in gBoot for privacy mode switched on later.
 std::optional<weather::Forecast> fetchForecast(const Settings& settings) {
-    auto forecast = weather_fetch::fetchForecast(time(nullptr), settings.cwaApiKey, settings.weatherLocation);
+    auto forecast = weather_fetch::fetchForecast(run_policy::forecastFor(time(nullptr), time_sync::kUtcOffsetSeconds),
+                                                 settings.cwaApiKey, settings.weatherLocation);
     if (forecast) {
         gBoot.forecastAt = time(nullptr);
         gBoot.forecastCondition = static_cast<uint8_t>(forecast->condition);
@@ -109,9 +111,9 @@ std::optional<weather::Forecast> fetchForecast(const Settings& settings) {
     return forecast;
 }
 
-// The forecast fetched earlier today, if there is one.
+// The forecast fetched earlier, if it's for today or later.
 std::optional<weather::Forecast> cachedForecast() {
-    if (!run_policy::forecastFromToday(gBoot.forecastAt, time(nullptr), time_sync::kUtcOffsetSeconds)) {
+    if (!run_policy::forecastStillCurrent(gBoot.forecastAt, time(nullptr), time_sync::kUtcOffsetSeconds)) {
         return std::nullopt;
     }
     return weather::Forecast{.condition = static_cast<weather::Condition>(gBoot.forecastCondition),

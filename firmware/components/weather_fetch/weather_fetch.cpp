@@ -94,7 +94,7 @@ const char* conditionName(weather::Condition condition) {
 
 namespace weather_fetch {
 
-std::optional<weather::Forecast> fetchForecast(int64_t now, const std::string& apiKey, const std::string& location) {
+std::optional<weather::Forecast> fetchForecast(int64_t at, const std::string& apiKey, const std::string& location) {
     if (apiKey.empty() || location.empty()) {
         ESP_LOGI(kTag, "weather not configured, skipping");
         return std::nullopt;
@@ -111,7 +111,7 @@ std::optional<weather::Forecast> fetchForecast(int64_t now, const std::string& a
     if (!body) {
         return std::nullopt;
     }
-    auto forecast = weather::parseCwa36Hour(*body, now);
+    auto forecast = weather::parseCwa36Hour(*body, at);
     if (!forecast) {
         ESP_LOGE(kTag, "couldn't read the forecast from %zu bytes", body->size());
         return std::nullopt;

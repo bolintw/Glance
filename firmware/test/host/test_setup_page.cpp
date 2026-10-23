@@ -252,6 +252,28 @@ void testGuestWifiAndOrientation() {
     CHECK(untouched.settings.upsideDown && untouched.settings.guestWifi == GuestWifi::own);
 }
 
+void testRefreshTimes() {
+    std::string home = setup_page::renderForm(configured(), {}, {});
+    CHECK(contains(home, "<option value=\"420\" selected>07:00</option>"));  // the default
+    CHECK(contains(home, "<option value=\"none\" selected>不更新</option>"));
+    CHECK(contains(home, "<option value=\"1410\">23:30</option>"));
+
+    auto twice = setup_page::applyForm(configured(), "display=1&refresh_1=390&refresh_2=1170");
+    CHECK(twice.errors.empty());
+    CHECK(twice.settings.refreshMinutes == 390 && twice.settings.secondRefreshMinutes == 1170);
+    CHECK(contains(setup_page::renderForm(twice.settings, {}, {}), "<option value=\"1170\" selected>19:30</option>"));
+    auto once = setup_page::applyForm(twice.settings, "display=1&refresh_1=390&refresh_2=none");
+    CHECK(once.errors.empty() && once.settings.secondRefreshMinutes == Settings::kNoRefresh);
+
+    CHECK(hasError(setup_page::applyForm(configured(), "display=1&refresh_1=420&refresh_2=540"), "3 小時"));
+    CHECK(setup_page::applyForm(configured(), "display=1&refresh_1=420&refresh_2=600").errors.empty());  // exactly 3 h
+    // Round the clock: 23:00 and 01:00 are two hours apart.
+    CHECK(hasError(setup_page::applyForm(configured(), "display=1&refresh_1=1380&refresh_2=60"), "3 小時"));
+    for (const char* bad : {"refresh_1=none", "refresh_1=425", "refresh_1=1440", "refresh_1=-30", "refresh_1=7%3A00"}) {
+        CHECK(hasError(setup_page::applyForm(configured(), std::string("display=1&") + bad), "更新時間"));
+    }
+}
+
 void testAccessPointPassword() {
     uint32_t next = 0;
     std::string p = setup_page::makeAccessPointPassword([&] { return next++; });
@@ -291,6 +313,7 @@ int main() {
     testValidation();
     testWifiQrPayload();
     testGuestWifiAndOrientation();
+    testRefreshTimes();
     testAccessPointPassword();
     testPhotosPage();
     if (failures) {
