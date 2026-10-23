@@ -91,7 +91,7 @@ The firmware (`firmware/`, ESP-IDF v6.0) wakes once a day, draws the panel and g
 -   **Status icons** appear in the top-right corner only when something is wrong: a crossed-out WiFi (can't get online) and an empty battery (low). After a few failed refreshes, or right after setup, the panel switches to an offline screen (privacy mode's layout with the icon) rather than leaving a stale calendar up.
 -   **Battery:** read from the MAX17048 fuel gauge each wake-up. Under 5% (about two months before it runs out) the icon shows and updates wait; under 2% (or 3.45V at rest) a "please charge" screen goes up and the device only checks the gauge hourly until it's back above 4% and 3.55V. With USB in, the wake log also notes whether it was charging.
 -   **Wake log:** every wake-up records the battery, what the run did and how long it took, in a ring of 2048 entries on flash. The setup page offers it as CSV; `firmware/tools/battery/analyze_wake_log.py` turns it into battery life and clock drift.
--   **Updates:** after a successful refresh the device checks this repository's latest GitHub release and installs a newer `vX.Y.Z` build over HTTPS, rolling back if it doesn't boot. Releases are built by `.github/workflows/release.yml`.
+-   **Updates:** after a successful refresh the device checks this repository's latest GitHub release and installs a newer `vX.Y.Z` build over HTTPS. A new build is kept only once it has read the release manifest itself -- proof it can still take the next update; if it crashes, restarts or sleeps before that, the device goes back to the previous build and skips this one. After a crash or a failed run the check comes first, before the calendars and weather, so data that trips the firmware can't keep a fix out. Releases are built by `.github/workflows/release.yml`.
 
 Measured on V3.0 (PPK2, checked against a multimeter): about 27µA in deep sleep, and about 0.16mAh over 12s awake per refresh, so about 0.8mAh a day.
 
@@ -115,7 +115,7 @@ Glance is a personal project, not a hardened product. This is what it protects a
 
 ### Updates
 -   OTA installs any newer `vX.Y.Z` release of this GitHub repository over certificate-checked HTTPS. Images are **not signed**, so whoever can publish a release here can update every device. App signing is not set up.
--   Rollback protects against an update that crashes, not against a malicious one.
+-   Rollback protects against an update that crashes or can't reach the next one, not against a malicious one.
 
 ### Logs
 -   The USB serial console is always on. Logs avoid WiFi passwords, calendar URLs and the API key (calendars appear by slot number). They do include **upcoming event titles** and the WiFi network name.

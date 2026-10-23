@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <sys/time.h>
 #include <vector>
 
@@ -280,16 +281,31 @@ void reportOffline() {
     gRun.result = gBoot.offlineShown ? wake_log::Result::offlineShown : wake_log::Result::offlineKept;
 }
 
-// Last thing a successful online refresh does: the screen is already up to
-// date, so a download (only when there's a new release) costs nothing
-// visible. Restarts into the update if one is installed.
-void installUpdateIfAny() {
-    ota_update::markRunningAppValid();
-    if (gLowBattery) {
-        ESP_LOGI(kTag, "battery low: no update check");
+bool gUpdateChecked = false;
+
+// Checks for an update, once a run, and installs it (restarting into it)
+// unless the battery is low; the check alone ends a fresh update's
+// probation (see ota_update). Normally the last thing a successful online
+// refresh does: the screen is already up to date, so a download costs
+// nothing visible.
+void checkForUpdate() {
+    if (std::exchange(gUpdateChecked, true)) {
         return;
     }
-    ota_update::checkAndInstall(std::string(CONFIG_GLANCE_OTA_RELEASE_URL) + "/" + board::kOtaManifest);
+    ota_update::checkAndInstall(std::string(CONFIG_GLANCE_OTA_RELEASE_URL) + "/" + board::kOtaManifest, !gLowBattery);
+}
+
+// ...but as soon as the run is online when something might stop it before
+// the end: a fresh update on probation, or a last run that crashed or
+// failed. A calendar or forecast that trips the parser would otherwise
+// stop every run before its update check, and keep out the fix.
+void checkForUpdateEarlyIfAtRisk() {
+    const bool crashed = run_policy::classifyReset(gRun.resetReason) == run_policy::ResetKind::crash;
+    if (ota_update::onProbation() || crashed || gBoot.failedRuns > 0) {
+        ESP_LOGI(kTag, "checking for an update first (%s)",
+                 ota_update::onProbation() ? "fresh update" : crashed ? "crashed last time" : "last run failed");
+        checkForUpdate();
+    }
 }
 
 }  // namespace
@@ -314,6 +330,7 @@ bool refreshPrivate(Settings& settings) {
         }
         gBoot.wifiFailures = online ? 0 : gBoot.wifiFailures + 1;
         if (online) {
+            checkForUpdateEarlyIfAtRisk();
             forecast = fetchForecast(settings);
         } else {
             ESP_LOGE(kTag, "offline (%s), drawing privacy mode without weather", esp_err_to_name(err));
@@ -338,7 +355,7 @@ bool refreshPrivate(Settings& settings) {
                   : offlineByChoice ? wake_log::Result::privacyCached
                                     : wake_log::Result::offlineShown;
     if (online) {
-        installUpdateIfAny();
+        checkForUpdate();
     }
     return online || offlineByChoice;
 }
@@ -360,6 +377,7 @@ bool refresh(Settings& settings) {
         return false;
     }
     gBoot.wifiFailures = 0;
+    checkForUpdateEarlyIfAtRisk();
     bool calendarStale = false;
     auto events = fetchUpcomingEvents(settings, calendarStale);
     if (!events && !calendarStale) {
@@ -389,7 +407,7 @@ bool refresh(Settings& settings) {
     ESP_LOGI(kTag, "calendar shown");
     gBoot.offlineShown = false;
     gRun.result = wake_log::Result::calendar;
-    installUpdateIfAny();
+    checkForUpdate();
     return true;
 }
 

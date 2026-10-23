@@ -226,8 +226,5 @@ extern "C" void app_main(void)
     gBoot.pressed = false;
     peripheralsOff();
     logRun(gRun.result);
-    // Got through a whole run without crashing: a fresh update has proven
-    // itself even if the network was down.
-    ota_update::markRunningAppValid();
     sleepUntilNext(refreshed, settings);
 }

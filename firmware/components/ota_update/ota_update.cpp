@@ -73,16 +73,13 @@ namespace ota_update {
 
 const char* runningVersion() { return esp_app_get_description()->version; }
 
-void markRunningAppValid() {
+bool onProbation() {
     esp_ota_img_states_t state;
-    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
-        state == ESP_OTA_IMG_PENDING_VERIFY) {
-        esp_ota_mark_app_valid_cancel_rollback();
-        ESP_LOGI(kTag, "update %s accepted", runningVersion());
-    }
+    return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
+           state == ESP_OTA_IMG_PENDING_VERIFY;
 }
 
-void checkAndInstall(const std::string& manifestUrl) {
+void checkAndInstall(const std::string& manifestUrl, bool install) {
     if (!ota_manifest::parseVersion(runningVersion())) {
         ESP_LOGI(kTag, "development build (%s), not checking for updates", runningVersion());
         return;
@@ -94,6 +91,14 @@ void checkAndInstall(const std::string& manifestUrl) {
     auto manifest = ota_manifest::parseManifest(*body);
     if (!manifest) {
         ESP_LOGW(kTag, "manifest unreadable (%zu bytes)", body->size());
+        return;
+    }
+    if (onProbation()) {
+        esp_ota_mark_app_valid_cancel_rollback();
+        ESP_LOGI(kTag, "update %s accepted: it reaches the next one", runningVersion());
+    }
+    if (!install) {
+        ESP_LOGI(kTag, "battery low: latest is %s, not downloading", manifest->version.c_str());
         return;
     }
     std::string failed = lastFailedVersion();

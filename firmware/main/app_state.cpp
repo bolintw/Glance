@@ -13,7 +13,6 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "ota_update.hpp"
 #include "time_sync.hpp"
 #include "wake_log_store.hpp"
 
@@ -63,7 +62,9 @@ void logRun(wake_log::Result result) {
 }
 
 [[noreturn]] void restartInto(bool enterSetup) {
-    ota_update::markRunningAppValid();  // a deliberate restart isn't a failed update
+    // On probation (a fresh update that hasn't reached the manifest yet) this
+    // goes back to the previous version: rare -- a press in an update's
+    // first seconds -- and the previous version is the one known to update.
     gBoot.enterSetup = enterSetup;
     esp_restart();
 }
