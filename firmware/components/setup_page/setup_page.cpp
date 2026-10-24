@@ -19,6 +19,10 @@ constexpr const char* kCountyNames[] = {
 // NVS strings top out around 4000 bytes; real ICS URLs are ~150.
 constexpr size_t kMaxFieldBytes = 2000;
 constexpr size_t kMaxSsidBytes = 32;
+// The corner QR code's own text: up to version 5 at the low error
+// correction (106 bytes), modules stay 3px in the 132px square -- easy to
+// scan; longer ones shrink to 2px.
+constexpr size_t kMaxCornerTextBytes = 100;
 
 constexpr const char* kPageHead = R"(<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
@@ -331,15 +335,17 @@ std::optional<int> parseRefreshTime(const std::string& value) {
 // Privacy mode's guest WiFi QR code, the panel's orientation and when it's
 // redrawn.
 void displayFields(std::string& html, const Settings& current) {
-    using GuestWifi = Settings::GuestWifi;
-    html += "<h2>訪客 WiFi</h2>\n<p class=\"note\">隱私模式時，右上角改成顯示一個 QR code（取代天氣），"
-            "朋友用手機相機掃描就能連上 WiFi。</p>\n<input type=\"hidden\" name=\"display\" value=\"1\">";
-    for (auto [value, choice, text] : {std::tuple{"off", GuestWifi::off, "不顯示"},
-                                       std::tuple{"own", GuestWifi::own, "顯示這台裝置連的 WiFi"},
-                                       std::tuple{"other", GuestWifi::other, "顯示另一個網路（填在下面）"}}) {
+    using CornerQr = Settings::CornerQr;
+    html += "<h2>右上角的 QR code</h2>\n<p class=\"note\">隱私模式時，右上角可以改成顯示一個 QR code（取代天氣）："
+            "朋友用手機相機掃描就能連上 WiFi，或打開你放的網址。</p>\n"
+            "<input type=\"hidden\" name=\"display\" value=\"1\">";
+    for (auto [value, choice, text] : {std::tuple{"off", CornerQr::off, "不顯示"},
+                                       std::tuple{"own", CornerQr::own, "這台裝置連的 WiFi"},
+                                       std::tuple{"other", CornerQr::other, "另一個 WiFi（填在下面）"},
+                                       std::tuple{"text", CornerQr::text, "自訂網址或文字（填在下面）"}}) {
         html += "<label class=\"choice\"><input type=\"radio\" name=\"guest_wifi\" value=\"";
         html += value;
-        html += current.guestWifi == choice ? "\" checked> " : "\"> ";
+        html += current.cornerQr == choice ? "\" checked> " : "\"> ";
         html += text;
         html += "</label>";
     }
@@ -350,8 +356,13 @@ void displayFields(std::string& html, const Settings& current) {
         removeBox(html, "guest_pass");
     }
     secretInput(html, "password", "guest_pass", !current.guestPassword.empty(), "開放網路留空");
-    html += "\n<p class=\"note\">QR code 裡含有密碼，看得到螢幕的人都能連上。"
-            "建議在路由器開一個訪客網路，選「另一個網路」顯示它。</p>\n";
+    html += "\n<p class=\"note\">WiFi 的 QR code 裡含有密碼，看得到螢幕的人都能連上。"
+            "建議在路由器開一個訪客網路，選「另一個 WiFi」顯示它。</p>\n";
+    html += "<label for=\"qr_text\">自訂網址或文字</label>";
+    html += "<input type=\"text\" id=\"qr_text\" name=\"qr_text\" autocomplete=\"off\" maxlength=\"" +
+            std::to_string(kMaxCornerTextBytes) + "\" placeholder=\"https://...\" value=\"" +
+            htmlEscape(current.cornerText) + "\">\n<p class=\"note\">最多 " + std::to_string(kMaxCornerTextBytes) +
+            " 個英數字元（中文一個字算 3 個）：QR code 那格不大，內容越長格子越小、越難掃。網址太長的話可以先轉成短網址。</p>\n";
 
     // 上下顛倒 is against the way Glance is put together (Settings::panelFlipped).
     html += "<h2>畫面</h2>\n<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
@@ -380,14 +391,17 @@ void displayFields(std::string& html, const Settings& current) {
 }
 
 void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
-    using GuestWifi = Settings::GuestWifi;
+    using CornerQr = Settings::CornerQr;
     s.panelFlipped = find(fields, "upside_down") == nullptr;  // a checkbox: sent only when checked
     s.photoAutoTheme = find(fields, "photo_auto") != nullptr;
     if (const std::string* theme = find(fields, "theme")) {
         s.theme = *theme == "light" ? Settings::Theme::light : Settings::Theme::dark;
     }
     if (const std::string* guest = find(fields, "guest_wifi")) {
-        s.guestWifi = *guest == "own" ? GuestWifi::own : *guest == "other" ? GuestWifi::other : GuestWifi::off;
+        s.cornerQr = *guest == "own"     ? CornerQr::own
+                     : *guest == "other" ? CornerQr::other
+                     : *guest == "text"  ? CornerQr::text
+                                         : CornerQr::off;
     }
     std::string previousSsid = s.guestSsid;
     if (const std::string* ssid = find(fields, "guest_ssid")) {
@@ -400,11 +414,19 @@ void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std
 
     if (s.guestSsid.size() > kMaxSsidBytes) {
         errors.push_back("訪客 WiFi 的網路名稱太長");
-    } else if (s.guestWifi == GuestWifi::other && s.guestSsid.empty()) {
+    } else if (s.cornerQr == CornerQr::other && s.guestSsid.empty()) {
         errors.push_back("請填寫訪客 WiFi 的網路名稱");
     }
     if (!s.guestPassword.empty() && (s.guestPassword.size() < 8 || s.guestPassword.size() > 63)) {
         errors.push_back("訪客 WiFi 密碼應為 8 到 63 個字元");
+    }
+    if (const std::string* text = find(fields, "qr_text")) {
+        s.cornerText = trim(*text);
+    }
+    if (s.cornerText.size() > kMaxCornerTextBytes) {
+        errors.push_back("自訂網址或文字太長：最多 " + std::to_string(kMaxCornerTextBytes) + " 個英數字元（中文一個字算 3 個）");
+    } else if (s.cornerQr == CornerQr::text && s.cornerText.empty()) {
+        errors.push_back("請填寫要放進 QR code 的網址或文字");
     }
 
     for (auto [name, target] : {std::pair{"refresh_1", &s.refreshMinutes}, std::pair{"refresh_2", &s.secondRefreshMinutes}}) {
@@ -595,13 +617,15 @@ std::string wifiQrPayload(std::string_view ssid, std::string_view password) {
     return "WIFI:T:WPA;S:" + escape(ssid) + ";P:" + escape(password) + ";;";
 }
 
-std::string guestWifiQrPayload(const Settings& settings) {
-    switch (settings.guestWifi) {
-        case Settings::GuestWifi::own:
+std::string cornerQrPayload(const Settings& settings) {
+    switch (settings.cornerQr) {
+        case Settings::CornerQr::own:
             return settings.wifiSsid.empty() ? "" : wifiQrPayload(settings.wifiSsid, settings.wifiPassword);
-        case Settings::GuestWifi::other:
+        case Settings::CornerQr::other:
             return settings.guestSsid.empty() ? "" : wifiQrPayload(settings.guestSsid, settings.guestPassword);
-        case Settings::GuestWifi::off:
+        case Settings::CornerQr::text:
+            return settings.cornerText;
+        case Settings::CornerQr::off:
             break;
     }
     return "";

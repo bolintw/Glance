@@ -88,6 +88,10 @@ int main(int argc, char** argv) {
         calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], status,
                                      setup_page::wifiQrPayload("Glance-Guest", "welcome-2026"));
         overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
+    } else if (screen == "qrtext") {  // privacy mode with a link of the user's in the corner
+        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], {},
+                                     "https://youtu.be/dQw4w9WgXcQ");
+        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
     } else if (screen == "light") {  // the calendar in the light theme
         calendar_view::render(canvas, now, kTaipei, events, forecast, {}, calendar_view::Theme::light);
     } else if (screen.starts_with("lightgray")) {  // privacy mode in the light theme

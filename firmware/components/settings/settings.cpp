@@ -21,7 +21,8 @@ constexpr const char* kThemeKey = "theme";             // u8, Settings::Theme
 constexpr const char* kPhotoAutoThemeKey = "photo_auto";  // u8
 constexpr const char* kRefreshKey = "refresh_1";       // u32, minutes after midnight
 constexpr const char* kSecondRefreshKey = "refresh_2";  // u32, minutes after midnight; none if out of range
-constexpr const char* kGuestWifiKey = "guest_wifi";    // u8, Settings::GuestWifi
+constexpr const char* kCornerQrKey = "guest_wifi";    // u8, Settings::CornerQr
+constexpr const char* kCornerTextKey = "qr_text";
 constexpr const char* kGuestSsidKey = "guest_ssid";
 constexpr const char* kGuestPasswordKey = "guest_pass";
 constexpr const char* kPhotoNextKey = "photo_next";    // u8, 0xFF = none
@@ -127,11 +128,12 @@ Settings load() {
     s.refreshMinutes = static_cast<int>(first < kDay ? first : CONFIG_GLANCE_REFRESH_HOUR * 60);
     uint32_t second = nvs.readU32(kSecondRefreshKey, UINT32_MAX);
     s.secondRefreshMinutes = second < kDay ? static_cast<int>(second) : Settings::kNoRefresh;
-    uint8_t guest = nvs.readU8(kGuestWifiKey, 0);
-    s.guestWifi = guest <= static_cast<uint8_t>(Settings::GuestWifi::other) ? static_cast<Settings::GuestWifi>(guest)
-                                                                           : Settings::GuestWifi::off;
+    uint8_t guest = nvs.readU8(kCornerQrKey, 0);
+    s.cornerQr = guest <= static_cast<uint8_t>(Settings::CornerQr::text) ? static_cast<Settings::CornerQr>(guest)
+                                                                          : Settings::CornerQr::off;
     s.guestSsid = nvs.read(kGuestSsidKey, "");
     s.guestPassword = nvs.read(kGuestPasswordKey, "");
+    s.cornerText = nvs.read(kCornerTextKey, "");
     ESP_LOGI(kTag, "loaded (%s)", nvs.ok() ? "device settings" : "menuconfig fallback");
     return s;
 }
@@ -156,11 +158,12 @@ esp_err_t save(const Settings& s) {
     write(kWeatherLocationKey, s.weatherLocation);
     write(kGuestSsidKey, s.guestSsid);
     write(kGuestPasswordKey, s.guestPassword);
+    write(kCornerTextKey, s.cornerText);
     if (err == ESP_OK) {
         err = nvs.writeU8(kPanelFlippedKey, s.panelFlipped ? 1 : 0);
     }
     if (err == ESP_OK) {
-        err = nvs.writeU8(kGuestWifiKey, static_cast<uint8_t>(s.guestWifi));
+        err = nvs.writeU8(kCornerQrKey, static_cast<uint8_t>(s.cornerQr));
     }
     if (err == ESP_OK) {
         err = nvs.writeU8(kThemeKey, static_cast<uint8_t>(s.theme));

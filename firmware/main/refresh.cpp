@@ -357,7 +357,7 @@ bool refreshPrivate(Settings& settings) {
     PrivacyPhoto photo = pickPhoto();
     calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono,
                                  {.offline = !online && !offlineByChoice, .lowBattery = gLowBattery},
-                                 setup_page::guestWifiQrPayload(settings), themeFor(settings, photo.mono));
+                                 setup_page::cornerQrPayload(settings), themeFor(settings, photo.mono));
     auto overlay = grayOverlayFor(photo);
     ESP_LOGI(kTag, "showing privacy mode%s", overlay ? " (4-gray)" : "");
     if (!show(framebuffer, overlay ? &*overlay : nullptr)) {

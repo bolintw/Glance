@@ -82,9 +82,10 @@ FormResult applyForm(const Settings& current, std::string_view body);
 // T:nopass without a password) that phone cameras join directly.
 std::string wifiQrPayload(std::string_view ssid, std::string_view password);
 
-// The payload for privacy mode's guest WiFi QR code, from settings.guestWifi;
-// empty when there's none to show.
-std::string guestWifiQrPayload(const Settings& settings);
+// The payload for privacy mode's corner QR code, from settings.cornerQr: a
+// WiFi to join, or the user's own link or text. Empty when there's none to
+// show.
+std::string cornerQrPayload(const Settings& settings);
 
 // A WPA2 password (8 characters, no look-alikes like 0/O or 1/l) for the
 // setup access point, drawn from `random`.

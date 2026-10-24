@@ -66,14 +66,14 @@ constexpr int kMaxTextWidth = 331;
 constexpr int kPhotoX = kBoxX + 4, kPhotoY = kBoxY + 4;
 static_assert(photos::kWidth == kBoxWidth - 8 && photos::kHeight == kBoxHeight - 8);
 
-// The guest WiFi QR code, in privacy mode, where the weather goes: a frame
+// The corner QR code (a guest WiFi, a link...), in privacy mode, where the weather goes: a frame
 // like the photo box's, right-aligned with it, and the code on white inside
 // with a black gap. The status icons move left of the frame.
-constexpr int kGuestFrameSize = 144, kGuestFrameY = 8;
-constexpr int kGuestFrameX = kBoxX + kBoxWidth - kGuestFrameSize;
-constexpr int kGuestQrMaxSize = kGuestFrameSize - 12;  // inside the 2px border and a 4px gap
-constexpr int kGuestQuietZone = 2;  // modules; the white around the code
-constexpr int kGuestStatusRight = kGuestFrameX - 10;
+constexpr int kQrFrameSize = 144, kQrFrameY = 8;
+constexpr int kQrFrameX = kBoxX + kBoxWidth - kQrFrameSize;
+constexpr int kQrMaxSize = kQrFrameSize - 12;  // inside the 2px border and a 4px gap
+constexpr int kQrQuietZone = 2;  // modules; the white around the code
+constexpr int kQrStatusRight = kQrFrameX - 10;
 
 constexpr const char* kMonths[] = {"Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.",
                                    "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."};
@@ -150,7 +150,7 @@ void drawStatus(Canvas& canvas, Status status, Color ink, int right = kStatusIco
     }
 }
 
-void drawGuestWifi(Canvas& canvas, std::string_view payload, Color ink) {
+void drawCornerQr(Canvas& canvas, std::string_view payload, Color ink) {
     std::string text(payload);
     uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
     uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
@@ -158,16 +158,16 @@ void drawGuestWifi(Canvas& canvas, std::string_view payload, Color ink) {
                               qrcodegen_Mask_AUTO, true)) {
         return;  // too long for version 10; can't happen for an SSID + password
     }
-    canvas.roundedRect(kGuestFrameX, kGuestFrameY, kGuestFrameSize, kGuestFrameSize, kBoxRadius, 2, ink);
+    canvas.roundedRect(kQrFrameX, kQrFrameY, kQrFrameSize, kQrFrameSize, kBoxRadius, 2, ink);
     int modules = qrcodegen_getSize(qr);
-    int scale = kGuestQrMaxSize / (modules + 2 * kGuestQuietZone);
-    int size = (modules + 2 * kGuestQuietZone) * scale;
-    int left = kGuestFrameX + (kGuestFrameSize - size) / 2, top = kGuestFrameY + (kGuestFrameSize - size) / 2;
+    int scale = kQrMaxSize / (modules + 2 * kQrQuietZone);
+    int size = (modules + 2 * kQrQuietZone) * scale;
+    int left = kQrFrameX + (kQrFrameSize - size) / 2, top = kQrFrameY + (kQrFrameSize - size) / 2;
     canvas.fillRect(left, top, size, size, Color::white);
     for (int y = 0; y < modules; y++) {
         for (int x = 0; x < modules; x++) {
             if (qrcodegen_getModule(qr, x, y)) {
-                canvas.fillRect(left + (kGuestQuietZone + x) * scale, top + (kGuestQuietZone + y) * scale, scale,
+                canvas.fillRect(left + (kQrQuietZone + x) * scale, top + (kQrQuietZone + y) * scale, scale,
                                 scale, Color::black);
             }
         }
@@ -239,15 +239,15 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
                    const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status,
-                   std::string_view guestWifi, Theme theme) {
+                   std::string_view cornerQr, Theme theme) {
     const auto [background, ink] = colorsFor(theme);
     canvas.fill(background);
     if (now) {
         drawHeader(canvas, localDate(*now, utcOffset), ink);
     }
-    if (!guestWifi.empty()) {
-        drawGuestWifi(canvas, guestWifi, ink);
-        drawStatus(canvas, status, ink, kGuestStatusRight);
+    if (!cornerQr.empty()) {
+        drawCornerQr(canvas, cornerQr, ink);
+        drawStatus(canvas, status, ink, kQrStatusRight);
     } else {
         if (forecast) {
             drawWeather(canvas, *forecast, ink);

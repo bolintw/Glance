@@ -16,7 +16,7 @@
 A few more things it can do:
 
 -   **A photo frame**: set up no calendar at all, and it shows your photos with the date and weather.
--   **Guest WiFi**: in privacy mode it can show a QR code your friends scan to join your WiFi (ideally your router's guest network).
+-   **A QR code in the corner**: in privacy mode it can show a QR code your friends scan to join your WiFi (ideally your router's guest network) -- or one that opens any link you like: a shared album, a party playlist... or a Rick Roll.
 -   **Dark or light**: white on black or black on white, and photos get whichever background sets them off.
 -   **Your refresh times**: 07:00 by default, or any time you like, plus an optional second one in the evening -- which then shows tomorrow's weather.
 -   **Keeps itself up to date**: new firmware arrives on its own, over WiFi.

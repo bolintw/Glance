@@ -39,10 +39,12 @@ struct Settings {
     int refreshMinutes = 7 * 60;
     int secondRefreshMinutes = kNoRefresh;
 
-    // A QR code for guests to join a WiFi, in privacy mode: none, the
-    // network the device uses, or another one (e.g. the router's guest network).
-    enum class GuestWifi : uint8_t { off, own, other };
-    GuestWifi guestWifi = GuestWifi::off;
+    // A QR code in privacy mode's top-right corner: none, for guests to join
+    // the WiFi the device uses or another one (e.g. the router's guest
+    // network), or a link or any text of the user's (cornerText).
+    enum class CornerQr : uint8_t { off, own, other, text };
+    CornerQr cornerQr = CornerQr::off;
     std::string guestSsid;
     std::string guestPassword;
+    std::string cornerText;
 };
