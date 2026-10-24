@@ -126,13 +126,9 @@ void renderPhoneJoined(Canvas& canvas, std::string_view url) {
 
 void renderIntruder(Canvas& canvas) {
     canvas.fill(kBackground);
-    // Two phones (their arms in from the sides) on one crossed-out WiFi...
-    drawIcon(canvas, 0, 236, icons::kSetupPhoneLeft);
-    drawIcon(canvas, kWidth - iconWidth(icons::kSetupPhoneRight), 175, icons::kSetupPhoneRight);
-    drawIconCentred(canvas, kWidth / 2, 117, icons::kSetupWifiMedium);
-    drawIconCentred(canvas, kWidth / 2, 229, icons::kSetupCross);
-    // ...and the way out, in the corner: press the button.
-    drawIcon(canvas, kWidth - iconWidth(icons::kSetupPressButton), kHeight, icons::kSetupPressButton);
+    // Two phones on one crossed-out WiFi, and the way out in the corner: a
+    // finger on the frame's button (it comes in from the bottom edge).
+    drawIconCentred(canvas, kWidth / 2, kHeight, icons::kSetupIntruder);
 }
 
 void renderShip(Canvas& canvas) {

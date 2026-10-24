@@ -36,21 +36,18 @@ ICONS = [
 # The setup screens' icons (draw_setup_icons.py and, for the hand-drawn
 # illustrations, cut_setup_art.py, into src/setup/), in a font of their own
 # so their size doesn't change kWeatherIcons' metrics. Each sits in its own
-# box, pen at the box's bottom-left. Append only (U+E103 is retired).
+# box, pen at the box's bottom-left. Append only (U+E103, U+E104 and
+# U+E10A..E10D are retired).
 SETUP_ICONS = [
     ("setup/wifi.png", 0xE100, "kSetupWifi"),
     ("setup/gear.png", 0xE101, "kSetupGear"),
     ("setup/tap_hand.png", 0xE102, "kSetupPhoneHand"),
-    ("setup/press_button.png", 0xE104, "kSetupPressButton"),
     ("setup/ship.png", 0xE105, "kSetupShip"),
     ("setup/small_wifi.png", 0xE106, "kSetupSmallWifi"),
     ("setup/small_key.png", 0xE107, "kSetupSmallKey"),
     ("setup/small_globe.png", 0xE108, "kSetupSmallGlobe"),
     ("setup/scan_hand.png", 0xE109, "kSetupScanHand"),
-    ("setup/phone_left.png", 0xE10A, "kSetupPhoneLeft"),
-    ("setup/phone_right.png", 0xE10B, "kSetupPhoneRight"),
-    ("setup/wifi_medium.png", 0xE10C, "kSetupWifiMedium"),
-    ("setup/cross.png", 0xE10D, "kSetupCross"),
+    ("setup/intruder.png", 0xE10E, "kSetupIntruder"),
 ]
 
 
