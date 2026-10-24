@@ -121,7 +121,7 @@ Settings load() {
     s.weatherLocation = nvs.read(kWeatherLocationKey, CONFIG_GLANCE_WEATHER_LOCATION);
     s.upsideDown = nvs.readU8(kUpsideDownKey, 0) != 0;
     s.theme = nvs.readU8(kThemeKey, 0) == 1 ? Settings::Theme::light : Settings::Theme::dark;
-    s.photoAutoTheme = nvs.readU8(kPhotoAutoThemeKey, 0) != 0;
+    s.photoAutoTheme = nvs.readU8(kPhotoAutoThemeKey, 1) != 0;
     constexpr uint32_t kDay = 24 * 60;
     uint32_t first = nvs.readU32(kRefreshKey, CONFIG_GLANCE_REFRESH_HOUR * 60);
     s.refreshMinutes = static_cast<int>(first < kDay ? first : CONFIG_GLANCE_REFRESH_HOUR * 60);

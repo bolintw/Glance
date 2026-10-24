@@ -256,7 +256,7 @@ void testTheme() {
     using Theme = Settings::Theme;
     std::string home = setup_page::renderForm(configured(), {}, {});
     CHECK(contains(home, "value=\"dark\" checked"));
-    CHECK(contains(home, "name=\"photo_auto\">"));  // off
+    CHECK(contains(home, "name=\"photo_auto\" checked"));  // on by default
     auto light = setup_page::applyForm(configured(), "display=1&theme=light&photo_auto=on");
     CHECK(light.errors.empty() && light.settings.theme == Theme::light && light.settings.photoAutoTheme);
     std::string page = setup_page::renderForm(light.settings, {}, {});
