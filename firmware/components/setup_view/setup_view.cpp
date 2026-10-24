@@ -96,12 +96,14 @@ void render(Canvas& canvas, std::string_view qrPayload, std::string_view ssid, s
             std::string_view url) {
     canvas.fill(kBackground);
     drawQr(canvas, qrPayload);
-    drawIconCentred(canvas, kRightCentre, 190, icons::kSetupWifi);
-    drawStepDots(canvas, kRightCentre, 226, 1);
+    drawIconCentred(canvas, kRightCentre, 106, icons::kSetupWifi);
+    drawIconCentred(canvas, kRightCentre + 10, 262, icons::kSetupScanHand);  // scan it with the phone
+    drawStepDots(canvas, kRightCentre, 282, 1);
+    // For when the QR code doesn't work or the page doesn't pop up.
     int x = kRightCentre - 150;
-    drawValue(canvas, x, 262, icons::kSetupSmallWifi, ssid);
-    drawValue(canvas, x, 312, icons::kSetupSmallKey, password);
-    drawValue(canvas, x, 362, icons::kSetupSmallGlobe, url);
+    drawValue(canvas, x, 306, icons::kSetupSmallWifi, ssid);
+    drawValue(canvas, x, 356, icons::kSetupSmallKey, password);
+    drawValue(canvas, x, 406, icons::kSetupSmallGlobe, url);
 }
 
 void renderLan(Canvas& canvas, std::string_view qrPayload) {
@@ -113,24 +115,29 @@ void renderLan(Canvas& canvas, std::string_view qrPayload) {
 
 void renderPhoneJoined(Canvas& canvas, std::string_view url) {
     canvas.fill(kBackground);
-    drawIconCentred(canvas, kWidth / 2, url.empty() ? 340 : 310, icons::kSetupPhoneHand);
+    // The hands come in from the bottom edge.
+    drawIconCentred(canvas, kWidth / 2, kHeight, icons::kSetupPhoneHand);
     if (!url.empty()) {
         const Font& font = kNotoSansTcBold30;
         int width = iconWidth(icons::kSetupSmallGlobe) + 12 + measureText(url, font);
-        drawValue(canvas, (kWidth - width) / 2, 360, icons::kSetupSmallGlobe, url);
+        drawValue(canvas, (kWidth - width) / 2, 22, icons::kSetupSmallGlobe, url);
     }
 }
 
 void renderIntruder(Canvas& canvas) {
     canvas.fill(kBackground);
-    drawIconCentred(canvas, kWidth / 2, 330, icons::kSetupTwoPhones);
-    // The button is at the frame's lower right, behind: point there.
-    drawIcon(canvas, kWidth - 24 - iconWidth(icons::kSetupRestartButton), kHeight - 20, icons::kSetupRestartButton);
+    // Two phones (their arms in from the sides) on one crossed-out WiFi...
+    drawIcon(canvas, 0, 236, icons::kSetupPhoneLeft);
+    drawIcon(canvas, kWidth - iconWidth(icons::kSetupPhoneRight), 175, icons::kSetupPhoneRight);
+    drawIconCentred(canvas, kWidth / 2, 117, icons::kSetupWifiMedium);
+    drawIconCentred(canvas, kWidth / 2, 229, icons::kSetupCross);
+    // ...and the way out, in the corner: press the button.
+    drawIcon(canvas, kWidth - iconWidth(icons::kSetupPressButton), kHeight, icons::kSetupPressButton);
 }
 
 void renderShip(Canvas& canvas) {
     canvas.fill(kBackground);
-    drawIconCentred(canvas, kWidth / 2, 370, icons::kSetupShip);
+    drawIconCentred(canvas, kWidth / 2, kHeight, icons::kSetupShip);  // hands in from the bottom edge
 }
 
 void renderNotice(Canvas& canvas, std::string_view title, std::span<const std::string_view> lines) {

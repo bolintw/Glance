@@ -33,19 +33,24 @@ ICONS = [
     ("calendar_error.png", 0xE008, "kCalendarError"),  # drawn by draw_status_icons.py
 ]
 
-# The setup screens' icons (drawn by draw_setup_icons.py into src/setup/),
-# in a font of their own so their size doesn't change kWeatherIcons' metrics.
-# Each sits in its own box, pen at the box's bottom-left. Append only.
+# The setup screens' icons (draw_setup_icons.py and, for the hand-drawn
+# illustrations, cut_setup_art.py, into src/setup/), in a font of their own
+# so their size doesn't change kWeatherIcons' metrics. Each sits in its own
+# box, pen at the box's bottom-left. Append only (U+E103 is retired).
 SETUP_ICONS = [
     ("setup/wifi.png", 0xE100, "kSetupWifi"),
     ("setup/gear.png", 0xE101, "kSetupGear"),
-    ("setup/phone_hand.png", 0xE102, "kSetupPhoneHand"),
-    ("setup/two_phones.png", 0xE103, "kSetupTwoPhones"),
-    ("setup/restart_button.png", 0xE104, "kSetupRestartButton"),
+    ("setup/tap_hand.png", 0xE102, "kSetupPhoneHand"),
+    ("setup/press_button.png", 0xE104, "kSetupPressButton"),
     ("setup/ship.png", 0xE105, "kSetupShip"),
     ("setup/small_wifi.png", 0xE106, "kSetupSmallWifi"),
     ("setup/small_key.png", 0xE107, "kSetupSmallKey"),
     ("setup/small_globe.png", 0xE108, "kSetupSmallGlobe"),
+    ("setup/scan_hand.png", 0xE109, "kSetupScanHand"),
+    ("setup/phone_left.png", 0xE10A, "kSetupPhoneLeft"),
+    ("setup/phone_right.png", 0xE10B, "kSetupPhoneRight"),
+    ("setup/wifi_medium.png", 0xE10C, "kSetupWifiMedium"),
+    ("setup/cross.png", 0xE10D, "kSetupCross"),
 ]
 
 
@@ -129,7 +134,7 @@ def main():
         "// position is the icon box's bottom-left corner (weather icons share a",
         "// 101x80 box, status icons a 24x24 one).",
         "extern const Font kWeatherIcons;",
-        "// The setup screens' icons (draw_setup_icons.py), each in its own box.",
+        "// The setup screens' icons and illustrations, each in its own box.",
         "extern const Font kSetupIcons;",
         "",
         "namespace icons {",
