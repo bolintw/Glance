@@ -252,6 +252,21 @@ void testGuestWifiAndOrientation() {
     CHECK(untouched.settings.upsideDown && untouched.settings.guestWifi == GuestWifi::own);
 }
 
+void testTheme() {
+    using Theme = Settings::Theme;
+    std::string home = setup_page::renderForm(configured(), {}, {});
+    CHECK(contains(home, "value=\"dark\" checked"));
+    CHECK(contains(home, "name=\"photo_auto\">"));  // off
+    auto light = setup_page::applyForm(configured(), "display=1&theme=light&photo_auto=on");
+    CHECK(light.errors.empty() && light.settings.theme == Theme::light && light.settings.photoAutoTheme);
+    std::string page = setup_page::renderForm(light.settings, {}, {});
+    CHECK(contains(page, "value=\"light\" checked") && contains(page, "name=\"photo_auto\" checked"));
+    auto dark = setup_page::applyForm(light.settings, "display=1&theme=dark");
+    CHECK(dark.settings.theme == Theme::dark && !dark.settings.photoAutoTheme);  // unchecked box: off
+    auto untouched = setup_page::applyForm(light.settings, "ics1=");  // no display fields at all
+    CHECK(untouched.settings.theme == Theme::light && untouched.settings.photoAutoTheme);
+}
+
 void testRefreshTimes() {
     std::string home = setup_page::renderForm(configured(), {}, {});
     CHECK(contains(home, "<option value=\"420\" selected>07:00</option>"));  // the default
@@ -314,6 +329,7 @@ int main() {
     testWifiQrPayload();
     testGuestWifiAndOrientation();
     testRefreshTimes();
+    testTheme();
     testAccessPointPassword();
     testPhotosPage();
     if (failures) {

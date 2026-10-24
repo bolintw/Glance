@@ -251,16 +251,31 @@ std::optional<int64_t> plausibleNow() {
     return std::nullopt;
 }
 
+// The calendar's colors, from the settings.
+calendar_view::Theme themeFor(const Settings& settings) {
+    return settings.theme == Settings::Theme::light ? calendar_view::Theme::light : calendar_view::Theme::dark;
+}
+
+// A photo screen's colors: the settings', or by the photo (light behind a
+// dark one) when the setup page says so.
+calendar_view::Theme themeFor(const Settings& settings, const Bitmap& photo) {
+    if (!settings.photoAutoTheme) {
+        return themeFor(settings);
+    }
+    return calendar_view::isDarkPhoto(photo) ? calendar_view::Theme::light : calendar_view::Theme::dark;
+}
+
 // Privacy mode's layout plus a status icon, for when there's no calendar to
 // show: offline (no weather, crossed-out WiFi), or no calendar for two days
 // (weather, calendar with a cross).
-void showWithoutCalendar(const std::optional<weather::Forecast>& forecast, calendar_view::Status status,
-                         const char* what) {
+void showWithoutCalendar(const Settings& settings, const std::optional<weather::Forecast>& forecast,
+                         calendar_view::Status status, const char* what) {
     std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, board::kPanelSize);
     PrivacyPhoto photo = pickPhoto();
     status.lowBattery = gLowBattery;
-    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono, status);
+    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono, status, {},
+                                 themeFor(settings, photo.mono));
     auto overlay = grayOverlayFor(photo);
     ESP_LOGI(kTag, "showing the %s screen", what);
     if (show(framebuffer, overlay ? &*overlay : nullptr)) {
@@ -268,15 +283,15 @@ void showWithoutCalendar(const std::optional<weather::Forecast>& forecast, calen
     }
 }
 
-void showOffline() { showWithoutCalendar(std::nullopt, {.offline = true}, "offline"); }
+void showOffline(const Settings& settings) { showWithoutCalendar(settings, std::nullopt, {.offline = true}, "offline"); }
 
 // The calendar couldn't get online: the offline screen if it's due,
 // otherwise the last calendar stays up.
-void reportOffline() {
+void reportOffline(const Settings& settings) {
     gBoot.wifiFailures++;
     bool due = run_policy::offlineScreenDue(gBoot.justConfigured, gBoot.pressed, gBoot.wifiFailures);
     if (due && !gBoot.offlineShown) {
-        showOffline();
+        showOffline(settings);
     }
     gRun.result = gBoot.offlineShown ? wake_log::Result::offlineShown : wake_log::Result::offlineKept;
 }
@@ -342,7 +357,7 @@ bool refreshPrivate(Settings& settings) {
     PrivacyPhoto photo = pickPhoto();
     calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono,
                                  {.offline = !online && !offlineByChoice, .lowBattery = gLowBattery},
-                                 setup_page::guestWifiQrPayload(settings));
+                                 setup_page::guestWifiQrPayload(settings), themeFor(settings, photo.mono));
     auto overlay = grayOverlayFor(photo);
     ESP_LOGI(kTag, "showing privacy mode%s", overlay ? " (4-gray)" : "");
     if (!show(framebuffer, overlay ? &*overlay : nullptr)) {
@@ -365,7 +380,7 @@ bool refresh(Settings& settings) {
     esp_err_t err = joinWifi(wifi, settings);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "WiFi failed (%s)", esp_err_to_name(err));
-        reportOffline();
+        reportOffline(settings);
         return false;
     }
     // TLS certificate checks and "today" both need a real clock. Without it
@@ -373,7 +388,7 @@ bool refresh(Settings& settings) {
     err = syncClock();
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "NTP sync failed (%s)", esp_err_to_name(err));
-        reportOffline();
+        reportOffline(settings);
         return false;
     }
     gBoot.wifiFailures = 0;
@@ -389,7 +404,7 @@ bool refresh(Settings& settings) {
     if (!events) {
         // Nothing to draw a calendar with, for two days now: say so rather
         // than leave an ever older calendar up.
-        showWithoutCalendar(forecast, {.calendarError = true}, "no-calendar");
+        showWithoutCalendar(settings, forecast, {.calendarError = true}, "no-calendar");
         gRun.result = wake_log::Result::calendarError;
         return false;
     }
@@ -397,7 +412,7 @@ bool refresh(Settings& settings) {
     std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, board::kPanelSize);
     calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast,
-                          {.lowBattery = gLowBattery, .calendarError = calendarStale});
+                          {.lowBattery = gLowBattery, .calendarError = calendarStale}, themeFor(settings));
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");

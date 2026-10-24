@@ -19,6 +19,13 @@ struct Settings {
 
     bool upsideDown = false;  // the panel drawn rotated 180 degrees
 
+    // White on black (dark) or black on white (light), for the calendar and
+    // the photo screens; with photoAutoTheme the photo screens pick by the
+    // photo instead: light behind a dark photo, dark behind a light one.
+    enum class Theme : uint8_t { dark, light };
+    Theme theme = Theme::dark;
+    bool photoAutoTheme = false;
+
     // The daily refreshes, in minutes after local midnight: one, and an
     // optional second at least kMinRefreshGapMinutes from it either way
     // round the clock -- more than a failed refresh's retries take.

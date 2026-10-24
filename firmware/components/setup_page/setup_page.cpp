@@ -354,6 +354,19 @@ void displayFields(std::string& html, const Settings& current) {
     html += current.upsideDown ? " checked" : "";
     html += "> 上下顛倒（裝置倒過來擺時使用）</label>\n";
 
+    html += "<label>顏色</label>";
+    for (auto [value, choice, text] : {std::tuple{"dark", Settings::Theme::dark, "深色（黑底白字）"},
+                                       std::tuple{"light", Settings::Theme::light, "淺色（白底黑字）"}}) {
+        html += "<label class=\"choice\"><input type=\"radio\" name=\"theme\" value=\"";
+        html += value;
+        html += current.theme == choice ? "\" checked> " : "\"> ";
+        html += text;
+        html += "</label>";
+    }
+    html += "<label class=\"choice\"><input type=\"checkbox\" name=\"photo_auto\"";
+    html += current.photoAutoTheme ? " checked" : "";
+    html += "> 照片畫面依照片自動選顏色（暗的照片配白底、亮的配黑底）</label>\n";
+
     html += "<label for=\"refresh_1\">每天更新畫面的時間</label>";
     timeSelect(html, "refresh_1", current.refreshMinutes, nullptr);
     html += "<label for=\"refresh_2\">第二次更新的時間</label>";
@@ -365,6 +378,10 @@ void displayFields(std::string& html, const Settings& current) {
 void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
     using GuestWifi = Settings::GuestWifi;
     s.upsideDown = find(fields, "upside_down") != nullptr;  // a checkbox: sent only when checked
+    s.photoAutoTheme = find(fields, "photo_auto") != nullptr;
+    if (const std::string* theme = find(fields, "theme")) {
+        s.theme = *theme == "light" ? Settings::Theme::light : Settings::Theme::dark;
+    }
     if (const std::string* guest = find(fields, "guest_wifi")) {
         s.guestWifi = *guest == "own" ? GuestWifi::own : *guest == "other" ? GuestWifi::other : GuestWifi::off;
     }

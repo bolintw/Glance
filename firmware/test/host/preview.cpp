@@ -88,6 +88,13 @@ int main(int argc, char** argv) {
         calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], status,
                                      setup_page::wifiQrPayload("Glance-Guest", "welcome-2026"));
         overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
+    } else if (screen == "light") {  // the calendar in the light theme
+        calendar_view::render(canvas, now, kTaipei, events, forecast, {}, calendar_view::Theme::light);
+    } else if (screen.starts_with("lightgray")) {  // privacy mode in the light theme
+        size_t index = screen.ends_with("1") ? 1 : 0;
+        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index], {}, {},
+                                     calendar_view::Theme::light);
+        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[index]);
     } else if (screen == "lan") {
         setup_view::renderLan(canvas, "http://192.168.0.249/?t=8f3a1c0d9e2b4f6a8c1d3e5f7a9b0c2d");
     } else if (screen == "joined") {  // on the access point; "joinedlan" on the home network

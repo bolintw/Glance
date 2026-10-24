@@ -17,6 +17,8 @@ constexpr const char* kCwaApiKeyKey = "cwa_key";
 constexpr const char* kWeatherLocationKey = "wx_location";
 constexpr const char* kPrivacyModeKey = "privacy";
 constexpr const char* kUpsideDownKey = "upside_down";  // u8
+constexpr const char* kThemeKey = "theme";             // u8, Settings::Theme
+constexpr const char* kPhotoAutoThemeKey = "photo_auto";  // u8
 constexpr const char* kRefreshKey = "refresh_1";       // u32, minutes after midnight
 constexpr const char* kSecondRefreshKey = "refresh_2";  // u32, minutes after midnight; none if out of range
 constexpr const char* kGuestWifiKey = "guest_wifi";    // u8, Settings::GuestWifi
@@ -118,6 +120,8 @@ Settings load() {
     s.cwaApiKey = nvs.read(kCwaApiKeyKey, CONFIG_GLANCE_CWA_API_KEY);
     s.weatherLocation = nvs.read(kWeatherLocationKey, CONFIG_GLANCE_WEATHER_LOCATION);
     s.upsideDown = nvs.readU8(kUpsideDownKey, 0) != 0;
+    s.theme = nvs.readU8(kThemeKey, 0) == 1 ? Settings::Theme::light : Settings::Theme::dark;
+    s.photoAutoTheme = nvs.readU8(kPhotoAutoThemeKey, 0) != 0;
     constexpr uint32_t kDay = 24 * 60;
     uint32_t first = nvs.readU32(kRefreshKey, CONFIG_GLANCE_REFRESH_HOUR * 60);
     s.refreshMinutes = static_cast<int>(first < kDay ? first : CONFIG_GLANCE_REFRESH_HOUR * 60);
@@ -157,6 +161,12 @@ esp_err_t save(const Settings& s) {
     }
     if (err == ESP_OK) {
         err = nvs.writeU8(kGuestWifiKey, static_cast<uint8_t>(s.guestWifi));
+    }
+    if (err == ESP_OK) {
+        err = nvs.writeU8(kThemeKey, static_cast<uint8_t>(s.theme));
+    }
+    if (err == ESP_OK) {
+        err = nvs.writeU8(kPhotoAutoThemeKey, s.photoAutoTheme ? 1 : 0);
     }
     if (err == ESP_OK) {
         err = nvs.writeU32(kRefreshKey, static_cast<uint32_t>(s.refreshMinutes));

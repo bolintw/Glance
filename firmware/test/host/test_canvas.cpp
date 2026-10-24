@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "calendar_view.hpp"
 #include "canvas.hpp"
+#include "photos.hpp"
 
 namespace {
 
@@ -206,7 +208,34 @@ void testGrayOverlay() {
     CHECK(truncated.composedLevel(t.fb, kFrame, 9, 3) == 0);
 }
 
+// The themes: background and ink swap, the photo is drawn as it is.
+void testThemes() {
+    constexpr FrameSize kPanel{.width = 800, .height = 480};
+    auto blackAt = [&](const std::vector<uint8_t>& fb, int x, int y) {
+        return !(fb[y * kPanel.bytesPerRow() + x / 8] & (0x80 >> (x % 8)));
+    };
+    const Bitmap& photo = photos::kBuiltIn[0];
+    std::vector<uint8_t> dark(kPanel.framebufferSize()), light(kPanel.framebufferSize());
+    Canvas darkCanvas(dark, kPanel), lightCanvas(light, kPanel);
+    calendar_view::renderPrivate(darkCanvas, std::nullopt, 0, std::nullopt, photo, {}, {}, calendar_view::Theme::dark);
+    calendar_view::renderPrivate(lightCanvas, std::nullopt, 0, std::nullopt, photo, {}, {}, calendar_view::Theme::light);
+    CHECK(blackAt(dark, 5, 5) && !blackAt(light, 5, 5));          // the background
+    CHECK(!blackAt(dark, 33, 300) && blackAt(light, 33, 300));    // the photo box's border
+    int same = 0;
+    for (int x = 100; x < 700; x += 7) {
+        same += blackAt(dark, x, 300) == blackAt(light, x, 300);  // inside the photo
+    }
+    CHECK(same == (700 - 100 + 6) / 7);
+
+    std::vector<uint8_t> allBlack(Bitmap::sizeFor(16, 4), 0x00), allWhite(Bitmap::sizeFor(16, 4), 0xFF);
+    CHECK(calendar_view::isDarkPhoto({16, 4, allBlack}));
+    CHECK(!calendar_view::isDarkPhoto({16, 4, allWhite}));
+    std::vector<uint8_t> half(Bitmap::sizeFor(16, 4), 0xF0);  // exactly half white: not dark
+    CHECK(!calendar_view::isDarkPhoto({16, 4, half}));
+}
+
 int main() {
+    testThemes();
     testPixelsAndClipping();
     testRoundedRect();
     testDrawText();

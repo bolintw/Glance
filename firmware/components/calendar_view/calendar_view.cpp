@@ -24,6 +24,7 @@ namespace {
 // the same coordinates pushed the day number down into the event box. In the
 // Pi layout the month, day and weekday all sit on the line where the header
 // dividers end.
+// The dark theme's; the light theme swaps them (see colorsFor).
 constexpr Color kBackground = Color::black;
 constexpr Color kInk = Color::white;
 
@@ -84,34 +85,34 @@ ics::Date localDate(int64_t unix, int32_t utcOffset) { return ics::civilFromDays
 
 // The Pi version's row separators were grey; on a 1bpp panel a dotted line
 // reads as the lighter rule.
-void dottedRule(Canvas& canvas, int x, int y, int width) {
+void dottedRule(Canvas& canvas, int x, int y, int width, Color ink) {
     for (int i = 0; i < width; i += 2) {
-        canvas.setPixel(x + i, y, kInk);
+        canvas.setPixel(x + i, y, ink);
     }
 }
 
-void drawOnBaseline(Canvas& canvas, int x, int baseline, std::string_view text, const Font& font) {
-    canvas.drawText(x, baseline - font.ascent, text, font, kInk);
+void drawOnBaseline(Canvas& canvas, int x, int baseline, std::string_view text, const Font& font, Color ink) {
+    canvas.drawText(x, baseline - font.ascent, text, font, ink);
 }
 
-void drawHeader(Canvas& canvas, ics::Date today) {
+void drawHeader(Canvas& canvas, ics::Date today, Color ink) {
     char text[8];
 
     std::snprintf(text, sizeof(text), "%d", today.year);
-    drawOnBaseline(canvas, kYearX, kYearBaseline, text, kNotoSansTcBold40);
+    drawOnBaseline(canvas, kYearX, kYearBaseline, text, kNotoSansTcBold40, ink);
 
     const char* month = kMonths[today.month - 1];
     drawOnBaseline(canvas, kMonthRight - measureText(month, kNotoSansTcMedium50), kHeaderBaseline, month,
-                   kNotoSansTcMedium50);
+                   kNotoSansTcMedium50, ink);
 
     std::snprintf(text, sizeof(text), "%d", today.day);
     drawOnBaseline(canvas, kDayCenter - measureText(text, kNotoSansTcRegular100) / 2, kHeaderBaseline, text,
-                   kNotoSansTcRegular100);
+                   kNotoSansTcRegular100, ink);
 
-    drawOnBaseline(canvas, kWeekdayX, kWeekdayBaseline, kWeekdays[ics::weekdayOf(today)], kNotoSansTcBold40);
+    drawOnBaseline(canvas, kWeekdayX, kWeekdayBaseline, kWeekdays[ics::weekdayOf(today)], kNotoSansTcBold40, ink);
 
     for (int x : kHeaderDividerX) {
-        canvas.fillRect(x, kHeaderDividerTop, 1, kHeaderDividerBottom - kHeaderDividerTop, kInk);
+        canvas.fillRect(x, kHeaderDividerTop, 1, kHeaderDividerBottom - kHeaderDividerTop, ink);
     }
 }
 
@@ -126,30 +127,30 @@ const char* iconFor(weather::Condition condition) {
     return icons::kPartlyCloudy;
 }
 
-void drawWeather(Canvas& canvas, const weather::Forecast& forecast) {
-    drawOnBaseline(canvas, kWeatherIconX, kWeatherIconBaseline, iconFor(forecast.condition), kWeatherIcons);
+void drawWeather(Canvas& canvas, const weather::Forecast& forecast, Color ink) {
+    drawOnBaseline(canvas, kWeatherIconX, kWeatherIconBaseline, iconFor(forecast.condition), kWeatherIcons, ink);
 
     char text[24];
     std::snprintf(text, sizeof(text), "%d° - %d°", forecast.minTemp, forecast.maxTemp);
     drawOnBaseline(canvas, kTemperatureCenter - measureText(text, kNotoSansTcBold20) / 2, kWeatherTextBaseline, text,
-                   kNotoSansTcBold20);
+                   kNotoSansTcBold20, ink);
 
-    drawOnBaseline(canvas, kRaindropX, kRaindropBaseline, icons::kRaindrop, kWeatherIcons);
+    drawOnBaseline(canvas, kRaindropX, kRaindropBaseline, icons::kRaindrop, kWeatherIcons, ink);
     std::snprintf(text, sizeof(text), "%d%%", forecast.rainChance);
-    drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20);
+    drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20, ink);
 }
 
-void drawStatus(Canvas& canvas, Status status, int right = kStatusIconRight) {
+void drawStatus(Canvas& canvas, Status status, Color ink, int right = kStatusIconRight) {
     for (auto [shown, icon] : {std::pair{status.lowBattery, icons::kBatteryLow}, std::pair{status.offline, icons::kWifiOff},
                                std::pair{status.calendarError, icons::kCalendarError}}) {
         if (shown) {
-            drawOnBaseline(canvas, right - kStatusIconSize, kStatusIconBaseline, icon, kWeatherIcons);
+            drawOnBaseline(canvas, right - kStatusIconSize, kStatusIconBaseline, icon, kWeatherIcons, ink);
             right -= kStatusIconSize + kStatusIconGap;
         }
     }
 }
 
-void drawGuestWifi(Canvas& canvas, std::string_view payload) {
+void drawGuestWifi(Canvas& canvas, std::string_view payload, Color ink) {
     std::string text(payload);
     uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
     uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
@@ -157,7 +158,7 @@ void drawGuestWifi(Canvas& canvas, std::string_view payload) {
                               qrcodegen_Mask_AUTO, true)) {
         return;  // too long for version 10; can't happen for an SSID + password
     }
-    canvas.roundedRect(kGuestFrameX, kGuestFrameY, kGuestFrameSize, kGuestFrameSize, kBoxRadius, 2, kInk);
+    canvas.roundedRect(kGuestFrameX, kGuestFrameY, kGuestFrameSize, kGuestFrameSize, kBoxRadius, 2, ink);
     int modules = qrcodegen_getSize(qr);
     int scale = kGuestQrMaxSize / (modules + 2 * kGuestQuietZone);
     int size = (modules + 2 * kGuestQuietZone) * scale;
@@ -173,19 +174,19 @@ void drawGuestWifi(Canvas& canvas, std::string_view payload) {
     }
 }
 
-void drawBox(Canvas& canvas) { canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, kInk); }
+void drawBox(Canvas& canvas, Color ink) { canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, ink); }
 
-void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events) {
-    drawBox(canvas);
-    canvas.fillRect(kColumnDividerX, kBoxY, 2, kBoxHeight, kInk);
+void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events, Color ink) {
+    drawBox(canvas, ink);
+    canvas.fillRect(kColumnDividerX, kBoxY, 2, kBoxHeight, ink);
     for (int column = 0; column < 2; column++) {
         for (int row = 1; row <= kRowsPerColumn; row++) {  // a rule under every row
-            dottedRule(canvas, kColumnRuleX[column], kFirstRowY + row * kRowPitch - 5, kRuleWidth);
+            dottedRule(canvas, kColumnRuleX[column], kFirstRowY + row * kRowPitch - 5, kRuleWidth, ink);
         }
     }
 
     if (events.empty()) {
-        canvas.drawText(kColumnTextX[0], kFirstRowY, "沒有接下來的行程", kNotoSansTcBold30, kInk);
+        canvas.drawText(kColumnTextX[0], kFirstRowY, "沒有接下來的行程", kNotoSansTcBold30, ink);
         return;
     }
     for (size_t i = 0; i < events.size() && i < 2 * kRowsPerColumn; i++) {
@@ -198,40 +199,62 @@ void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurr
         int column = static_cast<int>(i) / kRowsPerColumn;
         int row = static_cast<int>(i) % kRowsPerColumn;
         canvas.drawText(kColumnTextX[column], kFirstRowY + row * kRowPitch,
-                        ellipsize(line, kNotoSansTcBold30, kMaxTextWidth), kNotoSansTcBold30, kInk);
+                        ellipsize(line, kNotoSansTcBold30, kMaxTextWidth), kNotoSansTcBold30, ink);
     }
+}
+
+struct Colors {
+    Color background;
+    Color ink;
+};
+
+Colors colorsFor(Theme theme) {
+    return theme == Theme::light ? Colors{kInk, kBackground} : Colors{kBackground, kInk};
 }
 
 }  // namespace
 
-void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-            const std::optional<weather::Forecast>& forecast, Status status) {
-    canvas.fill(kBackground);
-    drawHeader(canvas, localDate(now, utcOffset));
-    if (forecast) {
-        drawWeather(canvas, *forecast);
+bool isDarkPhoto(const Bitmap& photo) {
+    size_t white = 0;
+    const size_t rowBytes = Bitmap::rowBytes(photo.width);
+    for (int y = 0; y < photo.height; y++) {
+        for (int x = 0; x < photo.width; x++) {
+            white += (photo.bits[y * rowBytes + x / 8] >> (7 - x % 8)) & 1;
+        }
     }
-    drawStatus(canvas, status);
-    drawEventBox(canvas, utcOffset, events);
+    return white * 2 < static_cast<size_t>(photo.width) * photo.height;
+}
+
+void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
+            const std::optional<weather::Forecast>& forecast, Status status, Theme theme) {
+    const auto [background, ink] = colorsFor(theme);
+    canvas.fill(background);
+    drawHeader(canvas, localDate(now, utcOffset), ink);
+    if (forecast) {
+        drawWeather(canvas, *forecast, ink);
+    }
+    drawStatus(canvas, status, ink);
+    drawEventBox(canvas, utcOffset, events, ink);
 }
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
                    const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status,
-                   std::string_view guestWifi) {
-    canvas.fill(kBackground);
+                   std::string_view guestWifi, Theme theme) {
+    const auto [background, ink] = colorsFor(theme);
+    canvas.fill(background);
     if (now) {
-        drawHeader(canvas, localDate(*now, utcOffset));
+        drawHeader(canvas, localDate(*now, utcOffset), ink);
     }
     if (!guestWifi.empty()) {
-        drawGuestWifi(canvas, guestWifi);
-        drawStatus(canvas, status, kGuestStatusRight);
+        drawGuestWifi(canvas, guestWifi, ink);
+        drawStatus(canvas, status, ink, kGuestStatusRight);
     } else {
         if (forecast) {
-            drawWeather(canvas, *forecast);
+            drawWeather(canvas, *forecast, ink);
         }
-        drawStatus(canvas, status);
+        drawStatus(canvas, status, ink);
     }
-    drawBox(canvas);
+    drawBox(canvas, ink);
     canvas.drawBitmap(kPhotoX, kPhotoY, photo);
 }
 
