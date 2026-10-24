@@ -187,6 +187,7 @@ void testDeviceStatus() {
     CHECK(contains(none, "最後成功更新：還沒有紀錄"));
     CHECK(contains(none, "電池：沒有讀到"));
     CHECK(contains(none, "最近 7 天沒有異常"));
+    CHECK(!contains(none, "韌體版本"));  // no version given, no line
     CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "裝置狀態"));  // no status, no section
 
     wake_log::Entry battery;
@@ -199,7 +200,9 @@ void testDeviceStatus() {
     status.health.highVoltage = 3;
     status.health.highestMillivolts = 4490;
     status.calendarFailingSince[1] = 1791039600;  // 10/03 15:00 UTC = 10/03 23:00
+    status.firmwareVersion = "v0.2.4";
     std::string html = setup_page::renderForm(configured(), {}, {}, {}, &status);
+    CHECK(contains(html, "韌體版本：v0.2.4"));
     CHECK(contains(html, "最後成功更新：10/08 07:00"));
     CHECK(contains(html, "電池：3.99V，82%"));
     CHECK(contains(html, "行事曆 2：從 10/03 起抓不到"));

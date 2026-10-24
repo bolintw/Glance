@@ -33,6 +33,7 @@ extern const std::span<const char* const> kCounties;
 // the panel only hints at (with a status icon, or not at all) can be read in
 // full. Built from the wake log and the calendar failure times.
 struct DeviceStatus {
+    std::string firmwareVersion;  // e.g. "v0.2.4"; empty leaves it out
     int64_t now = 0;  // 0 when the clock isn't set: dates are then left out
     int32_t utcOffset = 0;
     wake_log::Health health;  // over the last week

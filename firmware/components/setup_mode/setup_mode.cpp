@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "captive_dns.hpp"
+#include "esp_app_desc.h"
 #include "lan_access.hpp"
 #include "esp_event.h"
 #include "esp_http_server.h"
@@ -214,10 +215,11 @@ bool authorize(httpd_req_t* req) {
 }
 
 // The device status for the top of the home-network form (see
-// setup_page::DeviceStatus): the last week of the wake log, and which
-// calendars are failing.
+// setup_page::DeviceStatus): the firmware version, the last week of the
+// wake log, and which calendars are failing.
 setup_page::DeviceStatus deviceStatus() {
     setup_page::DeviceStatus status;
+    status.firmwareVersion = esp_app_get_description()->version;
     status.now = time_sync::clockIsPlausible() ? time(nullptr) : 0;
     status.utcOffset = time_sync::kUtcOffsetSeconds;
     constexpr int64_t kWeek = 7 * 24 * 3600;

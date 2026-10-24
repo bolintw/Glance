@@ -198,6 +198,9 @@ std::string when(uint32_t unixTime, int32_t utcOffset) {
 void statusSection(std::string& html, const DeviceStatus& s) {
     const wake_log::Health& h = s.health;
     html += "<h2>裝置狀態</h2>\n<ul class=\"status\">";
+    if (!s.firmwareVersion.empty()) {
+        html += "<li>韌體版本：" + htmlEscape(s.firmwareVersion) + "</li>";
+    }
     html += "<li>最後成功更新：" + (h.lastGoodRefresh ? when(h.lastGoodRefresh, s.utcOffset) : std::string("還沒有紀錄")) +
             "</li>";
     if (h.latestBattery) {
