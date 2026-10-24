@@ -248,8 +248,8 @@ void statusSection(std::string& html, const DeviceStatus& s) {
 void resetForm(std::string& html) {
     html += "<h2>清除所有資料</h2>\n"
             "<form method=\"get\" action=\"/reset\"><button type=\"submit\" class=\"danger\">清除所有資料…</button></form>\n"
-            "<p class=\"note\">打不開這一頁的時候（例如裝置連到手機連不到的網路），按住背後的按鈕 15 秒，"
-            "等 LED 開始快閃再放開，也會清除所有資料。</p>\n";
+            "<p class=\"note\">打不開這一頁的時候（例如裝置連到手機連不到的網路），按住背後的按鈕約 20 秒再放開"
+            "（15 到 30 秒之間放開都可以，看得到 LED 的話它會快閃），也會清除所有資料。</p>\n";
 }
 }  // namespace
 
