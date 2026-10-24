@@ -17,7 +17,11 @@ struct Settings {
     std::string cwaApiKey;                           // empty = no weather
     std::string weatherLocation;                     // e.g. "新竹縣"
 
-    bool upsideDown = false;  // the panel drawn rotated 180 degrees
+    // The panel scanned the other way round (EpdConfig::upsideDown): the
+    // way Glance is put together, so the default -- the shipping screen,
+    // drawn with nothing set, comes out the right way up. The setup page's
+    // 上下顛倒 turns it off for a frame that holds it the other way.
+    bool panelFlipped = true;
 
     // White on black (dark) or black on white (light), for the calendar and
     // the photo screens; with photoAutoTheme (on unless turned off) the

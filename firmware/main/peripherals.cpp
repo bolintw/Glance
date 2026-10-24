@@ -87,7 +87,7 @@ bool withPanel(const std::function<bool(Display&)>& use) {
             .dcPin = board::kEpdDcPin,
             .resetPin = board::kEpdResetPin,
             .busyPin = board::kEpdBusyPin,
-            .upsideDown = settings::loadUpsideDown(),
+            .upsideDown = settings::loadPanelFlipped(),
         };
         Epd7in5V2 display(epdConfig);
         result = use(display);

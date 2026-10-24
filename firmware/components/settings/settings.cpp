@@ -16,7 +16,7 @@ constexpr const char* kIcsUrlKeys[Settings::kMaxCalendars] = {"ics_url_1", "ics_
 constexpr const char* kCwaApiKeyKey = "cwa_key";
 constexpr const char* kWeatherLocationKey = "wx_location";
 constexpr const char* kPrivacyModeKey = "privacy";
-constexpr const char* kUpsideDownKey = "upside_down";  // u8
+constexpr const char* kPanelFlippedKey = "upside_down";  // u8, Settings::panelFlipped
 constexpr const char* kThemeKey = "theme";             // u8, Settings::Theme
 constexpr const char* kPhotoAutoThemeKey = "photo_auto";  // u8
 constexpr const char* kRefreshKey = "refresh_1";       // u32, minutes after midnight
@@ -119,7 +119,7 @@ Settings load() {
     }
     s.cwaApiKey = nvs.read(kCwaApiKeyKey, CONFIG_GLANCE_CWA_API_KEY);
     s.weatherLocation = nvs.read(kWeatherLocationKey, CONFIG_GLANCE_WEATHER_LOCATION);
-    s.upsideDown = nvs.readU8(kUpsideDownKey, 0) != 0;
+    s.panelFlipped = nvs.readU8(kPanelFlippedKey, 1) != 0;
     s.theme = nvs.readU8(kThemeKey, 0) == 1 ? Settings::Theme::light : Settings::Theme::dark;
     s.photoAutoTheme = nvs.readU8(kPhotoAutoThemeKey, 1) != 0;
     constexpr uint32_t kDay = 24 * 60;
@@ -157,7 +157,7 @@ esp_err_t save(const Settings& s) {
     write(kGuestSsidKey, s.guestSsid);
     write(kGuestPasswordKey, s.guestPassword);
     if (err == ESP_OK) {
-        err = nvs.writeU8(kUpsideDownKey, s.upsideDown ? 1 : 0);
+        err = nvs.writeU8(kPanelFlippedKey, s.panelFlipped ? 1 : 0);
     }
     if (err == ESP_OK) {
         err = nvs.writeU8(kGuestWifiKey, static_cast<uint8_t>(s.guestWifi));
@@ -277,7 +277,7 @@ esp_err_t saveCalendarFailures(const CalendarFailures& failures) {
     return err == ESP_OK ? nvs.commit() : err;
 }
 
-bool loadUpsideDown() { return Nvs(NVS_READONLY).readU8(kUpsideDownKey, 0) != 0; }
+bool loadPanelFlipped() { return Nvs(NVS_READONLY).readU8(kPanelFlippedKey, 1) != 0; }
 
 bool loadPrivacyMode() { return Nvs(NVS_READONLY).readU8(kPrivacyModeKey, 0) != 0; }
 

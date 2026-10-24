@@ -227,7 +227,7 @@ void testGuestWifiAndOrientation() {
     auto own = setup_page::applyForm(configured(), "display=1&guest_wifi=own&guest_ssid=&guest_pass=&upside_down=on");
     CHECK(own.errors.empty());
     CHECK(own.settings.guestWifi == GuestWifi::own);
-    CHECK(own.settings.upsideDown);
+    CHECK(!own.settings.panelFlipped);  // 上下顛倒: against the default
     CHECK(setup_page::guestWifiQrPayload(own.settings) == R"(WIFI:T:WPA;S:Home \"5G\" <net>;P:secret-wifi-pass;;)");
     std::string ownPage = setup_page::renderForm(own.settings, {}, {});
     CHECK(contains(ownPage, "value=\"own\" checked"));
@@ -235,7 +235,7 @@ void testGuestWifiAndOrientation() {
 
     auto other = setup_page::applyForm(configured(), "display=1&guest_wifi=other&guest_ssid=+Guest+&guest_pass=welcome-2026");
     CHECK(other.errors.empty());
-    CHECK(!other.settings.upsideDown);  // no checkbox sent: unchecked
+    CHECK(other.settings.panelFlipped);  // no checkbox sent: unchecked, the default way up
     CHECK(setup_page::guestWifiQrPayload(other.settings) == "WIFI:T:WPA;S:Guest;P:welcome-2026;;");
     CHECK(!contains(setup_page::renderForm(other.settings, {}, {}), "welcome-2026"));  // a secret, never shown
     auto kept = setup_page::applyForm(other.settings, "display=1&guest_wifi=other&guest_ssid=Guest&guest_pass=");
@@ -252,7 +252,7 @@ void testGuestWifiAndOrientation() {
     CHECK(hasError(setup_page::applyForm(configured(), "display=1&guest_wifi=other&guest_ssid=G&guest_pass=short"),
                    "8 到 63"));
     auto untouched = setup_page::applyForm(own.settings, "ics1=");  // no display fields at all
-    CHECK(untouched.settings.upsideDown && untouched.settings.guestWifi == GuestWifi::own);
+    CHECK(!untouched.settings.panelFlipped && untouched.settings.guestWifi == GuestWifi::own);
 }
 
 void testTheme() {

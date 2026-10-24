@@ -353,8 +353,9 @@ void displayFields(std::string& html, const Settings& current) {
     html += "\n<p class=\"note\">QR code 裡含有密碼，看得到螢幕的人都能連上。"
             "建議在路由器開一個訪客網路，選「另一個網路」顯示它。</p>\n";
 
+    // 上下顛倒 is against the way Glance is put together (Settings::panelFlipped).
     html += "<h2>畫面</h2>\n<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
-    html += current.upsideDown ? " checked" : "";
+    html += current.panelFlipped ? "" : " checked";
     html += "> 上下顛倒（裝置倒過來擺時使用）</label>\n";
 
     html += "<label>顏色</label>";
@@ -380,7 +381,7 @@ void displayFields(std::string& html, const Settings& current) {
 
 void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
     using GuestWifi = Settings::GuestWifi;
-    s.upsideDown = find(fields, "upside_down") != nullptr;  // a checkbox: sent only when checked
+    s.panelFlipped = find(fields, "upside_down") == nullptr;  // a checkbox: sent only when checked
     s.photoAutoTheme = find(fields, "photo_auto") != nullptr;
     if (const std::string* theme = find(fields, "theme")) {
         s.theme = *theme == "light" ? Settings::Theme::light : Settings::Theme::dark;
