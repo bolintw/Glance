@@ -35,6 +35,11 @@ CONFIG_LWIP_SNTP_STARTUP_DELAY=n
 # accelerator for: connecting to a calendar took ~2.67s.
 CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
 
+# 240MHz rather than 160: the handshake's curve math is CPU-bound. Four
+# calendars on V3.0 (2026-10-25, three runs each): connecting 1.61s instead
+# of 2.09s apiece, about 2s off a run that takes some 20s awake.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
 # Both boards have a 32.768kHz crystal on GPIO15/16 (U2). The default internal
 # RC oscillator drifts noticeably with temperature, which adds up over a
 # day of deep sleep between refreshes.

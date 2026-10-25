@@ -1,9 +1,11 @@
 #include "refresh.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <ctime>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -130,6 +132,13 @@ std::optional<weather::Forecast> cachedForecast() {
                              .maxTemp = gBoot.forecastMaxTemp};
 }
 
+// "calendar.google.com" out of "https://calendar.google.com/calendar/ical/...".
+std::string_view hostOf(std::string_view url) {
+    const size_t start = url.find("://");
+    url.remove_prefix(start == std::string_view::npos ? 0 : start + 3);
+    return url.substr(0, url.find('/'));
+}
+
 // Fetches every configured calendar into one EventCollector. nullopt if
 // calendars are configured but none could be fetched -- an empty list would
 // wrongly read as "nothing coming up". Logs the slot number, never the URL,
@@ -149,15 +158,20 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
     size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
     size_t configured = 0;
     size_t fetched = 0;
-    for (size_t slot = 0; slot < settings.icsUrls.size(); slot++) {
+    // Calendars on the same host back to back, so they share a connection
+    // (calendar_fetch::Session). The order doesn't matter to the collector.
+    std::array<size_t, Settings::kMaxCalendars> order;
+    std::iota(order.begin(), order.end(), 0);
+    std::ranges::stable_sort(order, {}, [&](size_t slot) { return hostOf(settings.icsUrls[slot]); });
+    calendar_fetch::Session session;
+    for (size_t slot : order) {
         const std::string& url = settings.icsUrls[slot];
         if (url.empty()) {
             failures[slot] = 0;
             continue;
         }
         configured++;
-        esp_err_t err =
-            calendar_fetch::fetchLines(url.c_str(), [&](std::string_view line) { collector.onLine(line); });
+        esp_err_t err = session.fetchLines(url.c_str(), [&](std::string_view line) { collector.onLine(line); });
         ESP_LOGI(kTag, "calendar %zu: %s", slot + 1, esp_err_to_name(err));
         fetched += err == ESP_OK;
         if (err == ESP_OK) {
