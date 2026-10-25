@@ -46,6 +46,13 @@ public:
 
     void onLine(std::string_view line);
 
+    // Takes in what another collector (same options) found, as if its
+    // calendars had come through this one: overrides, cancelled instances
+    // and duplicates are honoured across the two. For calendars fetched in
+    // parallel, each into a collector of its own -- lines from two calendars
+    // can't be interleaved into one.
+    void absorb(EventCollector&& other);
+
     // Sorted by start time, then summary.
     std::vector<Occurrence> takeResults();
 

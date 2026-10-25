@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <ctime>
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -23,6 +25,9 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "ics_event_collector.hpp"
 #include "ota_update.hpp"
 #include "peripherals.hpp"
@@ -41,6 +46,13 @@ namespace {
 constexpr uint32_t kNtpSyncTimeoutMs = 10000;
 // The layout shows two columns of five (same as the Raspberry Pi version).
 constexpr size_t kMaxEvents = 10;
+
+// Calendar hosts fetched at once (fetchUpcomingEvents), besides the weather:
+// each connection is ~40KB of TLS buffers and a task's stack.
+constexpr size_t kFetchWorkers = 2;
+// TLS handshakes want room: the main task, which did them all, has 8KB.
+constexpr uint32_t kFetchTaskStackBytes = 8192;
+constexpr UBaseType_t kFetchTaskPriority = 4;  // below the button task's
 
 // Privacy mode's photo, both ways (1bpp, and 2bpp for 4-gray panels). When
 // it's an upload, `mapping` keeps it readable from flash.
@@ -139,45 +151,115 @@ std::string_view hostOf(std::string_view url) {
     return url.substr(0, url.find('/'));
 }
 
+// Runs `jobs` at once, each in a task of its own: their network waits
+// overlap, and the two cores share the TLS handshakes' math. Returns when
+// all are done; a job that hangs is the run deadline's to cut (main.cpp).
+// A job whose task can't be had (memory) runs here instead.
+void runTogether(std::span<const std::function<void()>> jobs) {
+    struct Job {
+        const std::function<void()>* work;
+        SemaphoreHandle_t done;
+    };
+    SemaphoreHandle_t done = xSemaphoreCreateCounting(jobs.size(), 0);
+    std::vector<Job> started(jobs.size());
+    size_t running = 0;
+    for (size_t i = 0; i < jobs.size(); i++) {
+        started[i] = {&jobs[i], done};
+        if (done != nullptr && i + 1 < jobs.size() &&
+            xTaskCreate(
+                [](void* arg) {
+                    auto* job = static_cast<Job*>(arg);
+                    (*job->work)();
+                    xSemaphoreGive(job->done);
+                    vTaskDelete(nullptr);
+                },
+                "fetch", kFetchTaskStackBytes, &started[i], kFetchTaskPriority, nullptr) == pdPASS) {
+            running++;
+        } else {
+            jobs[i]();  // the last one, or no task to be had
+        }
+    }
+    for (size_t i = 0; i < running; i++) {
+        xSemaphoreTake(done, portMAX_DELAY);
+    }
+    if (done != nullptr) {
+        vSemaphoreDelete(done);
+    }
+}
+
 // Fetches every configured calendar into one EventCollector. nullopt if
 // calendars are configured but none could be fetched -- an empty list would
 // wrongly read as "nothing coming up". Logs the slot number, never the URL,
 // since the URL is a secret. Keeps track of when each calendar started
 // failing; `stale` says whether one has failed long enough to show
 // (run_policy::calendarStale).
+//
+// Calendars on one host go back to back over one connection
+// (calendar_fetch::Session); hosts are split between up to kFetchWorkers
+// fetching at once, each into a collector of its own, absorbed into one at
+// the end.
 std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& settings, bool& stale) {
     const int64_t now = time(nullptr);
     settings::CalendarFailures failures = settings::loadCalendarFailures();
     const settings::CalendarFailures before = failures;
-    ics::EventCollector collector({
-        .now = time(nullptr),
+    const ics::CollectorOptions options{
+        .now = now,
         .displayUtcOffset = time_sync::kUtcOffsetSeconds,
         .maxResults = kMaxEvents,
-    });
+    };
 
-    size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
-    size_t configured = 0;
-    size_t fetched = 0;
-    // Calendars on the same host back to back, so they share a connection
-    // (calendar_fetch::Session). The order doesn't matter to the collector.
-    std::array<size_t, Settings::kMaxCalendars> order;
-    std::iota(order.begin(), order.end(), 0);
-    std::ranges::stable_sort(order, {}, [&](size_t slot) { return hostOf(settings.icsUrls[slot]); });
-    calendar_fetch::Session session;
-    for (size_t slot : order) {
-        const std::string& url = settings.icsUrls[slot];
-        if (url.empty()) {
+    // Configured slots grouped by host, the groups dealt to the workers
+    // biggest first, each to the one with the fewest calendars so far.
+    std::vector<std::vector<size_t>> groups;
+    for (size_t slot = 0; slot < settings.icsUrls.size(); slot++) {
+        if (settings.icsUrls[slot].empty()) {
             failures[slot] = 0;
             continue;
         }
-        configured++;
-        esp_err_t err = session.fetchLines(url.c_str(), [&](std::string_view line) { collector.onLine(line); });
-        ESP_LOGI(kTag, "calendar %zu: %s", slot + 1, esp_err_to_name(err));
-        fetched += err == ESP_OK;
-        if (err == ESP_OK) {
-            failures[slot] = 0;
-        } else if (failures[slot] == 0) {
-            failures[slot] = static_cast<uint32_t>(now);
+        auto group = std::ranges::find_if(groups, [&](const std::vector<size_t>& g) {
+            return hostOf(settings.icsUrls[g.front()]) == hostOf(settings.icsUrls[slot]);
+        });
+        if (group == groups.end()) {
+            groups.push_back({slot});
+        } else {
+            group->push_back(slot);
+        }
+    }
+    std::ranges::stable_sort(groups, std::greater{}, &std::vector<size_t>::size);
+    std::vector<std::vector<size_t>> workers(std::min(groups.size(), kFetchWorkers));
+    for (const std::vector<size_t>& group : groups) {
+        auto& worker = *std::ranges::min_element(workers, {}, &std::vector<size_t>::size);
+        worker.insert(worker.end(), group.begin(), group.end());
+    }
+
+    size_t lowestBefore = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
+    std::vector<ics::EventCollector> collectors(workers.size(), ics::EventCollector(options));
+    std::array<esp_err_t, Settings::kMaxCalendars> results;
+    results.fill(ESP_OK);
+    std::vector<std::function<void()>> jobs;
+    for (size_t w = 0; w < workers.size(); w++) {
+        jobs.emplace_back([&, w] {
+            calendar_fetch::Session session;
+            for (size_t slot : workers[w]) {
+                results[slot] = session.fetchLines(settings.icsUrls[slot].c_str(),
+                                                   [&](std::string_view line) { collectors[w].onLine(line); });
+                ESP_LOGI(kTag, "calendar %zu: %s", slot + 1, esp_err_to_name(results[slot]));
+            }
+        });
+    }
+    runTogether(jobs);
+
+    size_t configured = 0;
+    size_t fetched = 0;
+    for (const std::vector<size_t>& worker : workers) {
+        for (size_t slot : worker) {
+            configured++;
+            fetched += results[slot] == ESP_OK;
+            if (results[slot] == ESP_OK) {
+                failures[slot] = 0;
+            } else if (failures[slot] == 0) {
+                failures[slot] = static_cast<uint32_t>(now);
+            }
         }
     }
     if (failures != before) {
@@ -193,6 +275,10 @@ std::optional<std::vector<ics::Occurrence>> fetchUpcomingEvents(const Settings& 
         return std::nullopt;
     }
 
+    ics::EventCollector collector(options);
+    for (ics::EventCollector& c : collectors) {
+        collector.absorb(std::move(c));
+    }
     auto events = collector.takeResults();
     ESP_LOGI(kTag, "next %zu events:", events.size());
     for (const auto& e : events) {
@@ -415,14 +501,22 @@ bool refresh(Settings& settings) {
     }
     gBoot.wifiFailures = 0;
     checkForUpdateEarlyIfAtRisk();
+    // The weather alongside the calendars: always another host.
     bool calendarStale = false;
-    auto events = fetchUpcomingEvents(settings, calendarStale);
+    std::optional<std::vector<ics::Occurrence>> events;
+    std::optional<weather::Forecast> forecast;
+    const int64_t fetchStartUs = esp_timer_get_time();
+    const std::function<void()> fetches[] = {
+        [&] { forecast = fetchForecast(settings); },
+        [&] { events = fetchUpcomingEvents(settings, calendarStale); },
+    };
+    runTogether(fetches);
+    ESP_LOGI(kTag, "calendars and weather fetched in %lld ms", (esp_timer_get_time() - fetchStartUs) / 1000);
     if (!events && !calendarStale) {
         ESP_LOGE(kTag, "no calendar could be fetched, leaving the screen as is");
         gRun.result = wake_log::Result::fetchFailed;
         return false;
     }
-    auto forecast = fetchForecast(settings);
     if (!events) {
         // Nothing to draw a calendar with, for two days now: say so rather
         // than leave an ever older calendar up.

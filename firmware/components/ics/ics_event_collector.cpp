@@ -351,6 +351,20 @@ bool EventCollector::insert(Candidate candidate) {
     return true;
 }
 
+void EventCollector::absorb(EventCollector&& other) {
+    for (const auto& [uidHash, originalStart] : other.overrideKeys_) {
+        addOverrideKey(uidHash, originalStart);  // drops an instance of ours it replaces
+    }
+    for (Candidate& candidate : other.candidates_) {
+        if (!candidate.isOverride && isOverridden(candidate.uidHash, candidate.originalStart)) {
+            continue;  // replaced by an override of ours
+        }
+        insert(std::move(candidate));
+    }
+    other.candidates_.clear();
+    other.overrideKeys_.clear();
+}
+
 std::vector<Occurrence> EventCollector::takeResults() {
     std::vector<Occurrence> results;
     size_t n = std::min(candidates_.size(), options_.maxResults);

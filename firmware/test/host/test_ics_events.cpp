@@ -209,6 +209,47 @@ void testGoogleFixtureMatchesOracle() {
     }
 }
 
+// The fixture's events dealt out to two calendars (overrides apart from the
+// events they modify, in both directions), each into its own collector and
+// then absorbed into one: the same as reading the whole fixture.
+void testAbsorbMatchesOneCollector() {
+    const std::string icsText = readFile(FIXTURE_DIR "/google_test_calendar.ics");
+    const size_t first = icsText.find("BEGIN:VEVENT");
+    const size_t footer = icsText.rfind("END:VCALENDAR");
+    const std::string header = icsText.substr(0, first);
+    std::string halves[2] = {header, header};
+    size_t n = 0;
+    for (size_t at = first; at < footer;) {
+        size_t end = icsText.find("END:VEVENT", at);
+        end = icsText.find('\n', end) + 1;
+        halves[n++ % 2] += icsText.substr(at, end - at);
+        at = end;
+    }
+    for (std::string& half : halves) {
+        half += icsText.substr(footer);
+    }
+    CHECK(n > 10);
+
+    for (int64_t now : {taipeiTime(2026, 10, 4, 15, 30), taipeiTime(2026, 10, 13, 9, 0), taipeiTime(2026, 11, 25, 12, 0)}) {
+        for (size_t maxResults : {size_t{10}, size_t{200}}) {
+            ics::CollectorOptions options{.now = now, .displayUtcOffset = kTaipei, .maxResults = maxResults,
+                                          .horizonDays = 120};
+            ics::EventCollector a(options), b(options);
+            for (auto [text, collector] : {std::pair{&halves[0], &a}, std::pair{&halves[1], &b}}) {
+                ics::LineReader reader([&](std::string_view line) { collector->onLine(line); });
+                reader.feed(*text);
+                reader.finish();
+            }
+            a.absorb(std::move(b));
+            std::vector<std::string> merged;
+            for (const auto& o : a.takeResults()) {
+                merged.push_back(format(o));
+            }
+            CHECK(merged == collect(icsText, now, maxResults));
+        }
+    }
+}
+
 // Minimal calendar wrapper for synthetic cases.
 std::string calendar(const std::string& body) {
     return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n" + body + "END:VCALENDAR\r\n";
@@ -283,6 +324,7 @@ int main() {
     testFastForwardMatchesFullWalk();
     testGoogleFixtureMatchesOracle();
     testOverrideOrderDoesNotMatter();
+    testAbsorbMatchesOneCollector();
     testCancelledInstanceAndCommaExdate();
     testAlarmSummaryAndDuplicatesAndFallbacks();
 
