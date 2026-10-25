@@ -161,6 +161,36 @@ void testValidation() {
     CHECK(none.settings.icsUrls[0].empty() && none.settings.icsUrls[2].empty());
 }
 
+// Things pasted into the wrong field get told apart, in words a person can act on.
+void testFriendlyHints() {
+    const std::string loc = "&location=%E6%96%B0%E7%AB%B9%E7%B8%A3";
+    // A calendar URL in the CWA key field (what happened on board B).
+    auto url = setup_page::applyForm(configured(), "cwa_key=webcal%3A%2F%2Fp145-caldav.icloud.com%2Fpublished%2F2%2Fx" + loc);
+    CHECK(hasError(url, "授權碼欄位填的是網址"));
+    CHECK(hasError(setup_page::applyForm(configured(), "cwa_key=12345" + loc), "授權碼格式不對"));
+    CHECK(hasError(setup_page::applyForm(configured(), "cwa_key=CWA-12+34" + loc), "授權碼格式不對"));
+    auto good = setup_page::applyForm(configured(), "cwa_key=+CWA-1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D+" + loc);
+    CHECK(good.errors.empty());
+    CHECK(good.settings.cwaApiKey == "CWA-1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D");
+    // Keys from before the 2023 rename start CWB- and still work.
+    CHECK(setup_page::applyForm(configured(), "cwa_key=CWB-1A2B3C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D" + loc).errors.empty());
+    // A key with no county: no weather would show.
+    CHECK(hasError(setup_page::applyForm(configured(), "location="), "請選擇縣市"));
+
+    // The CWA key in a calendar field.
+    CHECK(hasError(setup_page::applyForm(configured(), "ics2=CWA-1A2B3C4D-5E6F"), "行事曆 2 填的是氣象署授權碼"));
+    // Calendars' web pages instead of their iCal addresses.
+    CHECK(hasError(setup_page::applyForm(configured(),
+                                         "ics2=https%3A%2F%2Fcalendar.google.com%2Fcalendar%2Fu%2F0%3Fcid%3Dabc"),
+                   "iCal 格式的私人網址"));
+    CHECK(hasError(setup_page::applyForm(configured(), "ics2=https%3A%2F%2Fwww.icloud.com%2Fcalendar%2Fshare%2Fx"),
+                   "公開行事曆"));
+    // The real thing passes: Google's iCal address, iCloud's webcal://.
+    CHECK(setup_page::applyForm(configured(), "ics2=webcal%3A%2F%2Fp145-caldav.icloud.com%2Fpublished%2F2%2Fx")
+              .errors.empty());
+    CHECK(setup_page::applyForm(configured(), "").errors.empty());  // configured() holds Google's iCal address
+}
+
 void testRevertNoticeAndReset() {
     std::string home = setup_page::renderForm(configured(), {}, {}, "Cafe <5G>");
     CHECK(contains(home, "上次改的「Cafe &lt;5G&gt;」連不上，已改回「Home &quot;5G&quot; &lt;net&gt;」"));
@@ -354,6 +384,7 @@ int main() {
     testNewNetworkDropsOldPassword();
     testReplaceAndRemove();
     testValidation();
+    testFriendlyHints();
     testWifiQrPayload();
     testGuestWifiAndOrientation();
     testRefreshTimes();

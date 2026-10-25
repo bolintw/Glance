@@ -1,6 +1,7 @@
 #include "setup_page.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -93,6 +94,55 @@ std::string normalizeCalendarUrl(std::string_view text) {
         url = "https://" + url.substr(9);
     }
     return url;
+}
+
+// A CWA open data key as the member page shows it: CWA-, then a UUID's
+// letters, digits and dashes -- or CWB-, for keys issued before the weather
+// bureau became the weather administration (2023), which still work.
+bool looksLikeCwaKey(std::string_view text) {
+    std::string prefix(text.substr(0, 4));
+    std::transform(prefix.begin(), prefix.end(), prefix.begin(), [](unsigned char c) { return std::toupper(c); });
+    if (text.size() < 8 || (prefix != "CWA-" && prefix != "CWB-")) {
+        return false;
+    }
+    for (char c : text) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// What's wrong with a calendar URL, beyond not being one: a calendar's page
+// pasted instead of its iCal address. Empty if it looks fine.
+std::string calendarUrlProblem(std::string_view url) {
+    if (looksLikeCwaKey(url)) {
+        return "填的是氣象署授權碼，請貼到下方的授權碼欄位";
+    }
+    if (!startsWith(url, "https://") && !startsWith(url, "http://")) {
+        return "不是網址（應以 https:// 或 webcal:// 開頭）";
+    }
+    if (url.size() > kMaxFieldBytes) {
+        return "的網址太長";
+    }
+    if (url.find("calendar.google.com") != std::string_view::npos && url.find("/ical/") == std::string_view::npos) {
+        return "是 Google 日曆的網頁連結：請到該日曆的「設定和共用」，複製「iCal 格式的私人網址」";
+    }
+    if (startsWith(url, "https://www.icloud.com/")) {
+        return "是 iCloud 的網頁連結：請在行事曆 App 開啟「公開行事曆」，複製 webcal:// 開頭的網址";
+    }
+    return {};
+}
+
+// What's wrong with the CWA key field. Empty if it looks fine (or is empty).
+std::string cwaKeyProblem(std::string_view key) {
+    if (key.empty() || looksLikeCwaKey(key)) {
+        return {};
+    }
+    if (key.find("://") != std::string_view::npos) {
+        return "授權碼欄位填的是網址（行事曆網址請貼到上方的行事曆欄位）：授權碼是 CWA- 或 CWB- 開頭的一串英數字";
+    }
+    return "授權碼格式不對：應為 CWA- 或 CWB- 開頭的一串英數字，請到 opendata.cwa.gov.tw 的會員資訊頁複製";
 }
 
 // A secret field: a new value replaces, "<name>_remove" clears, blank keeps.
@@ -505,7 +555,7 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
         removeBox(html, "cwa_key");
     }
     secretInput(html, "text", "cwa_key", !current.cwaApiKey.empty(), "CWA-XXXXXXXX-...");
-    html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得。</p>\n";
+    html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得（CWA- 開頭）。</p>\n";
 
     html += "<h2>WiFi</h2>\n";
     wifiFields(html, current, nearbySsids);
@@ -581,10 +631,8 @@ FormResult applyForm(const Settings& current, std::string_view body) {
         if (url.empty()) {
             continue;  // none at all is fine: the device is then a photo frame
         }
-        if (!startsWith(url, "https://") && !startsWith(url, "http://")) {
-            errors.push_back("行事曆 " + std::to_string(i + 1) + " 不是網址（應以 https:// 開頭）");
-        } else if (url.size() > kMaxFieldBytes) {
-            errors.push_back("行事曆 " + std::to_string(i + 1) + " 的網址太長");
+        if (std::string problem = calendarUrlProblem(url); !problem.empty()) {
+            errors.push_back("行事曆 " + std::to_string(i + 1) + " " + problem);
         }
     }
     bool knownCounty = s.weatherLocation.empty();
@@ -596,6 +644,10 @@ FormResult applyForm(const Settings& current, std::string_view body) {
     }
     if (s.cwaApiKey.size() > kMaxFieldBytes) {
         errors.push_back("授權碼太長");
+    } else if (std::string problem = cwaKeyProblem(s.cwaApiKey); !problem.empty()) {
+        errors.push_back(problem);
+    } else if (!s.cwaApiKey.empty() && s.weatherLocation.empty()) {
+        errors.push_back("已填授權碼，請選擇縣市，才會顯示天氣");
     }
     return result;
 }
