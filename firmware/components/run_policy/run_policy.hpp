@@ -81,6 +81,15 @@ ResetKind classifyReset(uint8_t resetReason);
 inline constexpr uint8_t kBadResetsBeforeBackoff = 3;
 bool backOffAfterBadResets(uint8_t badResetsInARow);
 
+// Whether calendars and the weather are fetched at once (refresh.cpp) or one
+// after another, the way that has been proven longest. At once draws more
+// current at its peak -- both cores in TLS handshakes -- so not on a battery
+// below kParallelFetchPct (or with no reading), where a sagging cell is
+// likelier to brown out; and not right after a crash or a brownout, in case
+// it's what keeps bringing the device down.
+inline constexpr int kParallelFetchPct = 20;
+bool fetchInParallel(uint16_t soc256, ResetKind lastReset);
+
 // What a press that woke the device from deep sleep means, timed from the
 // wake-up: held to the long-press time and let go, setup mode -- or, held to
 // the erase time (see glance::kEraseHoldMs) first, erase everything; still

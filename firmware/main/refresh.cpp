@@ -50,8 +50,10 @@ constexpr size_t kMaxEvents = 10;
 // Calendar hosts fetched at once (fetchUpcomingEvents), besides the weather:
 // each connection is ~40KB of TLS buffers and a task's stack.
 constexpr size_t kFetchWorkers = 2;
-// TLS handshakes want room: the main task, which did them all, has 8KB.
-constexpr uint32_t kFetchTaskStackBytes = 8192;
+// TLS handshakes want room: on V3.0 a fetch task kept 3.4-3.9KB of 8KB
+// unused (Google, the weather); 10KB leaves more for longer certificate
+// chains elsewhere.
+constexpr uint32_t kFetchTaskStackBytes = 10 * 1024;
 constexpr UBaseType_t kFetchTaskPriority = 4;  // below the button task's
 
 // Privacy mode's photo, both ways (1bpp, and 2bpp for 4-gray panels). When
@@ -154,12 +156,21 @@ std::string_view hostOf(std::string_view url) {
 // Runs `jobs` at once, each in a task of its own: their network waits
 // overlap, and the two cores share the TLS handshakes' math. Returns when
 // all are done; a job that hangs is the run deadline's to cut (main.cpp).
-// A job whose task can't be had (memory) runs here instead.
+// A job whose task can't be had (memory) runs here instead. With
+// run_policy::fetchInParallel saying no, they all run here, in turn.
 void runTogether(std::span<const std::function<void()>> jobs) {
     struct Job {
         const std::function<void()>* work;
         SemaphoreHandle_t done;
     };
+    static const bool parallel =
+        run_policy::fetchInParallel(gRun.soc256, run_policy::classifyReset(gRun.resetReason));
+    if (!parallel) {
+        for (const std::function<void()>& job : jobs) {
+            job();
+        }
+        return;
+    }
     SemaphoreHandle_t done = xSemaphoreCreateCounting(jobs.size(), 0);
     std::vector<Job> started(jobs.size());
     size_t running = 0;

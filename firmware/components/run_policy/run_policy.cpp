@@ -32,6 +32,10 @@ ResetKind classifyReset(uint8_t resetReason) {
 
 bool backOffAfterBadResets(uint8_t badResetsInARow) { return badResetsInARow >= kBadResetsBeforeBackoff; }
 
+bool fetchInParallel(uint16_t soc256, ResetKind lastReset) {
+    return lastReset == ResetKind::normal && soc256 >= kParallelFetchPct * 256;
+}
+
 WakePress decideWakePress(bool heldToLongPress, bool released, bool heldToErase, bool noCalendarToSwitchTo,
                           int64_t timerDueAt, int64_t now) {
     if (heldToLongPress) {

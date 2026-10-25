@@ -118,6 +118,16 @@ void testBattery() {
     CHECK(batteryTooLow(pct(3), 3600, true));    // ...and still too low once it is
 }
 
+void testParallelFetch() {
+    using run_policy::ResetKind;
+    CHECK(run_policy::fetchInParallel(80 * 256, ResetKind::normal));
+    CHECK(run_policy::fetchInParallel(20 * 256, ResetKind::normal));
+    CHECK(!run_policy::fetchInParallel(20 * 256 - 1, ResetKind::normal));  // a low battery
+    CHECK(!run_policy::fetchInParallel(0, ResetKind::normal));             // no gauge reading
+    CHECK(!run_policy::fetchInParallel(80 * 256, ResetKind::crash));
+    CHECK(!run_policy::fetchInParallel(80 * 256, ResetKind::power));
+}
+
 void testForecastDay() {
     using run_policy::forecastFor;
     using run_policy::forecastStillCurrent;
@@ -154,6 +164,7 @@ int main() {
     testCalendarStale();
     testBattery();
     testForecastDay();
+    testParallelFetch();
     if (failures == 0) {
         std::printf("all run_policy tests passed\n");
     }
