@@ -19,6 +19,7 @@ struct Status {
     bool offline = false;     // couldn't get online (crossed-out WiFi)
     bool lowBattery = false;  // time to charge soon (battery with one bar)
     bool calendarError = false;  // a calendar hasn't come through for two days (calendar with a cross)
+    bool weatherError = false;   // online with weather set up, but no forecast came (crossed-out cloud)
 };
 
 // The screen's colors: white on black, or black on white. Photos are drawn

@@ -21,6 +21,7 @@ inline constexpr const char* kRaindrop = "\xEE\x80\x85";  // U+E005
 inline constexpr const char* kWifiOff = "\xEE\x80\x86";  // U+E006
 inline constexpr const char* kBatteryLow = "\xEE\x80\x87";  // U+E007
 inline constexpr const char* kCalendarError = "\xEE\x80\x88";  // U+E008
+inline constexpr const char* kWeatherError = "\xEE\x80\x89";  // U+E009
 inline constexpr const char* kSetupWifi = "\xEE\x84\x80";  // U+E100
 inline constexpr const char* kSetupGear = "\xEE\x84\x81";  // U+E101
 inline constexpr const char* kSetupPhoneHand = "\xEE\x84\x82";  // U+E102

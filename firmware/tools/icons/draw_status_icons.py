@@ -63,7 +63,31 @@ def calendar_error():
     return img.resize((SIZE, SIZE), Image.LANCZOS).point(lambda v: 255 if v > 110 else 0)
 
 
+def weather_error():
+    s = SIZE * SS
+    img = Image.new("L", (s, s), 0)
+    d = ImageDraw.Draw(img)
+    stroke = int(s * 0.09)
+    # A cloud outline: three bumps on a flat base, the inside cleared.
+    parts = [
+        ("ellipse", [s * 0.12, s * 0.44, s * 0.42, s * 0.76]),
+        ("ellipse", [s * 0.28, s * 0.22, s * 0.68, s * 0.62]),
+        ("ellipse", [s * 0.56, s * 0.38, s * 0.88, s * 0.72]),
+        ("rect", [s * 0.27, s * 0.52, s * 0.74, s * 0.76]),
+    ]
+    for grow, fill in ((stroke * 2, 255), (0, 0)):
+        for kind, (x0, y0, x1, y1) in parts:
+            box = [x0 - grow / 2, y0 - grow / 2, x1 + grow / 2, y1 + grow / 2]
+            (d.ellipse if kind == "ellipse" else d.rectangle)(box, fill=fill)
+    # The slash, with a gap cut around it like the WiFi icon's.
+    ends = [s * 0.1, s * 0.05, s * 0.9, s * 0.95]
+    d.line(ends, fill=0, width=int(stroke * 3.2))
+    d.line(ends, fill=255, width=int(stroke * 1.3))
+    return img.resize((SIZE, SIZE), Image.LANCZOS).point(lambda v: 255 if v > 110 else 0)
+
+
 if __name__ == "__main__":
     wifi_off().save(HERE / "src" / "wifi_off.png")
     battery_low().save(HERE / "src" / "battery_low.png")
     calendar_error().save(HERE / "src" / "calendar_error.png")
+    weather_error().save(HERE / "src" / "weather_error.png")

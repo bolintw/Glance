@@ -142,7 +142,8 @@ void drawWeather(Canvas& canvas, const weather::Forecast& forecast, Color ink) {
 
 void drawStatus(Canvas& canvas, Status status, Color ink, int right = kStatusIconRight) {
     for (auto [shown, icon] : {std::pair{status.lowBattery, icons::kBatteryLow}, std::pair{status.offline, icons::kWifiOff},
-                               std::pair{status.calendarError, icons::kCalendarError}}) {
+                               std::pair{status.calendarError, icons::kCalendarError},
+                               std::pair{status.weatherError, icons::kWeatherError}}) {
         if (shown) {
             drawOnBaseline(canvas, right - kStatusIconSize, kStatusIconBaseline, icon, kWeatherIcons, ink);
             right -= kStatusIconSize + kStatusIconGap;

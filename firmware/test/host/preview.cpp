@@ -72,6 +72,8 @@ int main(int argc, char** argv) {
         calendar_view::render(canvas, now, kTaipei, events, forecast, {.offline = true, .lowBattery = true});
     } else if (screen == "calendarerror") {  // one calendar failing for two days
         calendar_view::render(canvas, now, kTaipei, events, forecast, {.calendarError = true});
+    } else if (screen == "weathererror") {  // online, but CWA turned the key down
+        calendar_view::render(canvas, now, kTaipei, events, std::nullopt, {.weatherError = true});
     } else if (screen == "nocalendar") {  // none came through for two days: the photo layout
         calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], {.calendarError = true});
         overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);

@@ -31,6 +31,7 @@ ICONS = [
     ("wifi_off.png", 0xE006, "kWifiOff"),  # drawn by draw_status_icons.py
     ("battery_low.png", 0xE007, "kBatteryLow"),  # drawn by draw_status_icons.py
     ("calendar_error.png", 0xE008, "kCalendarError"),  # drawn by draw_status_icons.py
+    ("weather_error.png", 0xE009, "kWeatherError"),  # drawn by draw_status_icons.py
 ]
 
 # The setup screens' icons (draw_setup_icons.py and, for the hand-drawn

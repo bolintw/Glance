@@ -33,8 +33,20 @@ constexpr gpio_num_t kPeripheralRail = static_cast<gpio_num_t>(board::kPeriphera
 enum class PanelState { idle, drawing, closed };
 std::atomic<PanelState> gPanel = PanelState::idle;
 
+// Three slow blinks: the panel didn't respond. With nothing on the panel to
+// tell what went wrong, the LED says it's the panel -- told apart from a
+// press's short blink and the fast blinks of a button held to erase.
+void signalPanelFailed() {
+    for (int i = 0; i < 3; ++i) {
+        statusLedOn();
+        vTaskDelay(pdMS_TO_TICKS(500));
+        statusLedOff();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
 // init -> one frame -> sleep, on whichever backend. False if the panel
-// didn't respond.
+// didn't respond (and then the LED says so, see signalPanelFailed).
 bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
     // No clear() first: a full refresh already drives every pixel through
     // the whole waveform, so clearing only doubled the time and flicker.
@@ -48,6 +60,9 @@ bool drawOn(Display& display, std::span<const uint8_t> framebuffer, const GrayOv
     // The flush includes the refresh, which the driver logs on its own.
     ESP_LOGI("panel", "init %lld ms, frame and refresh %lld ms", (readyUs - startUs) / 1000,
              (esp_timer_get_time() - readyUs) / 1000);
+    if (!shown) {
+        signalPanelFailed();
+    }
     return shown;
 }
 

@@ -112,6 +112,12 @@ std::optional<weather::Forecast> fetchForecast(const Settings& settings) {
     return forecast;
 }
 
+// Weather is set up but no forecast came (a key CWA turns down, the service
+// down): the crossed-out cloud, or the weather would just go missing.
+bool weatherFailed(const Settings& settings, const std::optional<weather::Forecast>& forecast) {
+    return !forecast && !settings.cwaApiKey.empty() && !settings.weatherLocation.empty();
+}
+
 // The forecast fetched earlier, if it's for today or later.
 std::optional<weather::Forecast> cachedForecast() {
     if (!run_policy::forecastStillCurrent(gBoot.forecastAt, time(nullptr), time_sync::kUtcOffsetSeconds)) {
@@ -356,7 +362,9 @@ bool refreshPrivate(Settings& settings) {
     Canvas canvas(framebuffer, board::kPanelSize);
     PrivacyPhoto photo = pickPhoto();
     calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono,
-                                 {.offline = !online && !offlineByChoice, .lowBattery = gLowBattery},
+                                 {.offline = !online && !offlineByChoice,
+                                  .lowBattery = gLowBattery,
+                                  .weatherError = online && weatherFailed(settings, forecast)},
                                  setup_page::cornerQrPayload(settings), themeFor(settings, photo.mono));
     auto overlay = grayOverlayFor(photo);
     ESP_LOGI(kTag, "showing privacy mode%s", overlay ? " (4-gray)" : "");
@@ -404,7 +412,8 @@ bool refresh(Settings& settings) {
     if (!events) {
         // Nothing to draw a calendar with, for two days now: say so rather
         // than leave an ever older calendar up.
-        showWithoutCalendar(settings, forecast, {.calendarError = true}, "no-calendar");
+        showWithoutCalendar(settings, forecast,
+                            {.calendarError = true, .weatherError = weatherFailed(settings, forecast)}, "no-calendar");
         gRun.result = wake_log::Result::calendarError;
         return false;
     }
@@ -412,7 +421,10 @@ bool refresh(Settings& settings) {
     std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
     Canvas canvas(framebuffer, board::kPanelSize);
     calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast,
-                          {.lowBattery = gLowBattery, .calendarError = calendarStale}, themeFor(settings));
+                          {.lowBattery = gLowBattery,
+                           .calendarError = calendarStale,
+                           .weatherError = weatherFailed(settings, forecast)},
+                          themeFor(settings));
     ESP_LOGI(kTag, "showing calendar");
     if (!show(framebuffer)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");
