@@ -555,7 +555,7 @@ std::string renderForm(const Settings& current, std::span<const std::string> nea
         removeBox(html, "cwa_key");
     }
     secretInput(html, "text", "cwa_key", !current.cwaApiKey.empty(), "CWA-XXXXXXXX-...");
-    html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得（CWA- 開頭）。</p>\n";
+    html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得（CWA- 或 CWB- 開頭）。</p>\n";
 
     html += "<h2>WiFi</h2>\n";
     wifiFields(html, current, nearbySsids);
