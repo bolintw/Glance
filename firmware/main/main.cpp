@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <ctime>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -56,10 +57,6 @@ std::vector<int> gRefreshMinutes{CONFIG_GLANCE_REFRESH_HOUR * 60};
 // some. Each step has its own timeout, but a bug or a server that trickles
 // could still keep the device awake until the battery is flat.
 constexpr uint32_t kRunDeadlineMs = 5 * 60 * 1000;
-
-// How long the deadline waits for a panel refresh in progress: one takes
-// about 5s, and the driver gives up on a stuck one after 10s.
-constexpr uint32_t kPanelFinishWaitMs = 20 * 1000;
 
 // When to wake next, counting this run in (see run_policy::nextWake).
 run_policy::NextWake scheduleNext(bool refreshed) {
@@ -193,6 +190,12 @@ extern "C" void app_main(void)
     }
     backOffIfResetsKeepRecurring();
     checkBattery();  // doesn't return while the battery is too low to run
+    if (std::exchange(gBoot.buttonStuck, false) && gRun.wake == wake_log::Wake::button) {
+        // A stuck button came up (see deepSleep): not a press.
+        ESP_LOGI(kTag, "button no longer stuck: back to sleep");
+        logRun(wake_log::Result::backToSleep);
+        deepSleep(gBoot.wakeAt != 0 ? std::optional<int64_t>(gBoot.wakeAt) : std::nullopt);
+    }
 
     Settings settings = settings::load();
     gRefreshMinutes = {settings.refreshMinutes};

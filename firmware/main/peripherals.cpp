@@ -129,7 +129,7 @@ bool panelResponds() {
 bool closePanel(uint32_t waitMs) {
     for (uint32_t waited = 0;; waited += 100) {
         PanelState idle = PanelState::idle;
-        if (gPanel.compare_exchange_strong(idle, PanelState::closed)) {
+        if (gPanel.compare_exchange_strong(idle, PanelState::closed) || idle == PanelState::closed) {
             return true;
         }
         if (waited >= waitMs) {

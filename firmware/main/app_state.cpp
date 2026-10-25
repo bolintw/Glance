@@ -4,6 +4,7 @@
 #include <ctime>
 
 #include "board.hpp"
+#include "buttons.hpp"
 #include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -13,6 +14,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "peripherals.hpp"
 #include "time_sync.hpp"
 #include "wake_log_store.hpp"
 
@@ -23,6 +25,11 @@ std::atomic<Phase> gPhase{Phase::refreshing};
 std::atomic<bool> gPhotoFrame{false};
 bool gLowBattery = false;
 wake_log::Entry gRun;
+
+namespace {
+// A restart is waiting for the panel (restartInto): it goes ahead of sleep.
+std::atomic<bool> gRestartPending{false};
+}  // namespace
 
 void initBootState() {
     if (gBoot.magic == BootState::kMagic) {
@@ -43,6 +50,7 @@ void initBootState() {
              .badResets = 0,
              .lastPhoto = UINT8_MAX,
              .wakeAt = 0,
+             .buttonStuck = false,
              .fakeBatteryPct = -1,
              .forecastAt = 0,
              .forecastCondition = 0,
@@ -62,6 +70,10 @@ void logRun(wake_log::Result result) {
 }
 
 [[noreturn]] void restartInto(bool enterSetup) {
+    gRestartPending = true;
+    if (!closePanel(kPanelFinishWaitMs)) {
+        ESP_LOGE(kTag, "panel refresh still going, restarting anyway");
+    }
     // On probation (a fresh update that hasn't reached the manifest yet) this
     // goes back to the previous version: rare -- a press in an update's
     // first seconds -- and the previous version is the one known to update.
@@ -75,19 +87,28 @@ void logRun(wake_log::Result result) {
 }
 
 [[noreturn]] void deepSleep(std::optional<int64_t> wakeAt, bool buttonOnExt0) {
+    while (gRestartPending) {  // a press while the panel was drawing: the restart it asked for comes first
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     esp_wifi_stop();  // harmless if WiFi never started
-    // The button wakes on a low level, so one that's stuck down would wake the
-    // device the moment it slept, over and over: then only the timer does --
-    // in an hour, if nothing else was due.
+    // People press as soon as the panel changes, and a run goes on for a few
+    // seconds after that: armed while the button is down, a low-level wake-up
+    // would fire at once, so let the press finish first. The button task,
+    // when running, acts on it meanwhile (a long press restarts into setup
+    // before this returns).
     const auto button = static_cast<gpio_num_t>(board::kButtonPin);
     gpio_set_direction(button, GPIO_MODE_INPUT);  // may not be set up yet this run (the external pull-up holds it)
-    const bool buttonDown = gpio_get_level(button) == 0;
-    if (buttonDown && !wakeAt) {
-        wakeAt = time(nullptr) + 3600;
+    const int64_t giveUpAtUs = esp_timer_get_time() + static_cast<int64_t>(kStuckButtonMs) * 1000;
+    while (gpio_get_level(button) == 0 && esp_timer_get_time() < giveUpAtUs) {
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
+    gBoot.buttonStuck = gpio_get_level(button) == 0;
     gBoot.wakeAt = wakeAt.value_or(0);
-    if (buttonDown) {
-        ESP_LOGW(kTag, "button is down going to sleep (stuck?): waking on the timer only");
+    if (gBoot.buttonStuck) {
+        // Still down: stuck (a shorted cable, something resting on it). Wake
+        // when it comes up rather than wait for the timer, which can be hours.
+        ESP_LOGW(kTag, "button is down going to sleep (stuck?): waking when it comes up");
+        esp_sleep_enable_ext1_wakeup_io(BIT64(board::kButtonPin), ESP_EXT1_WAKEUP_ANY_HIGH);
     } else if (buttonOnExt0) {
         esp_sleep_enable_ext0_wakeup(button, 0);
     } else {

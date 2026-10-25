@@ -16,8 +16,9 @@ bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nul
 
 // Stops show() from drawing from now on, first waiting up to waitMs for a
 // refresh in progress to finish: cutting the rail mid-waveform leaves the
-// panel half drawn (faint). For a run that's giving up. False if the
-// refresh was still going when the wait ran out.
+// panel half drawn (faint). For a run that's giving up, or restarting. False
+// if the refresh was still going when the wait ran out; true at once if
+// already closed.
 bool closePanel(uint32_t waitMs);
 
 // Powers the panel up and back down without drawing: true if it answered

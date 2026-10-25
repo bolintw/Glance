@@ -17,7 +17,7 @@ inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 // and deep sleep but not power loss -- the magic tells a valid state from
 // power-on garbage.
 struct BootState {
-    static constexpr uint32_t kMagic = 0x474C4E39;  // "GLN9" (bump when the layout changes)
+    static constexpr uint32_t kMagic = 0x474C4E41;  // "GLNA" (bump when the layout changes)
     uint32_t magic;
     bool enterSetup;        // a long press asked for setup mode
     bool eraseAll;          // a press held to kEraseHoldMs asked to erase everything
@@ -33,6 +33,7 @@ struct BootState {
     uint8_t badResets;      // crashes and brownouts in a row (run_policy::classifyReset)
     uint8_t lastPhoto;  // privacy mode's last photo (see pickPhoto), so the next one differs
     int64_t wakeAt;     // when the timer is due (Unix time; 0 = none), for a button wake-up that goes back to sleep
+    bool buttonStuck;   // the last sleep began with the button stuck down: it wakes when the button comes up
     int8_t fakeBatteryPct;  // development: the next boot's state of charge instead of the gauge's (-1 = none)
     // The last forecast fetched, for privacy mode switched on by a press
     // (drawn offline; see run_policy::forecastStillCurrent). The drawing doesn't
@@ -64,6 +65,15 @@ extern bool gLowBattery;
 extern wake_log::Entry gRun;
 void logRun(wake_log::Result result);
 
+// How long a restart, or a run giving up, waits for a panel refresh in
+// progress: one takes about 5s, and the driver gives up on a stuck one after
+// 10s.
+inline constexpr uint32_t kPanelFinishWaitMs = 20 * 1000;
+
+// Restarts, into setup mode if `enterSetup`. A panel refresh in progress is
+// let finish first (see closePanel): cut mid-waveform, the panel stays half
+// drawn -- a photo can be left inverted -- until a later run draws again, and
+// for good if the panel then fails.
 [[noreturn]] void restartInto(bool enterSetup);
 // Restarts into erasing everything (see eraseAndShip): from a clean boot, so
 // nothing a run was in the middle of gets in the way.
@@ -73,7 +83,11 @@ void logRun(wake_log::Result result);
 // comes first; with no `wakeAt`, until the button only. The button wakes
 // through ext1, which lets the RTC peripherals power down; `buttonOnExt0`
 // (development, for comparing sleep currents) uses ext0 instead, which
-// keeps them powered.
+// keeps them powered. A button that's down waits to come up first (for up to
+// kStuckButtonMs): a press that began just before is let finish, and the
+// button task, when running, acts on it. One still down after that is stuck:
+// then it wakes the device when it comes up (gBoot.buttonStuck), and the run
+// goes straight back to sleep (main.cpp).
 [[noreturn]] void deepSleep(std::optional<int64_t> wakeAt, bool buttonOnExt0 = false);
 
 }  // namespace glance
