@@ -130,4 +130,13 @@ esp_err_t remove(int slot) {
     return esp_partition_erase_range(partition(), slotOffset(slot), kSectorBytes);
 }
 
+esp_err_t eraseAll() {
+    if (!partition()) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_err_t err = esp_partition_erase_range(partition(), 0, slotOffset(slotCount()));
+    ESP_LOGW(kTag, "all photo slots erased: %s", esp_err_to_name(err));
+    return err;
+}
+
 }  // namespace photo_store

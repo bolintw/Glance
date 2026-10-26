@@ -43,7 +43,8 @@ enum class Event {
     joined,    // the first device got in: hide the QR code
     intruder,  // a second device got in (joined the access point, or used
                // the home-network secret): close up
-    erased,    // everything was erased (settings and photos): start over
+    erased,    // "清除所有資料" was confirmed: erase everything (from a fresh
+               // run, see eraseEverything) and start over
 };
 
 // Blocks until something happens in setup mode (see Event). `idle` also once
@@ -56,16 +57,18 @@ Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs);
 // serving the home-network pages.
 void close();
 
-// Erases every setting, uploaded photo and the wake log (the setup page's
-// "清除所有資料", or the button held to glance::kEraseHoldMs).
+// Erases every setting, uploaded photo and the wake log, in flash (the
+// setup page's "清除所有資料", or the button held to glance::kEraseHoldMs).
+// At the start of a run only, before WiFi: NVS is erased and set up anew.
 void eraseEverything();
 
 // Development aid (GLANCE_DEV_SETUP_ON_LAN): the same pages served on the
 // home network the device is already connected to, so a computer on that
 // network can drive them -- no access point, no DNS. Adds POST /restart.
 esp_err_t startOnLan(const Settings& current);
-// Whether the setup page saved (or erased) settings (meant for polling in
-// LAN mode).
+// Whether the setup page saved settings or asked to erase everything
+// (meant for polling in LAN mode); eraseAsked() tells the two apart.
 bool wasSaved();
+bool eraseAsked();
 
 }  // namespace setup_mode

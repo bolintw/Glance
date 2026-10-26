@@ -156,9 +156,10 @@ Glance is a personal project, not a hardened product. This is what it protects a
 -   Both steps close after 10 minutes without use. Neither protects against physical access: pressing the button and setting the device up again is the intended way in.
 
 ### Stored Secrets
--   The WiFi password (and that of the last network that connected, kept to fall back on when a newly saved one doesn't work), the private calendar URLs (each one grants read access to its calendar) and the CWA API key are stored in NVS **without flash encryption**. Anyone with the device and a USB cable can read them out with `esptool`. Flash encryption and secure boot would close this, but neither is configured.
+-   The WiFi password (and that of the last network that connected, kept to fall back on when a newly saved one doesn't work), the private calendar URLs (each one grants read access to its calendar) and the CWA API key are stored in **encrypted NVS**. Its keys come from the chip's HMAC peripheral and a key that the first boot generates and burns into a read-protected eFuse, so a flash dump read out with `esptool` shows none of them. The WiFi driver's own copy of the network sits in the same encrypted NVS. A device with plaintext NVS from an earlier version moves its settings over at its first boot after an update has proven itself.
+-   Not protected against: someone who flashes firmware of their own can have the chip derive the same keys and read everything, since secure boot isn't configured. Flash encryption isn't either, so the firmware, photos and wake log are readable as they are.
 -   The setup pages never send stored secrets back to the browser; a saved value shows only as "已設定".
--   "清除所有資料" on either setup page erases all of these, along with the uploaded photos and the wake log. It is a logical erase: the flash is not overwritten, so it does not defeat someone reading the chip afterwards. (Development builds then fall back to the values in their local `sdkconfig`.)
+-   "清除所有資料" on either setup page (or holding the button 15 seconds) erases all of these, along with the uploaded photos and the wake log: the NVS partition, the photo slots and the wake log are erased in flash, not just marked deleted. (Development builds then fall back to the values in their local `sdkconfig`.)
 
 ### Updates
 -   OTA installs any newer `vX.Y.Z` release of this GitHub repository over certificate-checked HTTPS. Images are **not signed**, so whoever can publish a release here can update every device. App signing is not set up.

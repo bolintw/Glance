@@ -36,6 +36,11 @@ std::unique_ptr<Photo> open(int slot);
 // slot. Returns the slot, or -1 if all are taken or the flash write fails.
 int add(std::span<const uint8_t> body, int width, int height);
 
+// Empties a slot by erasing its header; the image stays in flash until the
+// slot is used again.
 esp_err_t remove(int slot);
+
+// Erases every slot completely, images and all.
+esp_err_t eraseAll();
 
 }  // namespace photo_store

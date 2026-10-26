@@ -1,8 +1,15 @@
 #include "settings.hpp"
 
+#include <vector>
+
 #include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
+#if CONFIG_NVS_ENCRYPTION
+#include "esp_efuse.h"
+#include "esp_ota_ops.h"
+#endif
 
 namespace {
 constexpr const char* kTag = "settings";
@@ -98,14 +105,171 @@ private:
 
 namespace settings {
 
-esp_err_t initStorage() {
-    esp_err_t err = nvs_flash_init();
+namespace {
+
+// Initializes the default partition with `init` (encrypted or not), erasing
+// it first if its format is unusable.
+esp_err_t initOrErase(esp_err_t (*init)()) {
+    esp_err_t err = init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(kTag, "NVS unusable (%s), erasing", esp_err_to_name(err));
         err = nvs_flash_erase();
         if (err == ESP_OK) {
-            err = nvs_flash_init();
+            err = init();
         }
+    }
+    return err;
+}
+
+esp_err_t initPlaintext() { return nvs_flash_init_partition(NVS_DEFAULT_PART_NAME); }
+
+#if CONFIG_NVS_ENCRYPTION
+// Encrypted, falling back to plaintext if that fails (an eFuse that won't
+// take the key, say): settings that work beat settings that are safe.
+esp_err_t initEncrypted() {
+    esp_err_t err = initOrErase(nvs_flash_init);
+    if (err != ESP_OK) {
+        ESP_LOGE(kTag, "encrypted NVS failed (%s), going on in plaintext", esp_err_to_name(err));
+        err = initOrErase(initPlaintext);
+    }
+    return err;
+}
+
+// The first encrypted init burns the key, so until then NVS is plaintext.
+bool encryptionKeyBurnt() {
+    auto block = static_cast<esp_efuse_block_t>(EFUSE_BLK_KEY0 + CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID);
+    return esp_efuse_get_key_purpose(block) == ESP_EFUSE_KEY_PURPOSE_HMAC_UP;
+}
+
+bool onProbation() {
+    esp_ota_img_states_t state;
+    return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
+           state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+// One entry of this namespace, held while NVS is rebuilt.
+struct SavedEntry {
+    std::string key;
+    nvs_type_t type;
+    uint32_t number = 0;         // U8, U32
+    std::vector<uint8_t> bytes;  // STR (with its NUL), BLOB
+};
+
+std::vector<SavedEntry> readNamespace() {
+    std::vector<SavedEntry> saved;
+    Nvs nvs(NVS_READONLY);
+    if (!nvs.ok()) {
+        return saved;  // never written
+    }
+    nvs_iterator_t it = nullptr;
+    for (esp_err_t res = nvs_entry_find(NVS_DEFAULT_PART_NAME, kNamespace, NVS_TYPE_ANY, &it); res == ESP_OK;
+         res = nvs_entry_next(&it)) {
+        nvs_entry_info_t info;
+        nvs_entry_info(it, &info);
+        SavedEntry e{info.key, info.type, 0, {}};
+        size_t length = 0;
+        esp_err_t err = ESP_FAIL;
+        switch (info.type) {
+            case NVS_TYPE_U8: {
+                uint8_t v;
+                err = nvs_get_u8(nvs.handle(), info.key, &v);
+                e.number = v;
+                break;
+            }
+            case NVS_TYPE_U32:
+                err = nvs_get_u32(nvs.handle(), info.key, &e.number);
+                break;
+            case NVS_TYPE_STR:
+                if (nvs_get_str(nvs.handle(), info.key, nullptr, &length) == ESP_OK) {
+                    e.bytes.resize(length);
+                    err = nvs_get_str(nvs.handle(), info.key, reinterpret_cast<char*>(e.bytes.data()), &length);
+                }
+                break;
+            case NVS_TYPE_BLOB:
+                if (nvs_get_blob(nvs.handle(), info.key, nullptr, &length) == ESP_OK) {
+                    e.bytes.resize(length);
+                    err = nvs_get_blob(nvs.handle(), info.key, e.bytes.data(), &length);
+                }
+                break;
+            default:
+                ESP_LOGW(kTag, "not moving %s: type 0x%02x", info.key, info.type);  // none of ours
+                break;
+        }
+        if (err == ESP_OK) {
+            saved.push_back(std::move(e));
+        }
+    }
+    nvs_release_iterator(it);
+    return saved;
+}
+
+void writeNamespace(const std::vector<SavedEntry>& saved) {
+    Nvs nvs(NVS_READWRITE);
+    if (!nvs.ok()) {
+        ESP_LOGE(kTag, "couldn't write the settings back");
+        return;
+    }
+    for (const SavedEntry& e : saved) {
+        const char* key = e.key.c_str();
+        esp_err_t err = ESP_FAIL;
+        switch (e.type) {
+            case NVS_TYPE_U8: err = nvs.writeU8(key, static_cast<uint8_t>(e.number)); break;
+            case NVS_TYPE_U32: err = nvs.writeU32(key, e.number); break;
+            case NVS_TYPE_STR: err = nvs_set_str(nvs.handle(), key, reinterpret_cast<const char*>(e.bytes.data())); break;
+            case NVS_TYPE_BLOB: err = nvs.writeBlob(key, e.bytes.data(), e.bytes.size()); break;
+            default: break;
+        }
+        if (err != ESP_OK) {
+            ESP_LOGE(kTag, "couldn't write %s back: %s", key, esp_err_to_name(err));
+        }
+    }
+    nvs.commit();
+}
+
+// Reads this namespace in plaintext, erases the partition in flash (the
+// plaintext copies go, and the WiFi driver's, which it rewrites), and
+// writes the entries back encrypted.
+esp_err_t moveToEncrypted() {
+    std::vector<SavedEntry> saved;
+    if (initOrErase(initPlaintext) == ESP_OK) {
+        saved = readNamespace();
+        nvs_flash_deinit();
+    }
+    esp_err_t err = nvs_flash_erase();
+    if (err != ESP_OK) {
+        ESP_LOGE(kTag, "couldn't erase NVS to encrypt it (%s), staying in plaintext", esp_err_to_name(err));
+        return initOrErase(initPlaintext);
+    }
+    err = initEncrypted();
+    if (err == ESP_OK) {
+        writeNamespace(saved);
+        ESP_LOGW(kTag, "settings moved to encrypted NVS: %u entries", static_cast<unsigned>(saved.size()));
+    }
+    return err;
+}
+#endif
+
+}  // namespace
+
+esp_err_t initStorage() {
+    esp_err_t err;
+#if CONFIG_NVS_ENCRYPTION
+    if (encryptionKeyBurnt()) {
+        err = initEncrypted();
+    } else if (onProbation()) {
+        ESP_LOGI(kTag, "fresh update: NVS stays plaintext until it has proven itself");
+        err = initOrErase(initPlaintext);
+    } else {
+        err = moveToEncrypted();
+    }
+#else
+    err = initOrErase(initPlaintext);
+#endif
+    if (err != ESP_OK) {
+        // Nothing to lose by now: an empty store sends the device to setup.
+        ESP_LOGE(kTag, "NVS unusable (%s), starting it over", esp_err_to_name(err));
+        nvs_flash_erase();
+        err = initOrErase(initPlaintext);
     }
     return err;
 }
@@ -251,16 +415,11 @@ std::string takeWifiRevertNote() {
 }
 
 esp_err_t eraseAll() {
-    Nvs nvs(NVS_READWRITE);
-    if (!nvs.ok()) {
-        return ESP_FAIL;
-    }
-    esp_err_t err = nvs_erase_all(nvs.handle());
-    if (err == ESP_OK) {
-        err = nvs.commit();
-    }
-    ESP_LOGW(kTag, "all settings erased: %s", esp_err_to_name(err));
-    return err;
+    nvs_flash_deinit();
+    esp_err_t err = nvs_flash_erase();
+    ESP_LOGW(kTag, "NVS erased: %s", esp_err_to_name(err));
+    esp_err_t init = initStorage();
+    return err != ESP_OK ? err : init;
 }
 
 CalendarFailures loadCalendarFailures() {

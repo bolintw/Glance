@@ -15,7 +15,17 @@
 namespace settings {
 
 // Initializes NVS (erasing it if its format is unusable). Call once, before
-// load/save or anything else that uses NVS, such as WiFi.
+// load/save or anything else that uses NVS, such as WiFi -- and before
+// anything else that could stop the run: it never fails for good, falling
+// back to plaintext and then to an empty store.
+//
+// NVS is encrypted (CONFIG_NVS_ENCRYPTION, keys from an HMAC key the first
+// encrypted init burns into eFuse): a flash dump shows no WiFi password or
+// calendar URL. A device still holding plaintext NVS -- the key not burnt
+// yet -- moves its settings over at its first boot after a proven update
+// (a fresh one on probation keeps plaintext, so a rollback still reads it).
+// This doesn't stop someone who flashes firmware of their own, which can
+// ask the chip for the same keys: there's no secure boot.
 esp_err_t initStorage();
 
 // A key that was saved -- even as an empty string, e.g. a removed calendar
@@ -42,8 +52,10 @@ esp_err_t rememberWorkingWifi(const WifiNetwork& network);
 esp_err_t revertWifi(const std::string& failedSsid, const WifiNetwork& working);
 std::string takeWifiRevertNote();
 
-// Everything this namespace holds -- settings, the remembered WiFi, privacy
-// mode, photo rotation -- back to never saved. (Photos are photo_store's.)
+// Everything NVS holds -- settings, the remembered WiFi, privacy mode, photo
+// rotation, and the WiFi driver's own copy of the network -- gone: the
+// partition is erased in flash, not just marked erased. Call at the start
+// of a run, before WiFi: it reinitializes NVS. (Photos are photo_store's.)
 esp_err_t eraseAll();
 
 // When each calendar slot started failing to download (Unix time; 0 = it

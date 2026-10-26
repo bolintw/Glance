@@ -165,6 +165,9 @@ void noteWakeCause() {
         vTaskDelay(pdMS_TO_TICKS(1000));
         if (setup_mode::wasSaved()) {
             vTaskDelay(pdMS_TO_TICKS(1500));  // let the "saved" page reach the browser
+            if (setup_mode::eraseAsked()) {
+                restartToErase();
+            }
             break;
         }
     }

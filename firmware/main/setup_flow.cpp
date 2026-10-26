@@ -58,8 +58,10 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
                 restartInto(false);
             case setup_mode::Event::erased:
+                // From a fresh run, clear of WiFi (which keeps its own copy
+                // of the network in NVS) and this server.
                 setup_mode::close();
-                ship();
+                restartToErase();
             case setup_mode::Event::joined: {
                 // The phone is in: take the QR code (and the access point's
                 // password) off the screen so nobody else can use them. On

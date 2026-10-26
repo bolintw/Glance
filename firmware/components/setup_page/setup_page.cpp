@@ -591,7 +591,7 @@ std::string renderResetConfirm() {
 
 std::string renderErased() {
     return std::string(kPageHead) +
-           "<h1>已清除</h1><p>所有資料都已刪除。裝置會畫出提示畫面後關機；"
+           "<h1>正在清除</h1><p>裝置會重新啟動、刪除所有資料，畫出提示畫面後關機；"
            "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p></body></html>\n";
 }
 

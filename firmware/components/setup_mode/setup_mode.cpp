@@ -384,9 +384,10 @@ esp_err_t handleResetConfirm(httpd_req_t* req) {
     return sendHtml(req, setup_page::renderResetConfirm());
 }
 
-// POST /reset (from the confirmation page): erases every setting, photo and
-// the wake log; the device then shows the shipping screen and sleeps until
-// the button (setup_flow).
+// POST /reset (from the confirmation page): asks to erase every setting,
+// photo and the wake log. The erase itself waits for a fresh run, clear of
+// WiFi and this server (setup_flow); then the shipping screen, and sleep
+// until the button.
 esp_err_t handleReset(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
@@ -399,7 +400,6 @@ esp_err_t handleReset(httpd_req_t* req) {
     if (!setup_page::confirmsReset(*body)) {
         return sendText(req, "400 Bad Request", "text/plain", "not confirmed");
     }
-    setup_mode::eraseEverything();
     esp_err_t err = sendHtml(req, setup_page::renderErased());
     xEventGroupSetBits(gEvents, kErasedBit);
     return err;
@@ -607,6 +607,7 @@ esp_err_t startOnLan(const Settings& current) {
 }
 
 bool wasSaved() { return gEvents && (xEventGroupGetBits(gEvents) & (kSavedBit | kErasedBit)); }
+bool eraseAsked() { return gEvents && (xEventGroupGetBits(gEvents) & kErasedBit); }
 
 Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
     while (true) {
@@ -638,9 +639,7 @@ Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
 }
 
 void eraseEverything() {
-    for (int slot : photo_store::list()) {
-        photo_store::remove(slot);
-    }
+    photo_store::eraseAll();
     settings::eraseAll();
     wake_log_store::eraseAll();
     ESP_LOGW(kTag, "everything erased");

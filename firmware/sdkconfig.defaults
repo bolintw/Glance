@@ -46,8 +46,19 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_RTC_CLK_SRC_EXT_CRYS=y
 
 # OTA updates (components/ota_update): a fresh update must mark itself valid
-# after a successful run, or the bootloader rolls back to the previous one.
+# by reading the release manifest, or the bootloader rolls back to the
+# previous one.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# NVS encrypted (settings::initStorage): keys derived through the HMAC
+# peripheral from a key the first encrypted init generates and burns into
+# eFuse block KEY5 -- the last one, leaving the others for flash encryption
+# or secure boot should they ever come. A flash dump then shows no WiFi
+# password or calendar URL; firmware flashed by someone else could still
+# have the chip derive the keys (no secure boot).
+CONFIG_NVS_ENCRYPTION=y
+CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y
+CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=5
 
 # The board's only serial port is the chip's native USB (no UART bridge),
 # so make it the primary console: output is the same, and stdin reads from
