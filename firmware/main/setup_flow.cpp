@@ -32,7 +32,7 @@ void showScreen(const std::function<void(Canvas&)>& draw) {
 // power, and a press wakes it into a first setup (no WiFi saved). No timer:
 // it can sit for years.
 [[noreturn]] void ship() {
-    ESP_LOGW(kTag, "everything erased: the shipping screen, then asleep until the button");
+    ESP_LOGW(kTag, "the shipping screen, then asleep until the button");
     showScreen([](Canvas& canvas) { setup_view::renderShip(canvas); });
     peripheralsOff();
     gBoot.magic = 0;  // forget this boot state too
@@ -40,21 +40,34 @@ void showScreen(const std::function<void(Canvas&)>& draw) {
 }
 
 // Setup mode gives up (and goes back to the calendar) after this long
-// without anyone loading its page.
+// without anyone loading its page...
 constexpr uint32_t kSetupIdleTimeoutMs = 10 * 60 * 1000;
+// ...or, on the access point, after this long without anyone joining it.
+constexpr uint32_t kAccessPointUnusedTimeoutMs = 5 * 60 * 1000;
 // ...and after this long in any case (see setup_mode::waitForEvent).
 constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
 
-// Either setup step's events, until it ends in a restart.
-[[noreturn]] void runSetupEvents(bool onAccessPoint, const std::string& accessPointUrl) {
+// Either setup step's events, until it ends in a restart -- or, for a
+// first setup left alone, the shipping screen.
+[[noreturn]] void runSetupEvents(bool onAccessPoint, const std::string& accessPointUrl, bool firstSetup) {
+    bool joined = false;
     while (true) {
-        switch (setup_mode::waitForEvent(kSetupIdleTimeoutMs, kSetupSessionLimitMs)) {
+        uint32_t idleTimeoutMs = onAccessPoint && !joined ? kAccessPointUnusedTimeoutMs : kSetupIdleTimeoutMs;
+        switch (setup_mode::waitForEvent(idleTimeoutMs, kSetupSessionLimitMs)) {
             case setup_mode::Event::saved:
                 ESP_LOGI(kTag, "leaving setup mode (saved)");
                 gBoot.justConfigured = true;
                 gBoot.homeStepNext = onAccessPoint;
                 restartInto(false);
             case setup_mode::Event::idle:
+                if (firstSetup) {
+                    // No WiFi saved to go back to: a restart would only open
+                    // the access point again, over and over until the
+                    // battery runs out. Back to waiting for the button.
+                    ESP_LOGI(kTag, "leaving setup mode (idle, nothing set up)");
+                    setup_mode::close();
+                    ship();
+                }
                 ESP_LOGI(kTag, "leaving setup mode (idle)");
                 restartInto(false);
             case setup_mode::Event::erased:
@@ -63,6 +76,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                 setup_mode::close();
                 restartToErase();
             case setup_mode::Event::joined: {
+                joined = true;
                 // The phone is in: take the QR code (and the access point's
                 // password) off the screen so nobody else can use them. On
                 // the access point, the page's address stays in case it
@@ -103,7 +117,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     setup_view::render(canvas, ap.qrPayload, ap.ssid, ap.password, ap.url);
     show(framebuffer);
     gPhase = Phase::setup;
-    runSetupEvents(true, ap.url);
+    runSetupEvents(true, ap.url, current.wifiSsid.empty());
 }
 
 // Calendars, weather and photos, on the home network: the phone keeps its
@@ -130,7 +144,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     setup_view::renderLan(canvas, home.qrPayload);
     show(framebuffer);
     gPhase = Phase::setup;
-    runSetupEvents(false, {});
+    runSetupEvents(false, {}, false);
 }
 
 }  // namespace
