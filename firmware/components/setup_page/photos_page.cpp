@@ -40,6 +40,7 @@ button{padding:.6rem;font-size:1rem}
 <div class="thumbs" id="thumbs"></div>
 
 <h2>新增照片</h2>
+<p class="note" id="room"></p>
 <input type="file" id="file" accept="image/*">
 <div id="editor">
   <p class="note">拖曳預覽來移動照片，預覽就是電子紙上的樣子；右下角的白框是日期和天氣的位置。縮小可以放進整張照片，空出來的地方填白色或黑色。</p>
@@ -130,7 +131,12 @@ async function refresh() {
   const shown = info.photos.filter(p => p.width === W && p.height === H).length;
   status(`已上傳 ${info.photos.length} / ${info.max} 張，${shown} 張是${shapeName(W, H)}的` +
          (!shown ? '（目前輪播內建的浮世繪）' : info.builtIn ? '（和內建的浮世繪一起輪播）' : ''));
-  $('file').disabled = info.photos.length >= info.max;
+  // Room goes by photos, not bytes: every photo takes the same fixed slot.
+  const left = info.max - info.photos.length;
+  $('room').textContent = left > 0
+    ? `還可以再上傳 ${left} 張（每張照片佔一樣的空間，直的橫的都一樣）。`
+    : `已經存滿 ${info.max} 張了：先刪掉幾張，才能再上傳。`;
+  $('file').disabled = left <= 0;
   const thumbs = $('thumbs');
   thumbs.textContent = '';
   for (const photo of info.photos) {
