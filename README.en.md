@@ -13,6 +13,13 @@
 | ![The calendar screen: date, weather and the next ten events](docs/images/screen-calendar.png) | ![Privacy mode: a photo filling the screen, the date and a guest WiFi QR code in the corner](docs/images/screen-photo.png) |
 | Today's date, the day's weather, and the next ten events from up to five calendars (Google Calendar, iCloud, or anything with an iCal link). Just the date and the title: the details are on your phone. | Guests coming over? One press of the button swaps the events for a photo that fills the screen, with a small corner left for the date and the weather, or a QR code your friends scan to join your WiFi. Upload your own photos from your phone, or keep the two Hokusai prints it comes with. |
 
+It can stand upright too:
+
+| The calendar, upright | Privacy mode, upright |
+|---|---|
+| <img src="docs/images/screen-calendar-portrait.png" width="300" alt="The calendar upright: the date and weather on top, twelve events in one column below"> | <img src="docs/images/screen-photo-portrait.png" width="300" alt="Privacy mode upright: an upright photo filling the screen, the date and weather in the corner"> |
+| The events in one column, twelve at a glance. | Photos come upright or sideways; standing upright, it shows the upright ones. |
+
 A few more things it can do:
 
 -   **A photo frame**: set up no calendar at all, and it shows your photos with the date and weather.

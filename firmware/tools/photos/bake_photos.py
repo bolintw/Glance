@@ -50,7 +50,7 @@ PHOTOS = [
         "https://upload.wikimedia.org/wikipedia/commons/5/57/Red_Fuji_southern_wind_clear_morning.jpg",
         "6266cbb436f958b3197f6a048c3a738a7353eb4d6f37702970ee9feb689f47cd",
         0.42,
-        0.62,
+        0.8,
         "Katsushika Hokusai, Fine Wind, Clear Morning (c. 1831), public domain",
     ),
 ]
