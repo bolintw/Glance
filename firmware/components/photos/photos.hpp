@@ -6,16 +6,15 @@
 
 #include "canvas.hpp"
 
-// Privacy mode's photos: the photo frame's size, and the built-in ones
-// shown until the user uploads their own.
+// Privacy mode's photos fill the screen: kWidth x kHeight landscape, the
+// other way round in portrait. The built-in ones, in four gray levels, the
+// same prints in the same order both ways.
 namespace photos {
 
-inline constexpr int kWidth = 730;
-inline constexpr int kHeight = 280;
+inline constexpr int kWidth = 800;
+inline constexpr int kHeight = 480;
 
-// The same photos twice: dithered to black and white, and to four gray
-// levels for panels with a 4-gray mode. Same order in both.
-extern const std::span<const Bitmap> kBuiltIn;
-extern const std::span<const GrayBitmap> kBuiltInGray;
+extern const std::span<const GrayBitmap> kLandscape;  // kWidth x kHeight
+extern const std::span<const GrayBitmap> kPortrait;   // kHeight x kWidth
 
 }  // namespace photos

@@ -63,8 +63,17 @@ bool confirmsReset(std::string_view body);
 // The privacy-mode photos page (static; its script loads the list from
 // /photos/list and does all the image processing).
 std::string renderPhotosPage();
-// GET /photos/list: {"max":20,"width":730,"height":280,"slots":[0,3]}.
-std::string photosListJson(std::span<const int> slots, size_t max, int width, int height);
+// A stored photo: its slot and size (800x480 landscape, 480x800 portrait).
+struct StoredPhoto {
+    int slot;
+    int width;
+    int height;
+};
+// GET /photos/list: {"max":20,"width":800,"height":480,"builtIn":true,
+// "photos":[{"slot":0,"width":800,"height":480},...]} -- width and height
+// are the screen's as the device stands now, the shape an upload is cropped
+// to; builtIn is Settings::builtInPhotos.
+std::string photosListJson(std::span<const StoredPhoto> photos, size_t max, int width, int height, bool builtIn);
 
 struct FormResult {
     Settings settings;

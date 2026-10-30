@@ -8,6 +8,7 @@
 #include <string>
 #include <cstring>
 #include <ctime>
+#include <utility>
 #include <vector>
 
 #include "captive_dns.hpp"
@@ -40,7 +41,7 @@ constexpr std::array<uint8_t, 4> kApIp = {192, 168, 4, 1};  // ESP-IDF's default
 constexpr const char* kPageUrl = "http://192.168.4.1/";
 constexpr size_t kMaxNearby = 15;
 constexpr size_t kMaxFormBytes = 8 * 1024;
-constexpr size_t kMaxPhotoBytes = 128 * 1024;  // one upload is ~75KB
+constexpr size_t kMaxPhotoBytes = 128 * 1024;  // one upload is 96,000 bytes
 constexpr int kSavedBit = BIT0;
 constexpr int kJoinedBit = BIT1;    // first station joined: take the QR code down
 constexpr int kIntruderBit = BIT2;  // a second device got in: close up
@@ -265,6 +266,12 @@ std::optional<Buffer> readBody(httpd_req_t* req, size_t maxBytes) {
     return body;
 }
 
+// The screen's width and height as the device stands (Settings::portrait):
+// the shape of the photos privacy mode shows, and of an upload.
+std::pair<int, int> screenShape() {
+    return gCurrent.portrait ? std::pair{photos::kHeight, photos::kWidth} : std::pair{photos::kWidth, photos::kHeight};
+}
+
 // The slot number in "/photos/<n>" or "/photos/<n>/delete"; -1 if none.
 int slotFromUri(const char* uri) {
     int slot = -1;
@@ -285,9 +292,13 @@ esp_err_t handlePhotosList(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
-    std::vector<int> slots = photo_store::list();
+    std::vector<setup_page::StoredPhoto> stored;
+    for (const photo_store::Entry& entry : photo_store::list()) {
+        stored.push_back({entry.slot, entry.width, entry.height});
+    }
+    const auto [width, height] = screenShape();
     return sendText(req, "200 OK", "application/json",
-                    setup_page::photosListJson(slots, photo_store::kMaxPhotos, photos::kWidth, photos::kHeight));
+                    setup_page::photosListJson(stored, photo_store::kMaxPhotos, width, height, gCurrent.builtInPhotos));
 }
 
 // GET /photos/<n>: the stored 2bpp image, for the page's thumbnails.
@@ -314,10 +325,12 @@ esp_err_t handlePhotoAdd(httpd_req_t* req) {
     if (!body) {
         return ESP_FAIL;
     }
-    if (!photo_format::isUpload(*body, photos::kWidth, photos::kHeight)) {
+    // Cropped by the page to the screen as the device stands now.
+    const auto [width, height] = screenShape();
+    if (!photo_format::isUpload(*body, width, height)) {
         return sendText(req, "400 Bad Request", "text/plain; charset=utf-8", "照片資料大小不對");
     }
-    int slot = photo_store::add(*body, photos::kWidth, photos::kHeight);
+    int slot = photo_store::add(*body, width, height);
     if (slot < 0) {
         return sendText(req, "507 Insufficient Storage", "text/plain; charset=utf-8", "照片已滿或寫入失敗");
     }

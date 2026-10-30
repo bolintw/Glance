@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bakes the built-in privacy-mode photos into components/photos/: each one
-cropped to the photo frame and dithered twice -- to 1bpp (a Bitmap) and to
-four gray levels for panels with a 4-gray mode (a GrayBitmap).
+cropped to the whole screen twice, landscape and portrait, and dithered to
+four gray levels (a GrayBitmap).
 
     ../font_subset/.venv/bin/python bake_photos.py
 
@@ -22,8 +22,8 @@ HERE = Path(__file__).resolve().parent
 CACHE = HERE / ".cache"
 OUT_DIR = HERE.parent.parent / "components" / "photos"
 
-# Must match photos.hpp / the calendar view's photo frame.
-WIDTH, HEIGHT = 730, 280
+# The screen, landscape and portrait (photos.hpp).
+WIDTH, HEIGHT = 800, 480
 
 
 @dataclass
@@ -31,7 +31,8 @@ class Photo:
     name: str  # C++ symbol suffix
     url: str
     sha256: str
-    center_y: float  # vertical crop position, 0 = top, 1 = bottom
+    center_y: float  # landscape: vertical crop position, 0 = top, 1 = bottom
+    center_x: float  # portrait: horizontal crop position, 0 = left, 1 = right
     credit: str
 
 
@@ -41,6 +42,7 @@ PHOTOS = [
         "https://upload.wikimedia.org/wikipedia/commons/a/a5/Tsunami_by_hokusai_19th_century.jpg",
         "30c170260de393f51bd592adacc6f0714b60f157c09744e9c5b6d46e6a613718",
         0.55,
+        0.62,
         "Katsushika Hokusai, The Great Wave off Kanagawa (c. 1831), public domain",
     ),
     Photo(
@@ -48,6 +50,7 @@ PHOTOS = [
         "https://upload.wikimedia.org/wikipedia/commons/5/57/Red_Fuji_southern_wind_clear_morning.jpg",
         "6266cbb436f958b3197f6a048c3a738a7353eb4d6f37702970ee9feb689f47cd",
         0.42,
+        0.62,
         "Katsushika Hokusai, Fine Wind, Clear Morning (c. 1831), public domain",
     ),
 ]
@@ -102,12 +105,12 @@ def pack(levels, w, h, bits):
     return bytes(rows)
 
 
-def bake(photo):
-    """(1bpp bits, 2bpp bits) for the photo."""
+def bake(photo, width, height, centering):
+    """The photo cropped to width x height, as 2bpp bits."""
     img = Image.open(fetch(photo)).convert("L")
-    img = ImageOps.fit(img, (WIDTH, HEIGHT), Image.LANCZOS, centering=(0.5, photo.center_y))
+    img = ImageOps.fit(img, (width, height), Image.LANCZOS, centering=centering)
     img = ImageOps.autocontrast(img, cutoff=1)
-    return pack(atkinson_levels(img, 2), WIDTH, HEIGHT, 1), pack(atkinson_levels(img, 4), WIDTH, HEIGHT, 2)
+    return pack(atkinson_levels(img, 4), width, height, 2)
 
 
 def emit_array(lines, name, bits):
@@ -128,20 +131,18 @@ def main():
         "",
     ]
     for photo in PHOTOS:
-        mono, gray = bake(photo)
         lines.append(f"// {photo.credit}")
         lines.append(f"// {photo.url}")
-        emit_array(lines, f"k{photo.name}", mono)
-        emit_array(lines, f"k{photo.name}Gray", gray)
-    lines.append("constexpr Bitmap kPhotos[] = {")
-    for photo in PHOTOS:
-        lines.append(f"    {{photos::kWidth, photos::kHeight, k{photo.name}}},")
-    lines += ["};", "", "constexpr GrayBitmap kGrayPhotos[] = {"]
-    for photo in PHOTOS:
-        lines.append(f"    {{photos::kWidth, photos::kHeight, k{photo.name}Gray}},")
-    lines += ["};", "", "}  // namespace", "", "namespace photos {", "",
-              "const std::span<const Bitmap> kBuiltIn{kPhotos};",
-              "const std::span<const GrayBitmap> kBuiltInGray{kGrayPhotos};", "", "}  // namespace photos", ""]
+        emit_array(lines, f"k{photo.name}Landscape", bake(photo, WIDTH, HEIGHT, (0.5, photo.center_y)))
+        emit_array(lines, f"k{photo.name}Portrait", bake(photo, HEIGHT, WIDTH, (photo.center_x, 0.5)))
+    for orientation, (w, h) in (("Landscape", ("kWidth", "kHeight")), ("Portrait", ("kHeight", "kWidth"))):
+        lines.append(f"constexpr GrayBitmap k{orientation}Photos[] = {{")
+        for photo in PHOTOS:
+            lines.append(f"    {{photos::{w}, photos::{h}, k{photo.name}{orientation}}},")
+        lines += ["};", ""]
+    lines += ["}  // namespace", "", "namespace photos {", "",
+              "const std::span<const GrayBitmap> kLandscape{kLandscapePhotos};",
+              "const std::span<const GrayBitmap> kPortrait{kPortraitPhotos};", "", "}  // namespace photos", ""]
     (OUT_DIR / "default_photos.cpp").write_text("\n".join(lines), encoding="utf-8")
 
     header = f"""#pragma once
@@ -152,17 +153,16 @@ def main():
 
 #include "canvas.hpp"
 
-// Privacy mode's photos: the photo frame's size, and the built-in ones
-// shown until the user uploads their own.
+// Privacy mode's photos fill the screen: kWidth x kHeight landscape, the
+// other way round in portrait. The built-in ones, in four gray levels, the
+// same prints in the same order both ways.
 namespace photos {{
 
 inline constexpr int kWidth = {WIDTH};
 inline constexpr int kHeight = {HEIGHT};
 
-// The same photos twice: dithered to black and white, and to four gray
-// levels for panels with a 4-gray mode. Same order in both.
-extern const std::span<const Bitmap> kBuiltIn;
-extern const std::span<const GrayBitmap> kBuiltInGray;
+extern const std::span<const GrayBitmap> kLandscape;  // kWidth x kHeight
+extern const std::span<const GrayBitmap> kPortrait;   // kHeight x kWidth
 
 }}  // namespace photos
 """
@@ -173,8 +173,8 @@ extern const std::span<const GrayBitmap> kBuiltInGray;
         "                    REQUIRES canvas)\n",
         encoding="utf-8",
     )
-    size = len(PHOTOS) * HEIGHT * ((WIDTH + 7) // 8 + (WIDTH + 3) // 4)
-    print(f"{len(PHOTOS)} photos, {size / 1024:.0f} KB")
+    size = 2 * len(PHOTOS) * HEIGHT * ((WIDTH + 3) // 4)
+    print(f"{len(PHOTOS)} photos, both ways, {size / 1024:.0f} KB")
 
 
 if __name__ == "__main__":

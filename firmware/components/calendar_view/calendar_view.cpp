@@ -1,12 +1,12 @@
 #include "calendar_view.hpp"
 
+#include <array>
 #include <cstdio>
 #include <string>
 #include <utility>
 
 #include "fonts.hpp"
 #include "icons.hpp"
-#include "photos.hpp"
 #include "ics_datetime.hpp"
 #include "qrcodegen.h"
 
@@ -62,18 +62,38 @@ constexpr int kFirstRowY = 165;
 constexpr int kRowPitch = 48;
 constexpr int kRowsPerColumn = 5;
 constexpr int kMaxTextWidth = 331;
-// The photo sits inside the box's 2px border with a 2px gap.
-constexpr int kPhotoX = kBoxX + 4, kPhotoY = kBoxY + 4;
-static_assert(photos::kWidth == kBoxWidth - 8 && photos::kHeight == kBoxHeight - 8);
 
-// The corner QR code (a guest WiFi, a link...), in privacy mode, where the weather goes: a frame
-// like the photo box's, right-aligned with it, and the code on white inside
-// with a black gap. The status icons move left of the frame.
-constexpr int kQrFrameSize = 144, kQrFrameY = 8;
-constexpr int kQrFrameX = kBoxX + kBoxWidth - kQrFrameSize;
-constexpr int kQrMaxSize = kQrFrameSize - 12;  // inside the 2px border and a 4px gap
+// Privacy mode: the photo fills the screen, with a white label in the
+// bottom-right corner -- two squares stacked, the date, then the weather or
+// a QR code (a guest WiFi, a link...). Placed from the screen's corner, so
+// the same code serves landscape (800x480) and portrait (480x800).
+constexpr int kLabelSquare = 150, kLabelMargin = 16, kLabelRadius = 15;
+constexpr int kLabelDividerInset = 16;
+constexpr int kLabelMonthBaseline = 44, kLabelDayBaseline = 132;  // within the date square
+constexpr int kLabelIconBaseline = 78, kLabelTempBaseline = 108, kLabelRainBaseline = 134;  // within the weather square
+constexpr int kLabelQrMaxSize = kLabelSquare - 16;
 constexpr int kQrQuietZone = 2;  // modules; the white around the code
-constexpr int kQrStatusRight = kQrFrameX - 10;
+constexpr int kLabelStatusRow = kStatusIconSize + 12;  // on top of the label, only when something is wrong
+
+// Portrait (480x800): the same header pieces with the weather stacked in a
+// column on the right, and one column of events under it.
+namespace portrait {
+constexpr int kYearX = 32, kYearBaseline = 58;
+constexpr int kHeaderBaseline = 140;
+constexpr int kMonthX = 32;
+constexpr int kDayCenter = 212;
+constexpr int kWeekdayX = 286;
+constexpr int kHeaderDividerX[] = {150, 274};
+constexpr int kHeaderDividerTop = 83, kHeaderDividerBottom = 140;
+constexpr int kWeatherCenter = 400;
+constexpr int kWeatherIconBaseline = 100, kTempBaseline = 130, kRainBaseline = 156;
+constexpr int kStatusIconRight = 330, kStatusIconBaseline = 50;
+constexpr int kBoxX = 24, kBoxY = 180, kBoxWidth = 432, kBoxHeight = 596;
+constexpr int kTextX = 44, kRuleX = 40, kRuleWidth = 400;
+constexpr int kFirstRowY = 185;
+constexpr int kRows = 12;
+constexpr int kMaxTextWidth = 392;
+}  // namespace portrait
 
 constexpr const char* kMonths[] = {"Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.",
                                    "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."};
@@ -140,30 +160,46 @@ void drawWeather(Canvas& canvas, const weather::Forecast& forecast, Color ink) {
     drawOnBaseline(canvas, kRainChanceX, kWeatherTextBaseline, text, kNotoSansTcBold20, ink);
 }
 
-void drawStatus(Canvas& canvas, Status status, Color ink, int right = kStatusIconRight) {
-    for (auto [shown, icon] : {std::pair{status.lowBattery, icons::kBatteryLow}, std::pair{status.offline, icons::kWifiOff},
-                               std::pair{status.calendarError, icons::kCalendarError},
-                               std::pair{status.weatherError, icons::kWeatherError}}) {
+// Right to left: the battery goes rightmost, like on a phone.
+std::array<std::pair<bool, const char*>, 4> statusIcons(Status status) {
+    return {{{status.lowBattery, icons::kBatteryLow},
+             {status.offline, icons::kWifiOff},
+             {status.calendarError, icons::kCalendarError},
+             {status.weatherError, icons::kWeatherError}}};
+}
+
+void drawStatus(Canvas& canvas, Status status, Color ink, int right = kStatusIconRight,
+                int baseline = kStatusIconBaseline) {
+    for (auto [shown, icon] : statusIcons(status)) {
         if (shown) {
-            drawOnBaseline(canvas, right - kStatusIconSize, kStatusIconBaseline, icon, kWeatherIcons, ink);
+            drawOnBaseline(canvas, right - kStatusIconSize, baseline, icon, kWeatherIcons, ink);
             right -= kStatusIconSize + kStatusIconGap;
         }
     }
 }
 
-void drawCornerQr(Canvas& canvas, std::string_view payload, Color ink) {
+int statusIconsShown(Status status) {
+    int shown = 0;
+    for (auto [on, icon] : statusIcons(status)) {
+        shown += on ? 1 : 0;
+    }
+    return shown;
+}
+
+// A QR code on white, centered at (centerX, centerY) and at most maxSize
+// square. False (nothing drawn) if the payload doesn't fit version 10.
+bool drawQr(Canvas& canvas, std::string_view payload, int centerX, int centerY, int maxSize) {
     std::string text(payload);
     uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
     uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
     if (!qrcodegen_encodeText(text.c_str(), temp, qr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 10,
                               qrcodegen_Mask_AUTO, true)) {
-        return;  // too long for version 10; can't happen for an SSID + password
+        return false;  // too long for version 10; can't happen for an SSID + password
     }
-    canvas.roundedRect(kQrFrameX, kQrFrameY, kQrFrameSize, kQrFrameSize, kBoxRadius, 2, ink);
     int modules = qrcodegen_getSize(qr);
-    int scale = kQrMaxSize / (modules + 2 * kQrQuietZone);
+    int scale = maxSize / (modules + 2 * kQrQuietZone);
     int size = (modules + 2 * kQrQuietZone) * scale;
-    int left = kQrFrameX + (kQrFrameSize - size) / 2, top = kQrFrameY + (kQrFrameSize - size) / 2;
+    int left = centerX - size / 2, top = centerY - size / 2;
     canvas.fillRect(left, top, size, size, Color::white);
     for (int y = 0; y < modules; y++) {
         for (int x = 0; x < modules; x++) {
@@ -173,12 +209,40 @@ void drawCornerQr(Canvas& canvas, std::string_view payload, Color ink) {
             }
         }
     }
+    return true;
 }
 
-void drawBox(Canvas& canvas, Color ink) { canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, ink); }
+void drawCentered(Canvas& canvas, int centerX, int baseline, std::string_view text, const Font& font, Color ink) {
+    drawOnBaseline(canvas, centerX - measureText(text, font) / 2, baseline, text, font, ink);
+}
+
+// The label's date square: month over the day of the month.
+void drawLabelDate(Canvas& canvas, ics::Date today, int left, int top) {
+    const int center = left + kLabelSquare / 2;
+    drawCentered(canvas, center, top + kLabelMonthBaseline, kMonths[today.month - 1], kNotoSansTcBold30,
+                 Color::black);
+    char day[4];
+    std::snprintf(day, sizeof(day), "%d", today.day);
+    drawCentered(canvas, center, top + kLabelDayBaseline, day, kNotoSansTcRegular100, Color::black);
+}
+
+// The label's weather square: the icon, the temperatures, the
+// chance of rain.
+void drawLabelWeather(Canvas& canvas, const weather::Forecast& forecast, int left, int top) {
+    const int center = left + kLabelSquare / 2;
+    drawCentered(canvas, center, top + kLabelIconBaseline, iconFor(forecast.condition), kWeatherIcons, Color::black);
+    char text[24];
+    std::snprintf(text, sizeof(text), "%d° - %d°", forecast.minTemp, forecast.maxTemp);
+    drawCentered(canvas, center, top + kLabelTempBaseline, text, kNotoSansTcBold20, Color::black);
+    std::snprintf(text, sizeof(text), "%d%%", forecast.rainChance);
+    const int dropWidth = measureText(icons::kRaindrop, kWeatherIcons);
+    const int rainLeft = center - (dropWidth + 2 + measureText(text, kNotoSansTcBold20)) / 2;
+    drawOnBaseline(canvas, rainLeft, top + kLabelRainBaseline + 3, icons::kRaindrop, kWeatherIcons, Color::black);
+    drawOnBaseline(canvas, rainLeft + dropWidth + 2, top + kLabelRainBaseline, text, kNotoSansTcBold20, Color::black);
+}
 
 void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events, Color ink) {
-    drawBox(canvas, ink);
+    canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, ink);
     canvas.fillRect(kColumnDividerX, kBoxY, 2, kBoxHeight, ink);
     for (int column = 0; column < 2; column++) {
         for (int row = 1; row <= kRowsPerColumn; row++) {  // a rule under every row
@@ -204,6 +268,20 @@ void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurr
     }
 }
 
+// The label grows up from the bottom-right corner: the date
+// square, the weather or QR square under it if there is one, and a row of
+// status icons on top when something is wrong.
+struct Label {
+    int x, top, bottom;
+};
+
+Label labelFor(int screenWidth, int screenHeight, Status status, bool lowerSquare) {
+    const int bottom = screenHeight - kLabelMargin;
+    return {screenWidth - kLabelMargin - kLabelSquare,
+            bottom - kLabelSquare * (lowerSquare ? 2 : 1) - (statusIconsShown(status) > 0 ? kLabelStatusRow : 0),
+            bottom};
+}
+
 struct Colors {
     Color background;
     Color ink;
@@ -214,17 +292,6 @@ Colors colorsFor(Theme theme) {
 }
 
 }  // namespace
-
-bool isDarkPhoto(const Bitmap& photo) {
-    size_t white = 0;
-    const size_t rowBytes = Bitmap::rowBytes(photo.width);
-    for (int y = 0; y < photo.height; y++) {
-        for (int x = 0; x < photo.width; x++) {
-            white += (photo.bits[y * rowBytes + x / 8] >> (7 - x % 8)) & 1;
-        }
-    }
-    return white * 2 < static_cast<size_t>(photo.width) * photo.height;
-}
 
 void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
             const std::optional<weather::Forecast>& forecast, Status status, Theme theme) {
@@ -239,27 +306,93 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
 }
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
-                   const std::optional<weather::Forecast>& forecast, const Bitmap& photo, Status status,
-                   std::string_view cornerQr, Theme theme) {
-    const auto [background, ink] = colorsFor(theme);
-    canvas.fill(background);
-    if (now) {
-        drawHeader(canvas, localDate(*now, utcOffset), ink);
-    }
-    if (!cornerQr.empty()) {
-        drawCornerQr(canvas, cornerQr, ink);
-        drawStatus(canvas, status, ink, kQrStatusRight);
-    } else {
-        if (forecast) {
-            drawWeather(canvas, *forecast, ink);
+                   const std::optional<weather::Forecast>& forecast, const GrayBitmap& photo, Status status,
+                   std::string_view cornerQr) {
+    // The black-and-white stand-in: the two light levels white.
+    for (int y = 0; y < photo.height; y++) {
+        for (int x = 0; x < photo.width; x++) {
+            canvas.setPixel(x, y, photo.level(x, y) >= 2 ? Color::white : Color::black);
         }
-        drawStatus(canvas, status, ink);
     }
-    drawBox(canvas, ink);
-    canvas.drawBitmap(kPhotoX, kPhotoY, photo);
+    const bool lowerSquare = !cornerQr.empty() || forecast;
+    const auto [x, top, bottom] = labelFor(static_cast<int>(canvas.frame().width),
+                                           static_cast<int>(canvas.frame().height), status, lowerSquare);
+    canvas.roundedRect(x, top, kLabelSquare, bottom - top, kLabelRadius, kLabelSquare / 2, Color::white);
+    int y = top;
+    if (statusIconsShown(status) > 0) {
+        drawStatus(canvas, status, Color::black, x + kLabelSquare - kLabelDividerInset + 4, y + kLabelStatusRow - 2);
+        y += kLabelStatusRow;
+    }
+    if (now) {
+        drawLabelDate(canvas, localDate(*now, utcOffset), x, y);
+    }
+    if (!lowerSquare) {
+        return;
+    }
+    y += kLabelSquare;
+    canvas.fillRect(x + kLabelDividerInset, y, kLabelSquare - 2 * kLabelDividerInset, 2, Color::black);
+    if (!cornerQr.empty()) {
+        drawQr(canvas, cornerQr, x + kLabelSquare / 2, y + kLabelSquare / 2, kLabelQrMaxSize);
+    } else {
+        drawLabelWeather(canvas, *forecast, x, y);
+    }
 }
 
-GrayOverlay photoOverlay(const GrayBitmap& photo) { return {kPhotoX, kPhotoY, photo}; }
+GrayOverlay photoOverlay(const GrayBitmap& photo, const std::optional<weather::Forecast>& forecast, Status status,
+                         std::string_view cornerQr) {
+    // The photo is the screen's size; taller than wide, the screen is a
+    // portrait one.
+    const auto [x, top, bottom] = labelFor(photo.width, photo.height, status, !cornerQr.empty() || forecast);
+    return {0, 0, photo, x, top, kLabelSquare, bottom - top, photo.height > photo.width};
+}
+
+void renderPortrait(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
+                    const std::optional<weather::Forecast>& forecast, Status status, Theme theme) {
+    const auto [background, ink] = colorsFor(theme);
+    canvas.fill(background);
+
+    const ics::Date today = localDate(now, utcOffset);
+    char text[24];
+    std::snprintf(text, sizeof(text), "%d", today.year);
+    drawOnBaseline(canvas, portrait::kYearX, portrait::kYearBaseline, text, kNotoSansTcBold40, ink);
+    drawOnBaseline(canvas, portrait::kMonthX, portrait::kHeaderBaseline, kMonths[today.month - 1], kNotoSansTcMedium50, ink);
+    std::snprintf(text, sizeof(text), "%d", today.day);
+    drawCentered(canvas, portrait::kDayCenter, portrait::kHeaderBaseline, text, kNotoSansTcRegular100, ink);
+    drawOnBaseline(canvas, portrait::kWeekdayX, portrait::kHeaderBaseline - 4, kWeekdays[ics::weekdayOf(today)], kNotoSansTcBold40, ink);
+    for (int x : portrait::kHeaderDividerX) {
+        canvas.fillRect(x, portrait::kHeaderDividerTop, 1, portrait::kHeaderDividerBottom - portrait::kHeaderDividerTop, ink);
+    }
+
+    if (forecast) {
+        drawCentered(canvas, portrait::kWeatherCenter, portrait::kWeatherIconBaseline, iconFor(forecast->condition), kWeatherIcons, ink);
+        std::snprintf(text, sizeof(text), "%d° - %d°", forecast->minTemp, forecast->maxTemp);
+        drawCentered(canvas, portrait::kWeatherCenter, portrait::kTempBaseline, text, kNotoSansTcBold20, ink);
+        std::snprintf(text, sizeof(text), "%d%%", forecast->rainChance);
+        const int dropWidth = measureText(icons::kRaindrop, kWeatherIcons);
+        const int left = portrait::kWeatherCenter - (dropWidth + 2 + measureText(text, kNotoSansTcBold20)) / 2;
+        drawOnBaseline(canvas, left, portrait::kRainBaseline + 3, icons::kRaindrop, kWeatherIcons, ink);
+        drawOnBaseline(canvas, left + dropWidth + 2, portrait::kRainBaseline, text, kNotoSansTcBold20, ink);
+    }
+    drawStatus(canvas, status, ink, portrait::kStatusIconRight, portrait::kStatusIconBaseline);
+
+    canvas.roundedRect(portrait::kBoxX, portrait::kBoxY, portrait::kBoxWidth, portrait::kBoxHeight, kBoxRadius, 2, ink);
+    for (int row = 1; row <= portrait::kRows; row++) {
+        dottedRule(canvas, portrait::kRuleX, portrait::kFirstRowY + row * kRowPitch - 5, portrait::kRuleWidth, ink);
+    }
+    if (events.empty()) {
+        canvas.drawText(portrait::kTextX, portrait::kFirstRowY, "沒有接下來的行程", kNotoSansTcBold30, ink);
+        return;
+    }
+    for (size_t i = 0; i < events.size() && i < portrait::kRows; i++) {
+        const ics::Occurrence& event = events[i];
+        ics::Date date = localDate(event.start, utcOffset);
+        char prefix[16];
+        std::snprintf(prefix, sizeof(prefix), "%d/%d : ", date.month, date.day);
+        std::string line = std::string(prefix) + (event.summary.empty() ? "(無標題)" : event.summary);
+        canvas.drawText(portrait::kTextX, portrait::kFirstRowY + static_cast<int>(i) * kRowPitch,
+                        ellipsize(line, kNotoSansTcBold30, portrait::kMaxTextWidth), kNotoSansTcBold30, ink);
+    }
+}
 
 void renderChargeReminder(Canvas& canvas) {
     canvas.fill(kBackground);

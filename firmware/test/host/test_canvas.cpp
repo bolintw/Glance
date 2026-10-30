@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "calendar_view.hpp"
@@ -208,34 +209,87 @@ void testGrayOverlay() {
     CHECK(truncated.composedLevel(t.fb, kFrame, 9, 3) == 0);
 }
 
-// The themes: background and ink swap, the photo is drawn as it is.
-void testThemes() {
+// A cutout leaves its part of the overlay to the framebuffer; a portrait
+// overlay reads the framebuffer and itself turned (portraitOf the panel).
+void testOverlayCutoutAndPortrait() {
+    constexpr FrameSize kPanel{.width = 16, .height = 8};
+    constexpr FrameSize kTall = portraitOf(kPanel);  // 8 x 16
+    std::vector<uint8_t> fb(kTall.framebufferSize(), 0xFF);
+    Canvas canvas(fb, kTall);
+    canvas.setPixel(1, 3, Color::black);
+    // turnToLandscape: the portrait pixel (1, 3) lands on the panel's (3, 8 - 1 - 1).
+    std::vector<uint8_t> panel(kPanel.framebufferSize(), 0xFF);
+    turnToLandscape(fb, panel, kPanel);
+    int black = 0;
+    for (int y = 0; y < 8; y++) {
+        for (int x = 0; x < 16; x++) {
+            bool isBlack = !(panel[y * kPanel.bytesPerRow() + x / 8] & (0x80 >> (x % 8)));
+            black += isBlack;
+            if (isBlack) {
+                CHECK(x == 3 && y == 6);
+            }
+        }
+    }
+    CHECK(black == 1);
+
+    // An all-light-gray (level 2) portrait overlay over the whole screen,
+    // with the framebuffer showing through a cutout at (0..2, 2..4).
+    std::vector<uint8_t> gray(GrayBitmap::sizeFor(8, 16), 0xAA);
+    GrayOverlay overlay{0, 0, {8, 16, gray}, 0, 2, 2, 2, true};
+    CHECK(overlay.composedLevel(fb, kPanel, 0, 0) == 2);  // portrait (7, 0): the photo
+    CHECK(overlay.composedLevel(fb, kPanel, 3, 6) == 0);  // portrait (1, 3): in the cutout, the black pixel
+    CHECK(overlay.composedLevel(fb, kPanel, 2, 7) == 3);  // portrait (0, 2): in the cutout, white
+    CHECK(overlay.composedLevel(fb, kPanel, 4, 6) == 2);  // portrait (1, 4): just below the cutout
+}
+
+// The calendar's themes swap background and ink; privacy mode is the photo
+// with a white label whatever the theme.
+void testThemesAndPrivacy() {
     constexpr FrameSize kPanel{.width = 800, .height = 480};
-    auto blackAt = [&](const std::vector<uint8_t>& fb, int x, int y) {
-        return !(fb[y * kPanel.bytesPerRow() + x / 8] & (0x80 >> (x % 8)));
+    auto blackAt = [](const std::vector<uint8_t>& fb, FrameSize frame, int x, int y) {
+        return !(fb[y * frame.bytesPerRow() + x / 8] & (0x80 >> (x % 8)));
     };
-    const Bitmap& photo = photos::kBuiltIn[0];
     std::vector<uint8_t> dark(kPanel.framebufferSize()), light(kPanel.framebufferSize());
     Canvas darkCanvas(dark, kPanel), lightCanvas(light, kPanel);
-    calendar_view::renderPrivate(darkCanvas, std::nullopt, 0, std::nullopt, photo, {}, {}, calendar_view::Theme::dark);
-    calendar_view::renderPrivate(lightCanvas, std::nullopt, 0, std::nullopt, photo, {}, {}, calendar_view::Theme::light);
-    CHECK(blackAt(dark, 5, 5) && !blackAt(light, 5, 5));          // the background
-    CHECK(!blackAt(dark, 33, 300) && blackAt(light, 33, 300));    // the photo box's border
-    int same = 0;
-    for (int x = 100; x < 700; x += 7) {
-        same += blackAt(dark, x, 300) == blackAt(light, x, 300);  // inside the photo
-    }
-    CHECK(same == (700 - 100 + 6) / 7);
+    calendar_view::render(darkCanvas, 0, 0, {}, std::nullopt, {}, calendar_view::Theme::dark);
+    calendar_view::render(lightCanvas, 0, 0, {}, std::nullopt, {}, calendar_view::Theme::light);
+    CHECK(blackAt(dark, kPanel, 5, 5) && !blackAt(light, kPanel, 5, 5));
 
-    std::vector<uint8_t> allBlack(Bitmap::sizeFor(16, 4), 0x00), allWhite(Bitmap::sizeFor(16, 4), 0xFF);
-    CHECK(calendar_view::isDarkPhoto({16, 4, allBlack}));
-    CHECK(!calendar_view::isDarkPhoto({16, 4, allWhite}));
-    std::vector<uint8_t> half(Bitmap::sizeFor(16, 4), 0xF0);  // exactly half white: not dark
-    CHECK(!calendar_view::isDarkPhoto({16, 4, half}));
+    for (auto [frame, photo] : {std::pair{kPanel, photos::kLandscape[0]}, std::pair{portraitOf(kPanel), photos::kPortrait[0]}}) {
+        CHECK(photo.width == static_cast<int>(frame.width) && photo.height == static_cast<int>(frame.height));
+        std::vector<uint8_t> fb(frame.framebufferSize());
+        Canvas canvas(fb, frame);
+        calendar_view::renderPrivate(canvas, 0, 0, std::nullopt, photo);
+        const int w = static_cast<int>(frame.width), h = static_cast<int>(frame.height);
+        // The photo in black and white: its two light levels white.
+        int matches = 0, checked = 0;
+        for (int i = 0; i < 400; i++) {
+            int x = (i * 37) % (w / 2), y = (i * 53) % (h / 2);
+            checked++;
+            matches += blackAt(fb, frame, x, y) == (photo.level(x, y) < 2);
+        }
+        CHECK(matches == checked);
+        // The label: the date square in the corner (no weather, no QR).
+        CHECK(!blackAt(fb, frame, w - 16 - 5, h - 16 - 75));
+        CHECK(!blackAt(fb, frame, w - 16 - 145, h - 16 - 145));
+
+        GrayOverlay overlay = calendar_view::photoOverlay(photo, std::nullopt);
+        CHECK(overlay.portrait == (h > w));
+        CHECK(overlay.cutoutX == w - 16 - 150 && overlay.cutoutY == h - 16 - 150);
+        CHECK(overlay.cutoutWidth == 150 && overlay.cutoutHeight == 150);
+    }
+    // With weather (or a QR code) under the date, the label is twice as tall.
+    weather::Forecast forecast{.condition = weather::Condition::sunny, .description = {}, .rainChance = 10,
+                               .minTemp = 20, .maxTemp = 25};
+    CHECK(calendar_view::photoOverlay(photos::kLandscape[0], forecast).cutoutHeight == 300);
+    CHECK(calendar_view::photoOverlay(photos::kLandscape[0], std::nullopt, {}, "https://example.com").cutoutHeight ==
+          300);
+    CHECK(calendar_view::photoOverlay(photos::kLandscape[0], forecast, {.lowBattery = true}).cutoutHeight > 300);
 }
 
 int main() {
-    testThemes();
+    testThemesAndPrivacy();
+    testOverlayCutoutAndPortrait();
     testPixelsAndClipping();
     testRoundedRect();
     testDrawText();

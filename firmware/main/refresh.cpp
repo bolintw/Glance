@@ -44,8 +44,9 @@ namespace glance {
 namespace {
 
 constexpr uint32_t kNtpSyncTimeoutMs = 10000;
-// The layout shows two columns of five (same as the Raspberry Pi version).
-constexpr size_t kMaxEvents = 10;
+// The landscape layout shows two columns of five (same as the Raspberry Pi
+// version), the portrait one a column of twelve.
+constexpr size_t kMaxEvents = 12;
 
 // Calendar hosts fetched at once (fetchUpcomingEvents), besides the weather:
 // each connection is ~40KB of TLS buffers and a task's stack.
@@ -56,58 +57,65 @@ constexpr size_t kFetchWorkers = 2;
 constexpr uint32_t kFetchTaskStackBytes = 10 * 1024;
 constexpr UBaseType_t kFetchTaskPriority = 4;  // below the button task's
 
-// Privacy mode's photo, both ways (1bpp, and 2bpp for 4-gray panels). When
-// it's an upload, `mapping` keeps it readable from flash.
+// The screen as the device stands: the panel, or turned upright.
+FrameSize screenFor(const Settings& settings) {
+    return settings.portrait ? portraitOf(board::kPanelSize) : board::kPanelSize;
+}
+
+// Privacy mode's photo, in four grays. When it's an upload, `mapping` keeps
+// it readable from flash.
 struct PrivacyPhoto {
-    Bitmap mono;
     GrayBitmap gray;
     std::unique_ptr<photo_store::Photo> mapping;
 };
 
-// gBoot.lastPhoto holds an upload's slot, or this plus a built-in's index.
-constexpr uint8_t kBuiltInPhotoKey = 0x40;
+// Photos go by an id: an upload's slot, or this plus a built-in's index
+// (photos::kLandscape / kPortrait, the same prints both ways).
+constexpr int kBuiltInPhotoId = static_cast<int>(photo_store::kMaxPhotos);
+static_assert(kBuiltInPhotoId + 8 <= 32, "photo_rotation keeps a round in 32 bits");
 
-// The uploaded photos if there are any (a fresh upload first, then shuffled
-// rounds -- see photo_rotation), otherwise the built-in ones, never the same
-// one twice in a row.
-PrivacyPhoto pickPhoto() {
-    uint8_t key;
-    std::vector<int> slots = photo_store::list();
-    if (!slots.empty()) {
-        photo_rotation::State rotation = settings::loadPhotoRotation();
-        int last = gBoot.lastPhoto < kBuiltInPhotoKey ? gBoot.lastPhoto : -1;
-        key = static_cast<uint8_t>(photo_rotation::pick(slots, rotation, last, [] { return esp_random(); }));
-        settings::savePhotoRotation(rotation);
-    } else {
-        std::vector<uint8_t> keys;
-        for (size_t i = 0; i < photos::kBuiltIn.size(); i++) {
-            keys.push_back(static_cast<uint8_t>(kBuiltInPhotoKey + i));
+// The photos of the screen's shape: the uploaded ones, and the built-in
+// ones too if the settings say so or there are no uploads to show; a fresh
+// upload first, then shuffled rounds (see photo_rotation).
+PrivacyPhoto pickPhoto(const Settings& settings) {
+    const FrameSize screen = screenFor(settings);
+    const std::span<const GrayBitmap> builtIn = settings.portrait ? photos::kPortrait : photos::kLandscape;
+    std::vector<int> ids;
+    for (const photo_store::Entry& entry : photo_store::list()) {
+        if (entry.width == static_cast<int>(screen.width) && entry.height == static_cast<int>(screen.height)) {
+            ids.push_back(entry.slot);
         }
-        if (keys.size() > 1) {
-            std::erase(keys, gBoot.lastPhoto);
-        }
-        key = keys[esp_random() % keys.size()];
     }
-    gBoot.lastPhoto = key;
+    if (ids.empty() || settings.builtInPhotos) {
+        for (size_t i = 0; i < builtIn.size(); i++) {
+            ids.push_back(kBuiltInPhotoId + static_cast<int>(i));
+        }
+    }
+    photo_rotation::State rotation = settings::loadPhotoRotation();
+    int id = photo_rotation::pick(ids, rotation, gBoot.lastPhoto, [] { return esp_random(); });
+    settings::savePhotoRotation(rotation);
+    gBoot.lastPhoto = static_cast<uint8_t>(id);
 
-    if (key < kBuiltInPhotoKey) {
-        if (auto mapping = photo_store::open(key)) {
-            ESP_LOGI(kTag, "privacy photo: uploaded, slot %d", key);
-            Bitmap mono{mapping->width(), mapping->height(), mapping->mono()};
+    if (id < kBuiltInPhotoId) {
+        if (auto mapping = photo_store::open(id)) {
+            ESP_LOGI(kTag, "privacy photo: uploaded, slot %d", id);
             GrayBitmap gray{mapping->width(), mapping->height(), mapping->gray()};
-            return {mono, gray, std::move(mapping)};
+            return {gray, std::move(mapping)};
         }
-        key = kBuiltInPhotoKey;  // unreadable upload: fall back to a built-in
+        id = kBuiltInPhotoId;  // unreadable upload: fall back to a built-in
     }
-    size_t index = key - kBuiltInPhotoKey;
+    const size_t index = static_cast<size_t>(id - kBuiltInPhotoId);
     ESP_LOGI(kTag, "privacy photo: built-in %zu", index);
-    return {photos::kBuiltIn[index], photos::kBuiltInGray[index], nullptr};
+    return {builtIn[index], nullptr};
 }
 
-// The 4-gray overlay for a photo when the panel is driven in 4-gray mode.
-std::optional<GrayOverlay> grayOverlayFor([[maybe_unused]] const PrivacyPhoto& photo) {
+// The photo in four grays, when the panel is driven in 4-gray mode.
+std::optional<GrayOverlay> grayOverlayFor([[maybe_unused]] const PrivacyPhoto& photo,
+                                          [[maybe_unused]] const std::optional<weather::Forecast>& forecast,
+                                          [[maybe_unused]] calendar_view::Status status,
+                                          [[maybe_unused]] std::string_view cornerQr) {
 #if CONFIG_GLANCE_PHOTO_4GRAY
-    return calendar_view::photoOverlay(photo.gray);
+    return calendar_view::photoOverlay(photo.gray, forecast, status, cornerQr);
 #else
     return std::nullopt;
 #endif
@@ -373,29 +381,20 @@ calendar_view::Theme themeFor(const Settings& settings) {
     return settings.theme == Settings::Theme::light ? calendar_view::Theme::light : calendar_view::Theme::dark;
 }
 
-// A photo screen's colors: the settings', or by the photo (light behind a
-// dark one) when the setup page says so.
-calendar_view::Theme themeFor(const Settings& settings, const Bitmap& photo) {
-    if (!settings.photoAutoTheme) {
-        return themeFor(settings);
-    }
-    return calendar_view::isDarkPhoto(photo) ? calendar_view::Theme::light : calendar_view::Theme::dark;
-}
-
 // Privacy mode's layout plus a status icon, for when there's no calendar to
 // show: offline (no weather, crossed-out WiFi), or no calendar for two days
 // (weather, calendar with a cross).
 void showWithoutCalendar(const Settings& settings, const std::optional<weather::Forecast>& forecast,
                          calendar_view::Status status, const char* what) {
-    std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
-    Canvas canvas(framebuffer, board::kPanelSize);
-    PrivacyPhoto photo = pickPhoto();
+    const FrameSize screen = screenFor(settings);
+    std::vector<uint8_t> framebuffer(screen.framebufferSize());
+    Canvas canvas(framebuffer, screen);
+    PrivacyPhoto photo = pickPhoto(settings);
     status.lowBattery = gLowBattery;
-    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono, status, {},
-                                 themeFor(settings, photo.mono));
-    auto overlay = grayOverlayFor(photo);
+    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.gray, status);
+    auto overlay = grayOverlayFor(photo, forecast, status, {});
     ESP_LOGI(kTag, "showing the %s screen", what);
-    if (show(framebuffer, overlay ? &*overlay : nullptr)) {
+    if (show(framebuffer, overlay ? &*overlay : nullptr, settings.portrait)) {
         gBoot.offlineShown = true;
     }
 }
@@ -469,17 +468,19 @@ bool refreshPrivate(Settings& settings) {
         }
     }
 
-    std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
-    Canvas canvas(framebuffer, board::kPanelSize);
-    PrivacyPhoto photo = pickPhoto();
-    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.mono,
-                                 {.offline = !online && !offlineByChoice,
-                                  .lowBattery = gLowBattery,
-                                  .weatherError = online && weatherFailed(settings, forecast)},
-                                 setup_page::cornerQrPayload(settings), themeFor(settings, photo.mono));
-    auto overlay = grayOverlayFor(photo);
+    const FrameSize screen = screenFor(settings);
+    std::vector<uint8_t> framebuffer(screen.framebufferSize());
+    Canvas canvas(framebuffer, screen);
+    PrivacyPhoto photo = pickPhoto(settings);
+    const calendar_view::Status status{.offline = !online && !offlineByChoice,
+                                       .lowBattery = gLowBattery,
+                                       .weatherError = online && weatherFailed(settings, forecast)};
+    const std::string cornerQr = setup_page::cornerQrPayload(settings);
+    calendar_view::renderPrivate(canvas, plausibleNow(), time_sync::kUtcOffsetSeconds, forecast, photo.gray, status,
+                                 cornerQr);
+    auto overlay = grayOverlayFor(photo, forecast, status, cornerQr);
     ESP_LOGI(kTag, "showing privacy mode%s", overlay ? " (4-gray)" : "");
-    if (!show(framebuffer, overlay ? &*overlay : nullptr)) {
+    if (!show(framebuffer, overlay ? &*overlay : nullptr, settings.portrait)) {
         ESP_LOGE(kTag, "panel did not respond");
         gRun.result = wake_log::Result::panelFailed;
         return false;
@@ -537,15 +538,16 @@ bool refresh(Settings& settings) {
         return false;
     }
 
-    std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());
-    Canvas canvas(framebuffer, board::kPanelSize);
-    calendar_view::render(canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast,
-                          {.lowBattery = gLowBattery,
-                           .calendarError = calendarStale,
-                           .weatherError = weatherFailed(settings, forecast)},
-                          themeFor(settings));
-    ESP_LOGI(kTag, "showing calendar");
-    if (!show(framebuffer)) {
+    const FrameSize screen = screenFor(settings);
+    std::vector<uint8_t> framebuffer(screen.framebufferSize());
+    Canvas canvas(framebuffer, screen);
+    const calendar_view::Status status{.lowBattery = gLowBattery,
+                                       .calendarError = calendarStale,
+                                       .weatherError = weatherFailed(settings, forecast)};
+    (settings.portrait ? calendar_view::renderPortrait : calendar_view::render)(
+        canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast, status, themeFor(settings));
+    ESP_LOGI(kTag, "showing calendar%s", settings.portrait ? " (portrait)" : "");
+    if (!show(framebuffer, nullptr, settings.portrait)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");
         gRun.result = wake_log::Result::panelFailed;
         return false;

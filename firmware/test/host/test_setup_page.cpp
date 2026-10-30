@@ -310,19 +310,24 @@ void testCornerText() {
     CHECK(setup_page::applyForm(configured(), "display=1&guest_wifi=text&qr_text=" + std::string(100, 'a')).errors.empty());
 }
 
-void testTheme() {
+void testThemeOrientationAndPhotos() {
     using Theme = Settings::Theme;
     std::string home = setup_page::renderForm(configured(), {}, {});
     CHECK(contains(home, "value=\"dark\" checked"));
-    CHECK(contains(home, "name=\"photo_auto\" checked"));  // on by default
-    auto light = setup_page::applyForm(configured(), "display=1&theme=light&photo_auto=on");
-    CHECK(light.errors.empty() && light.settings.theme == Theme::light && light.settings.photoAutoTheme);
-    std::string page = setup_page::renderForm(light.settings, {}, {});
-    CHECK(contains(page, "value=\"light\" checked") && contains(page, "name=\"photo_auto\" checked"));
-    auto dark = setup_page::applyForm(light.settings, "display=1&theme=dark");
-    CHECK(dark.settings.theme == Theme::dark && !dark.settings.photoAutoTheme);  // unchecked box: off
-    auto untouched = setup_page::applyForm(light.settings, "ics1=");  // no display fields at all
-    CHECK(untouched.settings.theme == Theme::light && untouched.settings.photoAutoTheme);
+    CHECK(contains(home, "value=\"landscape\" checked"));         // on its side by default
+    CHECK(contains(home, "name=\"builtin_photos\" checked"));     // the prints too, by default
+    auto changed =
+        setup_page::applyForm(configured(), "display=1&theme=light&orientation=portrait&builtin_photos=on");
+    CHECK(changed.errors.empty() && changed.settings.theme == Theme::light && changed.settings.portrait &&
+          changed.settings.builtInPhotos);
+    std::string page = setup_page::renderForm(changed.settings, {}, {});
+    CHECK(contains(page, "value=\"light\" checked") && contains(page, "value=\"portrait\" checked") &&
+          contains(page, "name=\"builtin_photos\" checked"));
+    auto back = setup_page::applyForm(changed.settings, "display=1&theme=dark&orientation=landscape");
+    CHECK(back.settings.theme == Theme::dark && !back.settings.portrait &&
+          !back.settings.builtInPhotos);  // unchecked box: off
+    auto untouched = setup_page::applyForm(changed.settings, "ics1=");  // no display fields at all
+    CHECK(untouched.settings.theme == Theme::light && untouched.settings.portrait && untouched.settings.builtInPhotos);
 }
 
 void testRefreshTimes() {
@@ -361,9 +366,12 @@ void testAccessPointPassword() {
 }  // namespace
 
 void testPhotosPage() {
-    std::vector<int> slots = {0, 3, 7};
-    CHECK(setup_page::photosListJson(slots, 20, 730, 280) == R"({"max":20,"width":730,"height":280,"slots":[0,3,7]})");
-    CHECK(setup_page::photosListJson({}, 20, 730, 280) == R"({"max":20,"width":730,"height":280,"slots":[]})");
+    std::vector<setup_page::StoredPhoto> photos = {{0, 800, 480}, {3, 480, 800}};
+    CHECK(setup_page::photosListJson(photos, 20, 800, 480, true) ==
+          R"({"max":20,"width":800,"height":480,"builtIn":true,"photos":[{"slot":0,"width":800,"height":480},)"
+          R"({"slot":3,"width":480,"height":800}]})");
+    CHECK(setup_page::photosListJson({}, 20, 480, 800, false) ==
+          R"({"max":20,"width":480,"height":800,"builtIn":false,"photos":[]})");
     std::string page = setup_page::renderPhotosPage();
     CHECK(contains(page, "fetch('/photos/list')"));
     CHECK(contains(page, "fetch('/photos/add'"));
@@ -388,7 +396,7 @@ int main() {
     testWifiQrPayload();
     testGuestWifiAndOrientation();
     testRefreshTimes();
-    testTheme();
+    testThemeOrientationAndPhotos();
     testCornerText();
     testAccessPointPassword();
     testPhotosPage();

@@ -127,7 +127,15 @@ bool withPanel(const std::function<bool(Display&)>& use) {
 
 }  // namespace
 
-bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay) {
+bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay, bool portrait) {
+    // An overlay turns a portrait screen itself (GrayOverlay::portrait);
+    // without one, the framebuffer is turned here.
+    std::vector<uint8_t> turned;
+    if (portrait && !overlay) {
+        turned.resize(board::kPanelSize.framebufferSize());
+        turnToLandscape(framebuffer, turned, board::kPanelSize);
+        framebuffer = turned;
+    }
     return withPanel([&](Display& display) { return drawOn(display, framebuffer, overlay); });
 }
 

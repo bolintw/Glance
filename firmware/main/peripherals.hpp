@@ -11,8 +11,9 @@ namespace glance {
 
 // Brings up the panel (or its simulator stand-in), shows one frame and puts
 // it back to sleep, the rail cut again afterwards. False if the panel didn't
-// respond.
-bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nullptr);
+// respond. A portrait frame (portraitOf the panel; an overlay then a
+// portrait one too) is turned onto the panel.
+bool show(std::span<const uint8_t> framebuffer, const GrayOverlay* overlay = nullptr, bool portrait = false);
 
 // Stops show() from drawing from now on, first waiting up to waitMs for a
 // refresh in progress to finish: cutting the rail mid-waveform leaves the

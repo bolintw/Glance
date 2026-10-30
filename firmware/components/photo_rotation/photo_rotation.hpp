@@ -16,8 +16,9 @@ struct State {
     uint32_t shown = 0;   // bit n: slot n was shown this round
 };
 
-// Picks one of `slots` (the stored photos, non-empty) and updates `state`.
-// `last` is the slot shown last time (-1 if none or it was a built-in).
+// Picks one of `slots` (the photos to show, non-empty: stored photos by
+// slot, built-in ones by ids past them, all below 32) and updates `state`.
+// `last` is the one shown last time (anything else if none).
 int pick(std::span<const int> slots, State& state, int last, const std::function<uint32_t()>& random);
 
 // Bookkeeping as photos come and go.

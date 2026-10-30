@@ -1,6 +1,7 @@
 #include "photo_store.hpp"
 
 #include <algorithm>
+#include <optional>
 
 #include "esp_log.h"
 #include "esp_partition.h"
@@ -24,10 +25,12 @@ int slotCount() {
 
 size_t slotOffset(int slot) { return static_cast<size_t>(slot) * photo_format::kSlotBytes; }
 
-bool hasHeader(int slot) {
+std::optional<photo_format::Header> headerOf(int slot) {
     uint8_t header[photo_format::kHeaderBytes];
-    return esp_partition_read(partition(), slotOffset(slot), header, sizeof(header)) == ESP_OK &&
-           photo_format::decodeHeader(header).has_value();
+    if (esp_partition_read(partition(), slotOffset(slot), header, sizeof(header)) != ESP_OK) {
+        return std::nullopt;
+    }
+    return photo_format::decodeHeader(header);
 }
 
 class MappedPhoto : public photo_store::Photo {
@@ -38,11 +41,8 @@ public:
 
     int width() const override { return header_.width; }
     int height() const override { return header_.height; }
-    std::span<const uint8_t> mono() const override {
-        return {base_ + photo_format::kHeaderBytes, photo_format::monoBytes(header_.width, header_.height)};
-    }
     std::span<const uint8_t> gray() const override {
-        return {base_ + photo_format::kHeaderBytes + mono().size(), photo_format::grayBytes(header_.width, header_.height)};
+        return {base_ + photo_format::kHeaderBytes, photo_format::grayBytes(header_.width, header_.height)};
     }
 
 private:
@@ -54,14 +54,14 @@ private:
 
 namespace photo_store {
 
-std::vector<int> list() {
-    std::vector<int> slots;
+std::vector<Entry> list() {
+    std::vector<Entry> entries;
     for (int slot = 0; slot < slotCount(); slot++) {
-        if (hasHeader(slot)) {
-            slots.push_back(slot);
+        if (auto header = headerOf(slot)) {
+            entries.push_back({slot, header->width, header->height});
         }
     }
-    return slots;
+    return entries;
 }
 
 std::unique_ptr<Photo> open(int slot) {
@@ -81,7 +81,7 @@ std::unique_ptr<Photo> open(int slot) {
         return nullptr;
     }
     auto photo = std::make_unique<MappedPhoto>(handle, base, *header);
-    uint32_t crc = photo_format::crc32(photo->gray(), photo_format::crc32(photo->mono()));
+    uint32_t crc = photo_format::crc32(photo->gray());
     if (crc != header->crc) {
         ESP_LOGW(kTag, "slot %d fails its CRC, ignoring it", slot);
         return nullptr;
@@ -95,7 +95,7 @@ int add(std::span<const uint8_t> body, int width, int height) {
     }
     int slot = -1;
     for (int i = 0; i < slotCount() && slot < 0; i++) {
-        if (!hasHeader(i)) {
+        if (!headerOf(i)) {
             slot = i;
         }
     }

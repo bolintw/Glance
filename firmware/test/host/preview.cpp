@@ -5,7 +5,8 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, joinedlan, intruder, ship, privacy[1], gray[1], offline, lowbattery, charge, calendarerror, nocalendar
+//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, joinedlan, intruder, ship, privacy[1], gray[1], offline, lowbattery, charge, calendarerror, weathererror, nocalendar, guest, guestlow, qrtext, light
+//   make -C firmware/test/host preview SCREEN=gray-p        # "-p": the device upright (calendar-p, gray1-p, guest-p...)
 //
 // produces build/preview.png.
 
@@ -44,11 +45,16 @@ int64_t parseNow(const char* text) {
 int main(int argc, char** argv) {
     const char* out = argc > 1 ? argv[1] : "build/preview.pgm";
     const int64_t now = parseNow(argc > 2 ? argv[2] : "2026-10-04T15:30");
-    const std::string_view screen = argc > 3 ? argv[3] : "calendar";
+    std::string_view screen = argc > 3 ? argv[3] : "calendar";
+    // "...-p": the device stands upright, the screen portraitOf the panel.
+    const bool portrait = screen.ends_with("-p");
+    if (portrait) {
+        screen.remove_suffix(2);
+    }
 
     std::ifstream in(FIXTURE_DIR "/google_test_calendar.ics", std::ios::binary);
     std::string ics{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-    ics::EventCollector collector({.now = now, .displayUtcOffset = kTaipei, .maxResults = 10});
+    ics::EventCollector collector({.now = now, .displayUtcOffset = kTaipei, .maxResults = 12});
     ics::LineReader reader([&](std::string_view line) { collector.onLine(line); });
     reader.feed(ics);
     reader.finish();
@@ -58,49 +64,49 @@ int main(int argc, char** argv) {
     std::string weatherJson{std::istreambuf_iterator<char>(weatherIn), std::istreambuf_iterator<char>()};
     auto forecast = weather::parseCwa36Hour(weatherJson, now);
 
-    constexpr FrameSize kFrame{.width = 800, .height = 480};
-    std::vector<uint8_t> fb(kFrame.framebufferSize());
-    Canvas canvas(fb, kFrame);
+    constexpr FrameSize kPanel{.width = 800, .height = 480};
+    const FrameSize screenFrame = portrait ? portraitOf(kPanel) : kPanel;
+    std::vector<uint8_t> fb(screenFrame.framebufferSize());
+    Canvas canvas(fb, screenFrame);
     std::optional<GrayOverlay> overlay;
+    const auto& builtIn = portrait ? photos::kPortrait : photos::kLandscape;
+    // Privacy mode with built-in photo `index`, in four grays unless `mono`.
+    auto privacy = [&](size_t index, const std::optional<weather::Forecast>& weather, calendar_view::Status status,
+                       std::string_view qr, bool mono = false) {
+        calendar_view::renderPrivate(canvas, now, kTaipei, weather, builtIn[index], status, qr);
+        if (!mono) {
+            overlay = calendar_view::photoOverlay(builtIn[index], weather, status, qr);
+        }
+    };
+    auto calendar = [&](const std::optional<weather::Forecast>& weather, calendar_view::Status status,
+                        calendar_view::Theme theme = calendar_view::Theme::dark) {
+        (portrait ? calendar_view::renderPortrait : calendar_view::render)(canvas, now, kTaipei, events, weather,
+                                                                            status, theme);
+    };
     if (screen == "setup") {
         setup_view::render(canvas, setup_page::wifiQrPayload("Glance-AB12", "k7m2qx9p"), "Glance-AB12", "k7m2qx9p",
                            "http://192.168.4.1");
     } else if (screen == "offline") {  // no WiFi: no weather, the status icon
-        calendar_view::renderPrivate(canvas, now, kTaipei, std::nullopt, photos::kBuiltIn[0], {.offline = true});
-        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
+        privacy(0, std::nullopt, {.offline = true}, {});
     } else if (screen == "lowbattery") {  // the calendar, with both status icons
-        calendar_view::render(canvas, now, kTaipei, events, forecast, {.offline = true, .lowBattery = true});
+        calendar(forecast, {.offline = true, .lowBattery = true});
     } else if (screen == "calendarerror") {  // one calendar failing for two days
-        calendar_view::render(canvas, now, kTaipei, events, forecast, {.calendarError = true});
+        calendar(forecast, {.calendarError = true});
     } else if (screen == "weathererror") {  // online, but CWA turned the key down
-        calendar_view::render(canvas, now, kTaipei, events, std::nullopt, {.weatherError = true});
+        calendar(std::nullopt, {.weatherError = true});
     } else if (screen == "nocalendar") {  // none came through for two days: the photo layout
-        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], {.calendarError = true});
-        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
+        privacy(0, forecast, {.calendarError = true}, {});
     } else if (screen == "charge") {
         calendar_view::renderChargeReminder(canvas);
-    } else if (screen.starts_with("privacy") || screen.starts_with("gray")) {
-        size_t index = screen.ends_with("1") ? 1 : 0;
-        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index]);
-        if (screen.starts_with("gray")) {
-            overlay = calendar_view::photoOverlay(photos::kBuiltInGray[index]);
-        }
+    } else if (screen.starts_with("privacy") || screen.starts_with("gray")) {  // privacy: black and white
+        privacy(screen.ends_with("1") ? 1 : 0, forecast, {}, {}, screen.starts_with("privacy"));
     } else if (screen == "guest" || screen == "guestlow") {  // privacy mode with the guest WiFi QR code
-        calendar_view::Status status{.lowBattery = screen == "guestlow"};
-        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], status,
-                                     setup_page::wifiQrPayload("Glance-Guest", "welcome-2026"));
-        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
-    } else if (screen == "qrtext") {  // privacy mode with a link of the user's in the corner
-        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[0], {},
-                                     "https://youtu.be/dQw4w9WgXcQ");
-        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[0]);
+        privacy(0, forecast, {.lowBattery = screen == "guestlow"},
+                setup_page::wifiQrPayload("Glance-Guest", "welcome-2026"));
+    } else if (screen == "qrtext") {  // privacy mode with a link of the user's
+        privacy(1, forecast, {}, "https://youtu.be/dQw4w9WgXcQ");
     } else if (screen == "light") {  // the calendar in the light theme
-        calendar_view::render(canvas, now, kTaipei, events, forecast, {}, calendar_view::Theme::light);
-    } else if (screen.starts_with("lightgray")) {  // privacy mode in the light theme
-        size_t index = screen.ends_with("1") ? 1 : 0;
-        calendar_view::renderPrivate(canvas, now, kTaipei, forecast, photos::kBuiltIn[index], {}, {},
-                                     calendar_view::Theme::light);
-        overlay = calendar_view::photoOverlay(photos::kBuiltInGray[index]);
+        calendar(forecast, {}, calendar_view::Theme::light);
     } else if (screen == "lan") {
         setup_view::renderLan(canvas, "http://192.168.0.249/?t=8f3a1c0d9e2b4f6a8c1d3e5f7a9b0c2d");
     } else if (screen == "joined") {  // on the access point; "joinedlan" on the home network
@@ -112,7 +118,7 @@ int main(int argc, char** argv) {
     } else if (screen == "ship") {
         setup_view::renderShip(canvas);
     } else {
-        calendar_view::render(canvas, now, kTaipei, events, forecast);
+        calendar(forecast, {});
     }
 
     std::FILE* f = std::fopen(out, "wb");
@@ -120,14 +126,17 @@ int main(int argc, char** argv) {
         std::perror(out);
         return 1;
     }
-    // What the panel shows: the overlay's 4 levels where it covers (0 black
-    // .. 3 white, as 0/85/170/255), the framebuffer elsewhere.
-    GrayOverlay none{0, 0, {0, 0, {}}};
+    // What the viewer sees: the overlay's 4 levels where it covers (0 black
+    // .. 3 white, as 0/85/170/255), the framebuffer elsewhere -- read the
+    // way the panel does (composedLevel), upright either way round.
+    GrayOverlay none{0, 0, {0, 0, {}}, 0, 0, 0, 0, portrait};
     const GrayOverlay& shown = overlay ? *overlay : none;
-    std::fprintf(f, "P5\n%zu %zu\n255\n", kFrame.width, kFrame.height);
-    for (int y = 0; y < static_cast<int>(kFrame.height); y++) {
-        for (int x = 0; x < static_cast<int>(kFrame.width); x++) {
-            std::fputc(shown.composedLevel(fb, kFrame, x, y) * 85, f);
+    std::fprintf(f, "P5\n%zu %zu\n255\n", screenFrame.width, screenFrame.height);
+    for (int y = 0; y < static_cast<int>(screenFrame.height); y++) {
+        for (int x = 0; x < static_cast<int>(screenFrame.width); x++) {
+            // The panel pixel showing screen pixel (x, y) (see portraitOf).
+            const int px = portrait ? y : x, py = portrait ? static_cast<int>(kPanel.height) - 1 - x : y;
+            std::fputc(shown.composedLevel(fb, kPanel, px, py) * 85, f);
         }
     }
     std::fclose(f);

@@ -31,19 +31,54 @@ struct GrayBitmap {
     }
 };
 
+// A portrait screen on the landscape panel: drawn frame.height wide and
+// frame.width tall, and turned so that the panel's left edge is its top --
+// the device turned a quarter clockwise. (The other quarter is this plus
+// the panel's own upside-down scan, EpdConfig::upsideDown.) The panel's
+// pixel (px, py) shows the portrait picture's (frame.height - 1 - py, px).
+constexpr FrameSize portraitOf(FrameSize panel) { return {panel.height, panel.width}; }
+
+// A portrait framebuffer (portraitOf(panel)) turned onto a landscape one.
+inline void turnToLandscape(std::span<const uint8_t> portrait, std::span<uint8_t> landscape, FrameSize panel) {
+    const FrameSize tall = portraitOf(panel);
+    for (size_t py = 0; py < panel.height; py++) {
+        for (size_t px = 0; px < panel.width; px++) {
+            const size_t lx = panel.height - 1 - py, ly = px;
+            const bool white = portrait[ly * tall.bytesPerRow() + lx / 8] & (0x80 >> (lx % 8));
+            uint8_t& byte = landscape[py * panel.bytesPerRow() + px / 8];
+            const auto bit = static_cast<uint8_t>(0x80 >> (px % 8));
+            byte = white ? static_cast<uint8_t>(byte | bit) : static_cast<uint8_t>(byte & ~bit);
+        }
+    }
+}
+
 // A grayscale picture laid over a 1bpp frame, for panels with a 4-level
 // mode: the photo in privacy mode, everything else stays black and white.
 struct GrayOverlay {
     int x;
     int y;
     GrayBitmap bitmap;
+    // A part of it left to the framebuffer: a label drawn over a full-screen
+    // photo. Empty by default.
+    int cutoutX = 0, cutoutY = 0, cutoutWidth = 0, cutoutHeight = 0;
+    // The framebuffer and this overlay are a portrait screen (portraitOf the
+    // panel), all their coordinates portrait ones.
+    bool portrait = false;
 
-    // The 0-3 level of pixel (x, y) of the combined picture: the overlay
-    // where it covers, the framebuffer (black 0 / white 3) elsewhere.
+    // The 0-3 level of the panel's pixel (px, py) in the combined picture:
+    // the overlay where it covers, the framebuffer (black 0 / white 3)
+    // elsewhere. `frame` is the panel's.
     constexpr uint8_t composedLevel(std::span<const uint8_t> framebuffer, FrameSize frame, int px, int py) const {
+        if (portrait) {
+            const int lx = static_cast<int>(frame.height) - 1 - py;
+            py = px;
+            px = lx;
+            frame = portraitOf(frame);
+        }
         int ox = px - x;
         int oy = py - y;
-        if (ox >= 0 && oy >= 0 && ox < bitmap.width && oy < bitmap.height &&
+        bool inCutout = px >= cutoutX && py >= cutoutY && px < cutoutX + cutoutWidth && py < cutoutY + cutoutHeight;
+        if (!inCutout && ox >= 0 && oy >= 0 && ox < bitmap.width && oy < bitmap.height &&
             bitmap.bits.size() >= GrayBitmap::sizeFor(bitmap.width, bitmap.height)) {
             return bitmap.level(ox, oy);
         }

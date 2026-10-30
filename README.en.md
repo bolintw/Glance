@@ -10,14 +10,15 @@
 
 | Calendar | Privacy mode |
 |---|---|
-| ![The calendar screen: date, weather and the next ten events](docs/images/screen-calendar.png) | ![Privacy mode: the date, a photo, and a guest WiFi QR code in the corner](docs/images/screen-photo.png) |
-| Today's date, the day's weather, and the next ten events from up to five calendars (Google Calendar, iCloud, or anything with an iCal link). Just the date and the title: the details are on your phone. | Guests coming over? One press of the button swaps the events for a photo. Upload your own from your phone, or keep the two Hokusai prints it comes with. The corner shows the weather, or a QR code your friends scan to join your WiFi. |
+| ![The calendar screen: date, weather and the next ten events](docs/images/screen-calendar.png) | ![Privacy mode: a photo filling the screen, the date and a guest WiFi QR code in the corner](docs/images/screen-photo.png) |
+| Today's date, the day's weather, and the next ten events from up to five calendars (Google Calendar, iCloud, or anything with an iCal link). Just the date and the title: the details are on your phone. | Guests coming over? One press of the button swaps the events for a photo that fills the screen, with a small corner left for the date and the weather, or a QR code your friends scan to join your WiFi. Upload your own photos from your phone, or keep the two Hokusai prints it comes with. |
 
 A few more things it can do:
 
 -   **A photo frame**: set up no calendar at all, and it shows your photos with the date and weather.
--   **A QR code in the corner**: in privacy mode it can show a QR code your friends scan to join your WiFi (ideally your router's guest network) -- or one that opens any link you like: a shared album, a party playlist... or a Rick Roll.
--   **Dark or light**: white on black or black on white, and photos get whichever background sets them off.
+-   **A QR code in the corner**: in privacy mode the weather's square can show a QR code your friends scan to join your WiFi (ideally your router's guest network) -- or one that opens any link you like: a shared album, a party playlist... or a Rick Roll.
+-   **On its side or upright**: stood upright, the calendar becomes one column of twelve events, and the photos come in two sets, upright and sideways: it shows the ones that fit.
+-   **Dark or light**: the calendar in white on black or black on white.
 -   **Your refresh times**: 07:00 by default, or any time you like, plus an optional second one in the evening -- which then shows tomorrow's weather.
 -   **Keeps itself up to date**: new firmware arrives on its own, over WiFi.
 -   **Tells you only when something's wrong**: a small icon appears if it can't get online, a calendar stops working, or the battery runs low.

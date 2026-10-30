@@ -382,11 +382,11 @@ std::optional<int> parseRefreshTime(const std::string& value) {
     return minutes < 24 * 60 && minutes % 30 == 0 ? std::optional(minutes) : std::nullopt;
 }
 
-// Privacy mode's guest WiFi QR code, the panel's orientation and when it's
-// redrawn.
+// Privacy mode's QR code, how the device stands, its colors and photos, and
+// when it's redrawn.
 void displayFields(std::string& html, const Settings& current) {
     using CornerQr = Settings::CornerQr;
-    html += "<h2>右上角的 QR code</h2>\n<p class=\"note\">隱私模式時，右上角可以改成顯示一個 QR code（取代天氣）："
+    html += "<h2>隱私模式的 QR code</h2>\n<p class=\"note\">隱私模式時，右下角天氣那格可以改成顯示一個 QR code："
             "朋友用手機相機掃描就能連上 WiFi，或打開你放的網址。</p>\n"
             "<input type=\"hidden\" name=\"display\" value=\"1\">";
     for (auto [value, choice, text] : {std::tuple{"off", CornerQr::off, "不顯示"},
@@ -415,11 +415,20 @@ void displayFields(std::string& html, const Settings& current) {
             " 個英數字元（中文一個字算 3 個）：QR code 那格不大，內容越長格子越小、越難掃。網址太長的話可以先轉成短網址。</p>\n";
 
     // 上下顛倒 is against the way Glance is put together (Settings::panelFlipped).
-    html += "<h2>畫面</h2>\n<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
+    html += "<h2>畫面</h2>\n<label>擺放方向</label>";
+    for (auto [value, choice, text] : {std::tuple{"landscape", false, "橫放"},
+                                       std::tuple{"portrait", true, "直立（橫放的裝置順時針轉 90 度）"}}) {
+        html += "<label class=\"choice\"><input type=\"radio\" name=\"orientation\" value=\"";
+        html += value;
+        html += current.portrait == choice ? "\" checked> " : "\"> ";
+        html += text;
+        html += "</label>";
+    }
+    html += "<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
     html += current.panelFlipped ? "" : " checked";
-    html += "> 上下顛倒（裝置倒過來擺時使用）</label>\n";
+    html += "> 上下顛倒（裝置倒過來擺時使用；直立時勾選是逆時針轉 90 度）</label>\n";
 
-    html += "<label>顏色</label>";
+    html += "<label>月曆的顏色</label>";
     for (auto [value, choice, text] : {std::tuple{"dark", Settings::Theme::dark, "深色（黑底白字）"},
                                        std::tuple{"light", Settings::Theme::light, "淺色（白底黑字）"}}) {
         html += "<label class=\"choice\"><input type=\"radio\" name=\"theme\" value=\"";
@@ -428,9 +437,9 @@ void displayFields(std::string& html, const Settings& current) {
         html += text;
         html += "</label>";
     }
-    html += "<label class=\"choice\"><input type=\"checkbox\" name=\"photo_auto\"";
-    html += current.photoAutoTheme ? " checked" : "";
-    html += "> 照片畫面依照片自動選顏色（暗的照片配白底、亮的配黑底）</label>\n";
+    html += "<label>隱私模式的照片</label><label class=\"choice\"><input type=\"checkbox\" name=\"builtin_photos\"";
+    html += current.builtInPhotos ? " checked" : "";
+    html += "> 也輪播內建的浮世繪（沒有上傳這個方向的照片時一定會顯示）</label>\n";
 
     html += "<label for=\"refresh_1\">每天更新畫面的時間</label>";
     timeSelect(html, "refresh_1", current.refreshMinutes, nullptr);
@@ -443,7 +452,10 @@ void displayFields(std::string& html, const Settings& current) {
 void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
     using CornerQr = Settings::CornerQr;
     s.panelFlipped = find(fields, "upside_down") == nullptr;  // a checkbox: sent only when checked
-    s.photoAutoTheme = find(fields, "photo_auto") != nullptr;
+    s.builtInPhotos = find(fields, "builtin_photos") != nullptr;
+    if (const std::string* orientation = find(fields, "orientation")) {
+        s.portrait = *orientation == "portrait";
+    }
     if (const std::string* theme = find(fields, "theme")) {
         s.theme = *theme == "light" ? Settings::Theme::light : Settings::Theme::dark;
     }

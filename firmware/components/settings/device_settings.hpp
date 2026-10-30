@@ -23,13 +23,19 @@ struct Settings {
     // 上下顛倒 turns it off for a frame that holds it the other way.
     bool panelFlipped = true;
 
-    // White on black (dark) or black on white (light), for the calendar and
-    // the photo screens; with photoAutoTheme (on unless turned off) the
-    // photo screens pick by the photo instead: light behind a dark photo,
-    // dark behind a light one.
+    // The device stands upright (portrait, turned a quarter clockwise; with
+    // panelFlipped off, counterclockwise) rather than on its side. The
+    // calendar and the photos are laid out for it; privacy mode shows only
+    // the photos of that shape.
+    bool portrait = false;
+
+    // White on black (dark) or black on white (light), for the calendar.
     enum class Theme : uint8_t { dark, light };
     Theme theme = Theme::dark;
-    bool photoAutoTheme = true;
+
+    // Privacy mode shows the built-in prints along with the uploaded photos.
+    // Without any uploaded photos of the screen's shape it shows them anyway.
+    bool builtInPhotos = true;
 
     // The daily refreshes, in minutes after local midnight: one, and an
     // optional second at least kMinRefreshGapMinutes from it either way
