@@ -23,6 +23,7 @@ namespace glance {
 RTC_NOINIT_ATTR BootState gBoot;
 std::atomic<Phase> gPhase{Phase::refreshing};
 std::atomic<bool> gPhotoFrame{false};
+std::atomic<bool> gFirstSetup{false};
 bool gLowBattery = false;
 wake_log::Entry gRun;
 

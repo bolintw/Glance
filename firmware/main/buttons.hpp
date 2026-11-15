@@ -14,10 +14,14 @@ namespace glance {
 //          to, so it's ignored (no blink either: asleep, as the device
 //          mostly will be, it couldn't blink anyway)
 //   long:  setup mode
-//   in setup mode, a long press leaves it
+//   in setup mode, a long press leaves it -- but on a first setup (no WiFi
+//          saved) there's nothing to go back to, and while setup's screen
+//          is still coming a press would only start it over: then it's
+//          ignored (a blink)
 //   held to kEraseHoldMs (the LED blinks fast): erase everything and ship
-//          (see eraseAndShip) -- the last resort when the setup page can't
-//          be reached, e.g. a WiFi the phone can't get to
+//          (see eraseAndShip), whatever the device is doing -- the last
+//          resort when the setup page can't be reached, e.g. a WiFi the
+//          phone can't get to
 // `waitForRelease` runs once a long press has lit the LED: what it asked for
 // happens when the button is let go. It says how long it was held -- stuck
 // if it never came up (see kStuckButtonMs): then the press is ignored.

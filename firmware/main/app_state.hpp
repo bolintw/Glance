@@ -52,9 +52,13 @@ void initBootState();
 // What the device is doing, for the button task to decide what a press means.
 // In setup mode: setupStarting until its QR code is on the panel (presses are
 // ignored: the screen is coming), setup while it's up (a long press leaves),
-// setupClosed once a second device closed it (any press starts over).
+// setupClosed once a second device closed it (any press starts over). Held
+// to erase, a press erases in the first two as anywhere else.
 enum class Phase { refreshing, waiting, setupStarting, setup, setupClosed };
 extern std::atomic<Phase> gPhase;
+// Setup mode with no WiFi saved: there's nothing for a long press to go back
+// to, so it's ignored.
+extern std::atomic<bool> gFirstSetup;
 // No calendars configured: a photo frame, always privacy mode's layout.
 extern std::atomic<bool> gPhotoFrame;
 // The battery is low (see run_policy::batteryLow): the status icon, no OTA.

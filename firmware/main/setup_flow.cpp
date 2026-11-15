@@ -103,6 +103,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     // From here a press is setup's, even before the access point and its
     // screen are up -- never a privacy toggle written into settings.
     gPhase = Phase::setupStarting;
+    gFirstSetup = current.wifiSsid.empty();
     std::string error;
     if (gBoot.wifiFailed) {
         error = "連不上「" + current.wifiSsid + "」，請確認網路名稱和密碼";

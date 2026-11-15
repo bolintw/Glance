@@ -52,6 +52,18 @@ void afterLongPress(Hold hold, bool intoSetup) {
             return;
     }
 }
+
+// A long press that means nothing here: a blink to say it got through, and
+// it's let go of quietly -- unless it's held on to erase, which works
+// whatever the device is doing.
+void ignoreUnlessErased(const std::function<Hold()>& waitForRelease) {
+    blinkStatusLed();
+    if (waitForRelease() == Hold::heldToErase) {
+        ESP_LOGW(kTag, "button held for %lu s: erasing everything", static_cast<unsigned long>(kEraseHoldMs / 1000));
+        restartToErase();
+    }
+    statusLedOff();
+}
 }  // namespace
 
 void actOnPress(bool isLong, const std::function<Hold()>& waitForRelease) {
@@ -60,8 +72,12 @@ void actOnPress(bool isLong, const std::function<Hold()>& waitForRelease) {
         case Phase::setupStarting:
             // Its screen is on the way (a few seconds of WiFi and panel):
             // pressing again would only start it over, again and again.
-            blinkStatusLed();
             ESP_LOGI(kTag, "setup starting: press ignored");
+            if (isLong) {
+                ignoreUnlessErased(waitForRelease);
+            } else {
+                blinkStatusLed();
+            }
             return;
         case Phase::setupClosed:
             restartInto(false);  // a second device closed setup: start over
@@ -71,8 +87,14 @@ void actOnPress(bool isLong, const std::function<Hold()>& waitForRelease) {
                 ESP_LOGI(kTag, "setup: short press ignored");
                 return;
             }
-            // A long press leaves setup: back to the calendar, or on a first
-            // setup, a fresh start (a new password).
+            if (gFirstSetup) {
+                // Nothing to go back to. (Left alone, it goes back to the
+                // shipping screen by itself.)
+                ESP_LOGI(kTag, "first setup: long press ignored");
+                ignoreUnlessErased(waitForRelease);
+                return;
+            }
+            // A long press leaves setup: back to the calendar.
             statusLedOn();
             afterLongPress(waitForRelease(), false);
             return;
@@ -140,6 +162,7 @@ void actOnWakePress(bool noCalendars) {
     switch (run_policy::decideWakePress(held, hold != Hold::stuck, hold == Hold::heldToErase,
                                         gBoot.offlineShown || noCalendars, gBoot.wakeAt, time(nullptr))) {
         case run_policy::WakePress::setup:
+            statusLedOff();  // lit while held: not for the whole of setup
             gBoot.enterSetup = true;
             return;
         case run_policy::WakePress::erase:
