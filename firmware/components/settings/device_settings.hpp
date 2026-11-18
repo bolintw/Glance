@@ -35,7 +35,9 @@ struct Settings {
 
     // Privacy mode shows the built-in prints along with the uploaded photos.
     // Without any uploaded photos of the screen's shape it shows them anyway.
-    bool builtInPhotos = true;
+    // Off by default: with the prints mixed in, an upload seemed to vanish
+    // on the days they came round.
+    bool builtInPhotos = false;
 
     // The daily refreshes, in minutes after local midnight: one, and an
     // optional second at least kMinRefreshGapMinutes from it either way

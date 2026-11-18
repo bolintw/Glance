@@ -315,7 +315,8 @@ void testThemeOrientationAndPhotos() {
     std::string home = setup_page::renderForm(configured(), {}, {});
     CHECK(contains(home, "value=\"dark\" checked"));
     CHECK(contains(home, "value=\"landscape\" checked"));         // on its side by default
-    CHECK(contains(home, "name=\"builtin_photos\" checked"));     // the prints too, by default
+    CHECK(contains(home, "name=\"builtin_photos\"") &&
+          !contains(home, "name=\"builtin_photos\" checked"));    // uploads only, by default
     auto changed =
         setup_page::applyForm(configured(), "display=1&theme=light&orientation=portrait&builtin_photos=on");
     CHECK(changed.errors.empty() && changed.settings.theme == Theme::light && changed.settings.portrait &&

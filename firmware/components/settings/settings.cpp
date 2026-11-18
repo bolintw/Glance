@@ -288,7 +288,7 @@ Settings load() {
     s.panelFlipped = nvs.readU8(kPanelFlippedKey, 1) != 0;
     s.theme = nvs.readU8(kThemeKey, 0) == 1 ? Settings::Theme::light : Settings::Theme::dark;
     s.portrait = nvs.readU8(kPortraitKey, 0) != 0;
-    s.builtInPhotos = nvs.readU8(kBuiltInPhotosKey, 1) != 0;
+    s.builtInPhotos = nvs.readU8(kBuiltInPhotosKey, 0) != 0;
     constexpr uint32_t kDay = 24 * 60;
     uint32_t first = nvs.readU32(kRefreshKey, CONFIG_GLANCE_REFRESH_HOUR * 60);
     s.refreshMinutes = static_cast<int>(first < kDay ? first : CONFIG_GLANCE_REFRESH_HOUR * 60);
