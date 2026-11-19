@@ -1,4 +1,5 @@
-// The privacy-mode photos page. All the image work -- cropping to the
+// The privacy-mode photos view (part of the home-network form) and its
+// script, served on its own as /photos.js. All the image work -- cropping to the
 // screen's shape, tone, dithering to four gray levels -- happens in the
 // browser, so the device only stores bytes. The dithering must match
 // tools/photos/bake_photos.py (test/host/test_photos_dither.js checks the
@@ -11,51 +12,26 @@
 namespace setup_page {
 namespace {
 
-constexpr const char* kPhotosPage = R"PAGE(<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>隱私模式照片</title>
-<link rel="icon" href="data:,">
-<style>
-body{font-family:system-ui,sans-serif;margin:0 auto;max-width:34rem;padding:1rem;line-height:1.5;color:#111;background:#fff}
-h1{font-size:1.4rem}h2{font-size:1.1rem;margin:1.6rem 0 .4rem}
-.note{color:#555;font-size:.9rem}
-.thumbs{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
-.thumb canvas{width:100%;border:1px solid #999;display:block;background:#ddd}
-.thumb.other canvas{opacity:.35}
-.thumb .shape{font-size:.85rem;color:#555}
-.thumb button{margin-top:.2rem;width:100%}
-#preview{width:100%;border:1px solid #333;touch-action:none;cursor:grab;display:block}
-label{display:block;margin:.6rem 0 .2rem}
-input[type=range]{width:100%}
-button{padding:.6rem;font-size:1rem}
-.primary{width:100%;margin-top:1rem;font-size:1.1rem}
-#editor{display:none}
-#status{font-weight:600}
-</style></head><body>
-<p><a href="/" id="back">← 回到設定</a></p>
-<h1>隱私模式照片</h1>
-<p class="note">隱私模式會用一張照片佔滿整個畫面，每天換一張。橫放和直立的照片分開輪播，只會顯示跟裝置目前擺放方向一樣的照片；上傳時會照目前的方向裁切。要不要一起輪播內建的浮世繪，在設定頁的「畫面」裡選。</p>
-<p id="status"></p>
-<div class="thumbs" id="thumbs"></div>
-
-<h2>新增照片</h2>
-<p class="note" id="room"></p>
-<input type="file" id="file" accept="image/*">
-<div id="editor">
-  <p class="note">拖曳預覽來移動照片，預覽就是電子紙上的樣子；右下角的白框是日期和天氣的位置。縮小可以放進整張照片，空出來的地方填白色或黑色。</p>
+constexpr const char* kPhotosView = R"PAGE(
+<p class="intro">隱私模式會用一張照片佔滿整個畫面，每天換一張。橫放和直立的照片分開輪播，只會顯示跟裝置目前擺放方向一樣的照片；上傳時會照目前的方向裁切。</p>
+<div class="card"><h2><span>已上傳</span></h2><p id="status" class="help">讀取中…</p><div class="thumbs" id="thumbs"></div></div>
+<div class="card"><h2><span>新增照片</span></h2>
+<p class="help" id="room"></p>
+<label class="btn pri file">選擇照片<input type="file" id="file" accept="image/*"></label>
+<div id="editor" style="display:none">
+  <p class="help">拖曳預覽來移動照片，預覽就是電子紙上的樣子；右下角的虛線框是日期和天氣的位置。縮小可以放進整張照片，空出來的地方填白色或黑色。</p>
   <canvas id="preview"></canvas>
-  <label>縮放</label><input type="range" id="zoom" min="1" max="3" step="0.01" value="1">
-  <label>空白處</label>
-  <select id="background"><option value="255">白色</option><option value="0">黑色</option></select>
-  <label>亮度</label><input type="range" id="brightness" min="-80" max="80" step="1" value="0">
-  <label>對比</label><input type="range" id="contrast" min="-50" max="80" step="1" value="0">
-  <label>點陣方式</label>
-  <select id="method"><option value="atkinson">Atkinson（乾淨、對比強）</option><option value="fs">Floyd-Steinberg（層次多、顆粒細）</option></select>
-  <button class="primary" id="upload">上傳這張照片</button>
+  <div class="f col"><label class="fl" for="zoom">縮放</label><input type="range" id="zoom" min="1" max="3" step="0.01" value="1"></div>
+  <div class="f"><label class="lb" for="background">空白處</label><select class="s" id="background"><option value="255">白色</option><option value="0">黑色</option></select></div>
+  <div class="f col"><label class="fl" for="brightness">亮度</label><input type="range" id="brightness" min="-80" max="80" step="1" value="0"></div>
+  <div class="f col"><label class="fl" for="contrast">對比</label><input type="range" id="contrast" min="-50" max="80" step="1" value="0"></div>
+  <div class="f col"><label class="fl" for="method">點陣方式</label><select id="method"><option value="atkinson">Atkinson（乾淨、對比強）</option><option value="fs">Floyd-Steinberg（層次多、顆粒細）</option></select></div>
+  <div class="f"><button type="button" class="btn pri wide" id="upload">上傳這張照片</button></div>
 </div>
+</div>
+)PAGE";
 
-<script>
+constexpr const char* kPhotosScript = R"PAGE((() => {
 // --- dither begin ---
 // Each pixel of `gray` (0-255) quantized to 0..levels-1 (0 = black) by
 // error diffusion. Float64 and floor(x + 0.5) on purpose: bit-for-bit the
@@ -131,6 +107,9 @@ async function refresh() {
   const shown = info.photos.filter(p => p.width === W && p.height === H).length;
   status(`已上傳 ${info.photos.length} / ${info.max} 張，${shown} 張是${shapeName(W, H)}的` +
          (!shown ? '（目前輪播內建的浮世繪）' : info.builtIn ? '（和內建的浮世繪一起輪播）' : ''));
+  const landscape = info.photos.filter(p => p.width > p.height).length;
+  document.dispatchEvent(new CustomEvent('glance-photos', {detail: {
+    landscape, portrait: info.photos.length - landscape, total: info.photos.length}}));
   // Room goes by photos, not bytes: every photo takes the same fixed slot.
   const left = info.max - info.photos.length;
   $('room').textContent = left > 0
@@ -149,6 +128,8 @@ async function refresh() {
     shape.className = 'shape';
     shape.textContent = shapeName(photo.width, photo.height) + (other ? '（現在的方向不顯示）' : '');
     const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn';
     remove.textContent = '刪除';
     remove.onclick = async () => {
       if (!confirm('刪除這張照片？')) return;
@@ -287,20 +268,15 @@ $('upload').onclick = async () => {
   refresh();
 };
 
-// Opened in its own tab from the settings page: going back closes this tab,
-// which leaves the settings page as it was, half-filled form included.
-$('back').onclick = e => {
-  if (window.opener && !window.opener.closed) { e.preventDefault(); window.close(); }
-};
-
 refresh();
-</script>
-</body></html>
+})();
 )PAGE";
 
 }  // namespace
 
-std::string renderPhotosPage() { return kPhotosPage; }
+std::string_view photosView() { return kPhotosView; }
+
+std::string_view photosScript() { return kPhotosScript; }
 
 std::string photosListJson(std::span<const StoredPhoto> photos, size_t max, int width, int height, bool builtIn) {
     std::string json = "{\"max\":" + std::to_string(max) + ",\"width\":" + std::to_string(width) +

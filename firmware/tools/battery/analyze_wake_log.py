@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Battery life from the device's wake log (setup page -> 下載每次醒來的紀錄,
+"""Battery life from the device's wake log (setup page -> 進階 -> 電池紀錄 下載,
 or `glance log` on a development build). Standard library only.
 
     python3 analyze_wake_log.py glance-wake-log.csv [--capacity-mah 1000] [--sleep-ua 27]

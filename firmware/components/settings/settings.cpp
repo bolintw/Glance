@@ -27,6 +27,7 @@ constexpr const char* kPanelFlippedKey = "upside_down";  // u8, Settings::panelF
 constexpr const char* kThemeKey = "theme";             // u8, Settings::Theme
 constexpr const char* kPortraitKey = "portrait";        // u8
 constexpr const char* kBuiltInPhotosKey = "photo_builtin";  // u8
+constexpr const char* kAutoUpdateKey = "auto_update";     // u8
 constexpr const char* kRefreshKey = "refresh_1";       // u32, minutes after midnight
 constexpr const char* kSecondRefreshKey = "refresh_2";  // u32, minutes after midnight; none if out of range
 constexpr const char* kCornerQrKey = "guest_wifi";    // u8, Settings::CornerQr
@@ -289,6 +290,7 @@ Settings load() {
     s.theme = nvs.readU8(kThemeKey, 0) == 1 ? Settings::Theme::light : Settings::Theme::dark;
     s.portrait = nvs.readU8(kPortraitKey, 0) != 0;
     s.builtInPhotos = nvs.readU8(kBuiltInPhotosKey, 0) != 0;
+    s.autoUpdate = nvs.readU8(kAutoUpdateKey, 1) != 0;
     constexpr uint32_t kDay = 24 * 60;
     uint32_t first = nvs.readU32(kRefreshKey, CONFIG_GLANCE_REFRESH_HOUR * 60);
     s.refreshMinutes = static_cast<int>(first < kDay ? first : CONFIG_GLANCE_REFRESH_HOUR * 60);
@@ -339,6 +341,9 @@ esp_err_t save(const Settings& s) {
     }
     if (err == ESP_OK) {
         err = nvs.writeU8(kBuiltInPhotosKey, s.builtInPhotos ? 1 : 0);
+    }
+    if (err == ESP_OK) {
+        err = nvs.writeU8(kAutoUpdateKey, s.autoUpdate ? 1 : 0);
     }
     if (err == ESP_OK) {
         err = nvs.writeU32(kRefreshKey, static_cast<uint32_t>(s.refreshMinutes));

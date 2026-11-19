@@ -5,9 +5,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <initializer_list>
 #include <optional>
 #include <tuple>
 #include <utility>
+
+#include "page_assets.hpp"
 
 namespace setup_page {
 namespace {
@@ -24,27 +27,6 @@ constexpr size_t kMaxSsidBytes = 32;
 // correction (106 bytes), modules stay 3px in the 132px square -- easy to
 // scan; longer ones shrink to 2px.
 constexpr size_t kMaxCornerTextBytes = 100;
-
-constexpr const char* kPageHead = R"(<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Glance 設定</title>
-<link rel="icon" href="data:,">
-<style>
-body{font-family:system-ui,sans-serif;margin:0 auto;max-width:34rem;padding:1rem;line-height:1.5;color:#111;background:#fff}
-h1{font-size:1.4rem}h2{font-size:1.1rem;margin:1.6rem 0 .4rem}
-label{display:block;margin:.6rem 0 .2rem;font-weight:600}
-input[type=text],input[type=password],input[type=url],select{width:100%;box-sizing:border-box;padding:.5rem;font-size:1rem}
-.remove{font-weight:400;display:inline;margin-left:.5rem}
-.choice{font-weight:400;margin:.3rem 0}
-.note{color:#555;font-size:.9rem}
-.errors{background:#fde8e8;border:1px solid #c00;padding:.5rem 1rem}
-.notice{background:#fff6dc;border:1px solid #b80;padding:.5rem 1rem}
-.danger{color:#b00}
-.status{padding-left:1.2rem;margin:.4rem 0}.status li{margin:.15rem 0}.status .warn{color:#b00}
-button{margin-top:1.6rem;width:100%;padding:.8rem;font-size:1.1rem}
-</style></head><body>
-)";
 
 struct Field {
     std::string name;
@@ -117,7 +99,7 @@ bool looksLikeCwaKey(std::string_view text) {
 // pasted instead of its iCal address. Empty if it looks fine.
 std::string calendarUrlProblem(std::string_view url) {
     if (looksLikeCwaKey(url)) {
-        return "填的是氣象署授權碼，請貼到下方的授權碼欄位";
+        return "填的是氣象署授權碼，請貼到「天氣」裡的授權碼";
     }
     if (!startsWith(url, "https://") && !startsWith(url, "http://")) {
         return "不是網址（應以 https:// 或 webcal:// 開頭）";
@@ -140,7 +122,7 @@ std::string cwaKeyProblem(std::string_view key) {
         return {};
     }
     if (key.find("://") != std::string_view::npos) {
-        return "授權碼欄位填的是網址（行事曆網址請貼到上方的行事曆欄位）：授權碼是 CWA- 或 CWB- 開頭的一串英數字";
+        return "授權碼欄位填的是網址（行事曆網址請貼到「行事曆」）：授權碼是 CWA- 或 CWB- 開頭的一串英數字";
     }
     return "授權碼格式不對：應為 CWA- 或 CWB- 開頭的一串英數字，請到 opendata.cwa.gov.tw 的會員資訊頁複製";
 }
@@ -169,18 +151,6 @@ int hexValue(char c) {
         return c - 'A' + 10;
     }
     return -1;
-}
-
-void secretInput(std::string& html, const char* type, const std::string& name, bool isSet, const char* emptyHint) {
-    html += "<input type=\"";
-    html += type;
-    html += "\" name=\"" + name + "\" autocomplete=\"off\" placeholder=\"";
-    html += isSet ? "已設定（留空表示不修改）" : emptyHint;
-    html += "\">";
-}
-
-void removeBox(std::string& html, const std::string& name) {
-    html += "<label class=\"remove\"><input type=\"checkbox\" name=\"" + name + "_remove\"> 刪除</label>";
 }
 
 }  // namespace
@@ -219,109 +189,8 @@ std::string htmlEscape(std::string_view text) {
     return out;
 }
 
-namespace {
-void errorBox(std::string& html, std::span<const std::string> errors) {
-    if (errors.empty()) {
-        return;
-    }
-    html += "<div class=\"errors\"><p>沒有儲存，請修正：</p><ul>";
-    for (const std::string& e : errors) {
-        html += "<li>" + htmlEscape(e) + "</li>";
-    }
-    html += "</ul></div>\n";
-}
-
-void revertNotice(std::string& html, const Settings& current, std::string_view revertedFrom) {
-    if (revertedFrom.empty()) {
-        return;
-    }
-    html += "<p class=\"notice\">上次改的「" + htmlEscape(revertedFrom) + "」連不上，已改回「" +
-            htmlEscape(current.wifiSsid) + "」。</p>\n";
-}
-
-// The first of two steps: only opens the confirmation page (renderResetConfirm).
-std::string when(uint32_t unixTime, int32_t utcOffset) {
-    time_t local = static_cast<time_t>(unixTime) + utcOffset;
-    struct tm t;
-    gmtime_r(&local, &t);
-    char text[16];
-    std::strftime(text, sizeof(text), "%m/%d %H:%M", &t);
-    return text;
-}
-
-void statusSection(std::string& html, const DeviceStatus& s) {
-    const wake_log::Health& h = s.health;
-    html += "<h2>裝置狀態</h2>\n<ul class=\"status\">";
-    if (!s.firmwareVersion.empty()) {
-        html += "<li>韌體版本：" + htmlEscape(s.firmwareVersion) + "</li>";
-    }
-    html += "<li>最後成功更新：" + (h.lastGoodRefresh ? when(h.lastGoodRefresh, s.utcOffset) : std::string("還沒有紀錄")) +
-            "</li>";
-    if (h.latestBattery) {
-        char text[64];
-        std::snprintf(text, sizeof(text), "電池：%.2fV，%d%%", h.latestBattery->millivolts / 1000.0,
-                      h.latestBattery->soc256 / 256);
-        html += "<li>" + std::string(text) + "</li>";
-    } else {
-        html += "<li>電池：沒有讀到（沒接電池？）</li>";
-    }
-    for (size_t i = 0; i < s.calendarFailingSince.size(); i++) {
-        if (uint32_t since = s.calendarFailingSince[i]) {
-            html += "<li class=\"warn\">行事曆 " + std::to_string(i + 1) + "：從 " + when(since, s.utcOffset).substr(0, 5) +
-                    " 起抓不到，請確認網址是否還有效</li>";
-        }
-    }
-    if (h.highVoltage > 0) {
-        char text[96];
-        std::snprintf(text, sizeof(text), "電池電壓偏高：最高 %.2fV（%d 次），充電電路可能有問題", h.highestMillivolts / 1000.0,
-                      h.highVoltage);
-        html += "<li class=\"warn\">" + std::string(text) + "</li>";
-    }
-    std::vector<std::string> issues;
-    if (h.crashes) {
-        issues.push_back("當機重開 " + std::to_string(h.crashes) + " 次");
-    }
-    if (h.brownouts) {
-        issues.push_back("欠壓重開 " + std::to_string(h.brownouts) + " 次");
-    }
-    if (h.failedRuns) {
-        issues.push_back("更新失敗 " + std::to_string(h.failedRuns) + " 次（含重試）");
-    }
-    if (issues.empty()) {
-        html += "<li>最近 7 天沒有異常</li>";
-    } else {
-        std::string joined;
-        for (const std::string& issue : issues) {
-            joined += (joined.empty() ? "" : "、") + issue;
-        }
-        html += "<li class=\"warn\">最近 7 天：" + joined + "</li>";
-    }
-    html += "</ul>\n";
-}
-
-void resetForm(std::string& html) {
-    html += "<h2>清除所有資料</h2>\n"
-            "<form method=\"get\" action=\"/reset\"><button type=\"submit\" class=\"danger\">清除所有資料…</button></form>\n"
-            "<p class=\"note\">打不開這一頁的時候（例如裝置連到手機連不到的網路），按住背後的按鈕約 20 秒再放開"
-            "（15 到 30 秒之間放開都可以，看得到 LED 的話它會快閃），也會清除所有資料。</p>\n";
-}
-}  // namespace
 
 namespace {
-// The WiFi fields, on both steps.
-void wifiFields(std::string& html, const Settings& current, std::span<const std::string> nearbySsids) {
-    html += "<label for=\"ssid\">網路名稱</label>";
-    html += "<input type=\"text\" id=\"ssid\" name=\"ssid\" list=\"nearby\" autocomplete=\"off\" value=\"" +
-            htmlEscape(current.wifiSsid) + "\">";
-    html += "<datalist id=\"nearby\">";
-    for (const std::string& ssid : nearbySsids) {
-        html += "<option value=\"" + htmlEscape(ssid) + "\">";
-    }
-    html += "</datalist>\n<label>密碼</label>";
-    secretInput(html, "password", "wifi_pass", !current.wifiPassword.empty(), "");
-    html += "\n<p class=\"note\">換網路時請重新輸入密碼（開放網路留空）。</p>\n";
-}
-
 void applyWifi(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
     std::string previousSsid = s.wifiSsid;
     if (const std::string* ssid = find(fields, "ssid")) {
@@ -343,6 +212,7 @@ void applyWifi(const std::vector<Field>& fields, Settings& s, std::vector<std::s
     }
 }
 
+
 // "07:30" for 450.
 std::string clockTime(int minutes) {
     char text[16];
@@ -352,8 +222,8 @@ std::string clockTime(int minutes) {
 
 // A choice of times every half hour, the value in minutes after midnight;
 // with `noneLabel`, a first choice for none (Settings::kNoRefresh).
-void timeSelect(std::string& html, const char* name, int selected, const char* noneLabel) {
-    html += "<select id=\"";
+void timeSelect(Html& html, const char* name, int selected, const char* noneLabel) {
+    html += "<select class=\"s\" id=\"";
     html += name;
     html += "\" name=\"";
     html += name;
@@ -382,77 +252,12 @@ std::optional<int> parseRefreshTime(const std::string& value) {
     return minutes < 24 * 60 && minutes % 30 == 0 ? std::optional(minutes) : std::nullopt;
 }
 
-// Privacy mode's QR code, how the device stands, its colors and photos, and
-// when it's redrawn.
-void displayFields(std::string& html, const Settings& current) {
-    using CornerQr = Settings::CornerQr;
-    html += "<h2>隱私模式的 QR code</h2>\n<p class=\"note\">隱私模式時，右下角天氣那格可以改成顯示一個 QR code："
-            "朋友用手機相機掃描就能連上 WiFi，或打開你放的網址。</p>\n"
-            "<input type=\"hidden\" name=\"display\" value=\"1\">";
-    for (auto [value, choice, text] : {std::tuple{"off", CornerQr::off, "不顯示"},
-                                       std::tuple{"own", CornerQr::own, "這台裝置連的 WiFi"},
-                                       std::tuple{"other", CornerQr::other, "另一個 WiFi（填在下面）"},
-                                       std::tuple{"text", CornerQr::text, "自訂網址或文字（填在下面）"}}) {
-        html += "<label class=\"choice\"><input type=\"radio\" name=\"guest_wifi\" value=\"";
-        html += value;
-        html += current.cornerQr == choice ? "\" checked> " : "\"> ";
-        html += text;
-        html += "</label>";
-    }
-    html += "\n<label for=\"guest_ssid\">另一個網路的名稱</label>";
-    html += "<input type=\"text\" id=\"guest_ssid\" name=\"guest_ssid\" autocomplete=\"off\" value=\"" +
-            htmlEscape(current.guestSsid) + "\">\n<label>密碼</label>";
-    if (!current.guestPassword.empty()) {
-        removeBox(html, "guest_pass");
-    }
-    secretInput(html, "password", "guest_pass", !current.guestPassword.empty(), "開放網路留空");
-    html += "\n<p class=\"note\">WiFi 的 QR code 裡含有密碼，看得到螢幕的人都能連上。"
-            "建議在路由器開一個訪客網路，選「另一個 WiFi」顯示它。</p>\n";
-    html += "<label for=\"qr_text\">自訂網址或文字</label>";
-    html += "<input type=\"text\" id=\"qr_text\" name=\"qr_text\" autocomplete=\"off\" maxlength=\"" +
-            std::to_string(kMaxCornerTextBytes) + "\" placeholder=\"https://...\" value=\"" +
-            htmlEscape(current.cornerText) + "\">\n<p class=\"note\">最多 " + std::to_string(kMaxCornerTextBytes) +
-            " 個英數字元（中文一個字算 3 個）：QR code 那格不大，內容越長格子越小、越難掃。網址太長的話可以先轉成短網址。</p>\n";
-
-    // 上下顛倒 is against the way Glance is put together (Settings::panelFlipped).
-    html += "<h2>畫面</h2>\n<label>擺放方向</label>";
-    for (auto [value, choice, text] : {std::tuple{"landscape", false, "橫放"},
-                                       std::tuple{"portrait", true, "直立（橫放的裝置順時針轉 90 度）"}}) {
-        html += "<label class=\"choice\"><input type=\"radio\" name=\"orientation\" value=\"";
-        html += value;
-        html += current.portrait == choice ? "\" checked> " : "\"> ";
-        html += text;
-        html += "</label>";
-    }
-    html += "<label class=\"choice\"><input type=\"checkbox\" name=\"upside_down\"";
-    html += current.panelFlipped ? "" : " checked";
-    html += "> 上下顛倒（裝置倒過來擺時使用；直立時勾選是逆時針轉 90 度）</label>\n";
-
-    html += "<label>月曆的顏色</label>";
-    for (auto [value, choice, text] : {std::tuple{"dark", Settings::Theme::dark, "深色（黑底白字）"},
-                                       std::tuple{"light", Settings::Theme::light, "淺色（白底黑字）"}}) {
-        html += "<label class=\"choice\"><input type=\"radio\" name=\"theme\" value=\"";
-        html += value;
-        html += current.theme == choice ? "\" checked> " : "\"> ";
-        html += text;
-        html += "</label>";
-    }
-    html += "<label>隱私模式的照片</label><label class=\"choice\"><input type=\"checkbox\" name=\"builtin_photos\"";
-    html += current.builtInPhotos ? " checked" : "";
-    html += "> 也輪播內建的浮世繪（沒有上傳這個方向的照片時一定會顯示）</label>\n";
-
-    html += "<label for=\"refresh_1\">每天更新畫面的時間</label>";
-    timeSelect(html, "refresh_1", current.refreshMinutes, nullptr);
-    html += "<label for=\"refresh_2\">第二次更新的時間</label>";
-    timeSelect(html, "refresh_2", current.secondRefreshMinutes, "不更新");
-    html += "\n<p class=\"note\">每次更新畫面會閃幾秒。中午以前更新顯示今天白天的天氣，中午以後顯示明天白天的。"
-            "第二次更新耗電多約兩成，兩次要相隔至少 3 小時。</p>\n";
-}
 
 void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std::string>& errors) {
     using CornerQr = Settings::CornerQr;
     s.panelFlipped = find(fields, "upside_down") == nullptr;  // a checkbox: sent only when checked
     s.builtInPhotos = find(fields, "builtin_photos") != nullptr;
+    s.autoUpdate = find(fields, "auto_update") != nullptr;
     if (const std::string* orientation = find(fields, "orientation")) {
         s.portrait = *orientation == "portrait";
     }
@@ -508,104 +313,708 @@ void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std
         }
     }
 }
-}  // namespace
 
-std::string renderWifiForm(const Settings& current, std::span<const std::string> nearbySsids,
-                           std::span<const std::string> errors, std::string_view revertedFrom) {
-    std::string html = kPageHead;
-    html += "<h1>Glance 設定：WiFi</h1>\n";
-    errorBox(html, errors);
-    revertNotice(html, current, revertedFrom);
-    html += "<p class=\"note\">儲存後裝置會連上這個 WiFi，並在螢幕上顯示另一個 QR code。"
-            "手機切回同一個 WiFi 後掃描它，就能在有網路的情況下設定行事曆和天氣。</p>\n";
-    html += "<form method=\"post\" action=\"/save\">\n";
-    wifiFields(html, current, nearbySsids);
-    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
-    resetForm(html);
-    html += "</body></html>\n";
-    return html;
+
+// ---- Page parts ----
+
+void pageStart(Html& html, std::string_view title, std::string_view bodyAttributes = {}) {
+    html += "<!doctype html>\n<html lang=\"zh-Hant\"><head><meta charset=\"utf-8\">\n"
+                       "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<title>";
+    html += title;
+    html += "</title>\n<link rel=\"icon\" href=\"data:,\">\n<style>";
+    html += assets::kStyle;
+    html += "</style></head><body";
+    if (!bodyAttributes.empty()) {
+        html += ' ';
+        html += bodyAttributes;
+    }
+    html += ">\n<script>document.documentElement.className='js'</script>\n";
+    html += assets::kIcons;
 }
 
-std::string renderForm(const Settings& current, std::span<const std::string> nearbySsids,
-                       std::span<const std::string> errors, std::string_view revertedFrom,
-                       const DeviceStatus* status) {
-    std::string html = kPageHead;
-    html += "<h1>Glance 設定</h1>\n";
-    errorBox(html, errors);
-    revertNotice(html, current, revertedFrom);
-    if (status) {
-        statusSection(html, *status);
+void script(Html& html, std::initializer_list<const char*> parts) {
+    html += "<script>(()=>{";
+    for (const char* part : parts) {
+        html += part;
     }
-    html += "<form method=\"post\" action=\"/save\">\n";
+    html += "})();</script>\n";
+}
 
-    html += "<h2>行事曆</h2>\n<p class=\"note\">Google 日曆：設定 → 選擇日曆 → 「iCal 格式的私人網址」。"
-            "全部留空的話只顯示照片，當相簿使用。</p>\n";
-    for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
-        std::string name = "ics" + std::to_string(i + 1);
-        bool isSet = !current.icsUrls[i].empty();
-        html += "<label>行事曆 " + std::to_string(i + 1) + "</label>";
-        if (isSet) {
-            removeBox(html, name);
+std::string icon(std::string_view id, std::string_view cls = {}) {
+    std::string svg = "<svg";
+    if (!cls.empty()) {
+        svg += " class=\"" + std::string(cls) + "\"";
+    }
+    return svg + " aria-hidden=\"true\"><use href=\"#i-" + std::string(id) + "\"/></svg>";
+}
+
+// A plain top bar: the logo, a title and a line under it.
+void simpleBar(Html& html, std::string_view title, std::string_view line) {
+    html += "<header class=\"bar\"><div class=\"in\">";
+    html += assets::kLogo;
+    html += "<div class=\"bt\"><b>" + std::string(title) + "</b><small>" + std::string(line) + "</small></div></div></header>\n";
+}
+
+void errorBox(Html& html, std::span<const std::string> errors) {
+    if (errors.empty()) {
+        return;
+    }
+    html += "<div class=\"ban e\">" + icon("warn") + "<div><b>沒有儲存，請修正：</b><ul>";
+    for (const std::string& e : errors) {
+        html += "<li>" + htmlEscape(e) + "</li>";
+    }
+    html += "</ul></div></div>\n";
+}
+
+void revertNotice(Html& html, const Settings& current, std::string_view revertedFrom) {
+    if (revertedFrom.empty()) {
+        return;
+    }
+    html += "<div class=\"ban\">" + icon("warn") + "<div>上次改的「" + htmlEscape(revertedFrom) + "」連不上，已改回「" +
+            htmlEscape(current.wifiSsid) + "」。</div></div>\n";
+}
+
+std::string when(uint32_t unixTime, int32_t utcOffset) {
+    time_t local = static_cast<time_t>(unixTime) + utcOffset;
+    struct tm t;
+    gmtime_r(&local, &t);
+    char text[16];
+    std::strftime(text, sizeof(text), "%m/%d %H:%M", &t);
+    return text;
+}
+
+// A toggle: `name` is also its id.
+void toggle(Html& html, const char* name, std::string_view label, std::string_view note, bool on) {
+    html += "<div class=\"f\"><label class=\"lb\" for=\"";
+    html += name;
+    html += "\">" + std::string(label);
+    if (!note.empty()) {
+        html += "<small>" + std::string(note) + "</small>";
+    }
+    html += "</label><input type=\"checkbox\" class=\"sw\" id=\"";
+    html += name;
+    html += "\" name=\"";
+    html += name;
+    html += on ? "\" checked>" : "\">";
+    html += "</div>\n";
+}
+
+// Radio buttons that look like a row of buttons.
+void segmented(Html& html, const char* name, std::initializer_list<std::pair<const char*, const char*>> choices,
+               std::string_view chosen, const char* cls) {
+    html += "<div class=\"seg ";
+    html += cls;
+    html += "\" role=\"radiogroup\">";
+    for (auto [value, text] : choices) {
+        html += "<label><input type=\"radio\" name=\"";
+        html += name;
+        html += "\" value=\"";
+        html += value;
+        html += chosen == value ? "\" checked>" : "\">";
+        html += "<span>";
+        html += text;
+        html += "</span></label>";
+    }
+    html += "</div>";
+}
+
+// Where a URL points, without the path (where a calendar's secret is) or
+// any user:password@.
+std::string hostOf(std::string_view url) {
+    size_t scheme = url.find("://");
+    std::string_view rest = scheme == std::string_view::npos ? url : url.substr(scheme + 3);
+    rest = rest.substr(0, rest.find_first_of("/?#"));
+    if (size_t at = rest.rfind('@'); at != std::string_view::npos) {
+        rest = rest.substr(at + 1);
+    }
+    return std::string(rest);
+}
+
+// A stored secret: never sent back, only that it's set. Script offers to
+// replace it (`editLabel`) or, with `removable`, remove it; without script,
+// the field and the remove box are just there.
+void storedSecret(Html& html, std::string_view label, std::string_view note, const std::string& name,
+                  const char* type, const char* placeholder, const char* editLabel, bool removable) {
+    html += "<div class=\"f col secret\" data-set=\"1\" data-edit=\"";
+    html += editLabel;
+    html += "\"><div class=\"hd\"><span class=\"lb\">" + std::string(label);
+    if (!note.empty()) {
+        html += "<small>" + std::string(note) + "</small>";
+    }
+    html += "<small class=\"gone later\">儲存後刪除</small></span><span class=\"chip\">已設定</span></div>";
+    html += "<div class=\"url\"><input class=\"t\" type=\"";
+    html += type;
+    html += "\" name=\"" + name + "\" data-g=\"" + name + "\" autocomplete=\"off\" placeholder=\"";
+    html += placeholder;
+    html += "\"></div>";
+    if (removable) {
+        html += "<label class=\"rm jsvh\"><input type=\"checkbox\" name=\"" + name + "_remove\" data-g=\"" + name +
+                "\"> 刪除</label>";
+    }
+    html += "<div class=\"acts jsonly\"></div></div>\n";
+}
+
+// The networks nearby to pick from, then the name and password fields (#nf)
+// that script moves under the chosen one.
+void networkPicker(Html& html, const Settings& current, std::span<const Network> nearby, bool homeNetwork) {
+    html += "<div class=\"card\"><h2><span>附近的網路</span></h2>";
+    for (const Network& n : nearby) {
+        int bars = n.rssi > -55 ? 4 : n.rssi > -65 ? 3 : n.rssi > -75 ? 2 : 1;
+        html += "<button type=\"button\" class=\"net jsonly\" data-ssid=\"" + htmlEscape(n.ssid) + "\"";
+        html += n.open ? " data-open=\"1\">" : ">";
+        html += "<span class=\"tick\"></span><span class=\"lb\">" + htmlEscape(n.ssid);
+        if (homeNetwork && n.ssid == current.wifiSsid) {
+            html += "<small>目前連著的網路</small>";
         }
-        secretInput(html, "url", name, isSet, "貼上 ICS 網址");
-        html += "\n";
+        html += "</span>";
+        if (!n.open) {
+            html += icon("lock", "lock");
+        }
+        html += "<span class=\"bars\" title=\"訊號 " + std::to_string(bars) + "/4\">";
+        for (int i = 1; i <= 4; i++) {
+            html += i <= bars ? "<i class=\"on\"></i>" : "<i></i>";
+        }
+        html += "</span></button>";
     }
+    if (nearby.empty()) {
+        html += "<p class=\"help jsonly\" style=\"margin:10px 0 12px\">附近沒有找到 2.4 GHz 的網路，可以自己輸入名稱。</p>";
+    }
+    html += "<button type=\"button\" class=\"net jsonly\" data-other=\"1\"><span class=\"tick\"></span>"
+            "<span class=\"lb\">其他網路…<small>隱藏的網路，自己輸入名稱</small></span></button>";
+    const bool passSet = !current.wifiPassword.empty();
+    html += "<div class=\"netform\" id=\"nf\" data-current=\"" + htmlEscape(current.wifiSsid) + "\" data-pass-set=\"";
+    html += passSet ? "1\">" : "0\">";
+    html += "<div class=\"f col\" id=\"ssidrow\" style=\"border:0;padding:0\"><label class=\"fl\" for=\"ssid\">網路名稱</label>"
+            "<input class=\"t\" type=\"text\" id=\"ssid\" name=\"ssid\" autocomplete=\"off\" autocapitalize=\"off\" "
+            "spellcheck=\"false\" value=\"" +
+            htmlEscape(current.wifiSsid) + "\"></div>";
+    html += "<div class=\"f col\" id=\"pwrow\" style=\"border:0;padding:0\"><label class=\"fl\" for=\"pw\">密碼</label>"
+            "<div class=\"pw\"><input class=\"t\" type=\"password\" id=\"pw\" name=\"wifi_pass\" autocomplete=\"off\" "
+            "placeholder=\"";
+    html += passSet ? "已設定（留空表示不修改）" : "密碼（開放網路留空）";
+    html += "\"><button type=\"button\" class=\"btn jsonly\" id=\"eye\">顯示</button></div></div>";
+    html += "<p class=\"help later\" id=\"openrow\" style=\"margin:0\">開放網路，不用密碼。</p>";
+    html += "</div></div>\n";
+}
 
-    html += "<h2>天氣</h2>\n<label for=\"location\">縣市</label><select id=\"location\" name=\"location\">";
-    html += "<option value=\"\">（不顯示天氣）</option>";
+// The second-step link to erasing everything (renderResetConfirm).
+void resetLink(Html& html, const char* cls) {
+    html += "<a class=\"";
+    html += cls;
+    html += "\" href=\"/reset\">清除所有資料…</a>";
+}
+
+constexpr const char* kResetHelp =
+    "打不開設定頁的時候（例如裝置連到手機連不到的網路），按住背後的按鈕約 20 秒再放開"
+    "（15 到 30 秒之間放開都可以，看得到 LED 的話它會快閃），也會清除所有資料。";
+
+// ---- The home-network form's views ----
+
+struct Overview {
+    int calendars = 0;
+    std::vector<size_t> failing;  // calendar slots, 0-based
+    bool issues = false;          // anything worth a warning dot
+};
+
+Overview overviewOf(const Settings& s, const DeviceStatus* status) {
+    Overview o;
+    for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
+        if (s.icsUrls[i].empty()) {
+            continue;
+        }
+        o.calendars++;
+        if (status && status->calendarFailingSince[i]) {
+            o.failing.push_back(i);
+        }
+    }
+    if (status) {
+        const wake_log::Health& h = status->health;
+        o.issues = !o.failing.empty() || h.highVoltage > 0 || h.crashes || h.brownouts || h.failedRuns;
+    }
+    return o;
+}
+
+void statusBanners(Html& html, const Overview& o, const DeviceStatus& s) {
+    const wake_log::Health& h = s.health;
+    for (size_t i : o.failing) {
+        html += "<a class=\"ban\" href=\"#calendars\">" + icon("warn") + "<span>行事曆 " + std::to_string(i + 1) +
+                "：從 " + when(s.calendarFailingSince[i], s.utcOffset).substr(0, 5) +
+                " 起抓不到，請確認網址是否還有效。<span class=\"go\">去看看 ›</span></span></a>\n";
+    }
+    if (h.highVoltage > 0) {
+        char text[128];
+        std::snprintf(text, sizeof(text), "電池電壓偏高：最高 %.2fV（%d 次），充電電路可能有問題。", h.highestMillivolts / 1000.0,
+                      h.highVoltage);
+        html += "<div class=\"ban e\">" + icon("warn") + "<span>" + text + "</span></div>\n";
+    }
+    std::vector<std::string> issues;
+    if (h.crashes) {
+        issues.push_back("當機重開 " + std::to_string(h.crashes) + " 次");
+    }
+    if (h.brownouts) {
+        issues.push_back("欠壓重開 " + std::to_string(h.brownouts) + " 次");
+    }
+    if (h.failedRuns) {
+        issues.push_back("更新失敗 " + std::to_string(h.failedRuns) + " 次（含重試）");
+    }
+    if (!issues.empty()) {
+        std::string joined;
+        for (const std::string& issue : issues) {
+            joined += (joined.empty() ? "" : "、") + issue;
+        }
+        html += "<div class=\"ban\">" + icon("warn") + "<span>最近 7 天：" + joined + "</span></div>\n";
+    }
+}
+
+void statusTiles(Html& html, const Overview& o, const DeviceStatus& s) {
+    const wake_log::Health& h = s.health;
+    html += "<div class=\"tiles\">";
+    if (h.latestBattery) {
+        char volts[16];
+        std::snprintf(volts, sizeof(volts), "%.2fV", h.latestBattery->millivolts / 1000.0);
+        html += "<div class=\"tile\"><div class=\"tl\"><i" + std::string(h.highVoltage ? " class=\"w\"" : "") +
+                "></i>電池</div><b>" + std::to_string(h.latestBattery->soc256 / 256) + "<span>%</span></b><div class=\"ts\">" +
+                volts + "</div></div>";
+    } else {
+        html += "<div class=\"tile\"><div class=\"tl\"><i class=\"n\"></i>電池</div><b>—</b><div class=\"ts\">沒有讀到（沒接電池？）</div></div>";
+    }
+    std::string lastTime = "—", lastDay = "還沒有紀錄";
+    if (h.lastGoodRefresh) {
+        std::string at = when(h.lastGoodRefresh, s.utcOffset);
+        lastTime = at.substr(6);
+        lastDay = s.now && when(static_cast<uint32_t>(s.now), s.utcOffset).substr(0, 5) == at.substr(0, 5) ? "今天"
+                                                                                                         : at.substr(0, 5);
+    }
+    const bool runIssues = h.crashes || h.brownouts || h.failedRuns;
+    html += "<div class=\"tile\"><div class=\"tl\"><i" + std::string(runIssues ? " class=\"w\"" : "") +
+            "></i>最後更新</div><b>" + lastTime + "</b><div class=\"ts\">" + lastDay +
+            (runIssues ? "" : "，最近 7 天沒有異常") + "</div></div>";
+    html += "<div class=\"tile\"><div class=\"tl\"><i" + std::string(o.failing.empty() ? (o.calendars ? "" : " class=\"n\"") : " class=\"w\"") +
+            "></i>行事曆</div><b>" + std::to_string(o.calendars) + "<span>個</span></b><div class=\"ts" +
+            (o.failing.empty() ? "\">" : " w\">") +
+            (!o.failing.empty() ? std::to_string(o.failing.size()) + " 個抓不到" : o.calendars ? "沒有抓不到的" : "只顯示照片") +
+            "</div></div>";
+    if (s.landscapePhotos >= 0) {
+        html += "<div class=\"tile\"><div class=\"tl\"><i class=\"n\"></i>隱私照片</div><b><span data-photos=\"total\" style=\"font-size:inherit;color:inherit;margin:0;font-weight:inherit\">" +
+                std::to_string(s.landscapePhotos + s.portraitPhotos) +
+                "</span><span>張</span></b><div class=\"ts\">橫放 <span data-photos=\"landscape\">" +
+                std::to_string(s.landscapePhotos) + "</span> · 直立 <span data-photos=\"portrait\">" +
+                std::to_string(s.portraitPhotos) + "</span></div></div>";
+    }
+    html += "</div>\n";
+}
+
+void listRow(Html& html, const char* view, const char* iconId, const char* color, const char* title,
+             const std::string& value) {
+    html += "<a class=\"row\" href=\"#";
+    html += view;
+    html += "\"><span class=\"ico\" style=\"background:var(";
+    html += color;
+    html += ")\">" + icon(iconId) + "</span><span class=\"lb\">" + title + "</span><span class=\"val\"><i class=\"ch\" data-dirty=\"";
+    html += view;
+    html += "\" hidden></i>" + value + "</span>" + icon("chev", "chev") + "</a>";
+}
+
+void viewStart(Html& html, const char* id, const char* title, const char* parent = nullptr) {
+    html += "<section class=\"view\" id=\"v-";
+    html += id;
+    html += "\" data-title=\"";
+    html += title;
+    if (parent) {
+        html += "\" data-parent=\"";
+        html += parent;
+    }
+    html += "\"><h2 class=\"vh\">";
+    html += title;
+    html += "</h2>\n";
+}
+
+void homeView(Html& html, const Settings& s, std::span<const std::string> errors, std::string_view revertedFrom,
+              const DeviceStatus* status, const Overview& o) {
+    html += "<section class=\"view on\" id=\"v-home\" data-title=\"Glance\">\n";
+    errorBox(html, errors);
+    revertNotice(html, s, revertedFrom);
+    if (status) {
+        statusBanners(html, o, *status);
+        statusTiles(html, o, *status);
+    }
+    std::string calendars = o.calendars ? std::to_string(o.calendars) + " 個" : "沒有";
+    if (!o.failing.empty()) {
+        calendars = "<i class=\"wd\"></i>" + calendars;
+    }
+    std::string photos;
+    if (status && status->landscapePhotos >= 0) {
+        photos = "<span data-photos=\"total\">" + std::to_string(status->landscapePhotos + status->portraitPhotos) +
+                 "</span> 張照片";
+    }
+    std::string times = clockTime(s.refreshMinutes);
+    if (s.secondRefreshMinutes != Settings::kNoRefresh) {
+        times += "、" + clockTime(s.secondRefreshMinutes);
+    }
+    html += "<div class=\"sec\">內容</div><div class=\"list\">";
+    listRow(html, "calendars", "cal", "--i-cal", "行事曆", calendars);
+    listRow(html, "weather", "sun", "--i-sun", "天氣", s.weatherLocation.empty() ? "不顯示" : s.weatherLocation);
+    listRow(html, "privacy", "img", "--i-img", "隱私模式", photos);
+    html += "</div>\n<div class=\"sec\">裝置</div><div class=\"list\">";
+    listRow(html, "display", "disp", "--i-disp", "畫面",
+            std::string(s.portrait ? "直立" : "橫放") + " · " + (s.theme == Settings::Theme::light ? "淺色" : "深色"));
+    listRow(html, "schedule", "clock", "--i-clock", "更新時間", times);
+    listRow(html, "wifi", "wifi", "--i-wifi", "WiFi", htmlEscape(s.wifiSsid));
+    listRow(html, "advanced", "gear", "--i-gear", "進階", s.autoUpdate ? "自動更新" : "手動更新");
+    html += "</div>\n";
+    if (status && !status->firmwareVersion.empty()) {
+        html += "<p class=\"foot\">韌體版本：" + htmlEscape(status->firmwareVersion) + "</p>\n";
+    }
+    html += "</section>\n";
+}
+
+void calendarsView(Html& html, const Settings& s, const DeviceStatus* status) {
+    viewStart(html, "calendars", "行事曆");
+    html += "<p class=\"intro\">最多五個，合併成接下來的十個行程。全部留空的話只顯示照片，當相簿使用。</p>\n"
+            "<details class=\"howto\"><summary>怎麼找 iCal 網址？</summary><ol>"
+            "<li>Google 日曆（電腦版）：設定 → 左邊選擇日曆 →「整合日曆」→ 複製「iCal 格式的私人網址」。</li>"
+            "<li>iCloud：行事曆 App → 日曆旁的 ⓘ → 打開「公開行事曆」→ 分享連結（webcal:// 開頭）。</li></ol></details>\n"
+            "<div class=\"card\"><h2><span>行事曆</span><small><span id=\"cal-n\"></span> / 5</small></h2>\n";
+    for (size_t i = 0; i < Settings::kMaxCalendars; i++) {
+        const std::string n = std::to_string(i + 1), name = "ics" + n;
+        const bool set = !s.icsUrls[i].empty();
+        html += "<div class=\"f col secret\" data-slot=\"" + n + "\" data-set=\"" + (set ? "1" : "0") +
+                "\" data-edit=\"換網址\"><div class=\"hd\"><span class=\"num\">" + n + "</span><span class=\"lb\">行事曆 " + n;
+        html += set ? "<span class=\"host\">" + htmlEscape(hostOf(s.icsUrls[i])) + "</span>" : "<span class=\"host\">新的行事曆</span>";
+        html += "<small class=\"gone later\">儲存後刪除</small></span>";
+        if (set && status && status->calendarFailingSince[i]) {
+            html += "<span class=\"chip w\">" + when(status->calendarFailingSince[i], status->utcOffset).substr(0, 5) +
+                    " 起抓不到</span>";
+        }
+        html += "</div><div class=\"url\"><input class=\"t\" type=\"url\" inputmode=\"url\" name=\"" + name +
+                "\" data-g=\"" + name + "\" autocomplete=\"off\" placeholder=\"";
+        html += set ? "貼上新的網址（留空表示不修改）" : "貼上 iCal 網址（https:// 或 webcal://）";
+        html += "\"></div>";
+        if (set) {
+            html += "<label class=\"rm jsvh\"><input type=\"checkbox\" name=\"" + name + "_remove\" data-g=\"" + name +
+                    "\"> 刪除</label>";
+        }
+        html += "<div class=\"acts jsonly\"></div></div>\n";
+    }
+    html += "<div class=\"f jsonly\"><button type=\"button\" class=\"btn add\" data-a=\"add\" id=\"cal-add\">＋ 新增行事曆</button></div>"
+            "</div>\n</section>\n";
+}
+
+void weatherView(Html& html, const Settings& s) {
+    viewStart(html, "weather", "天氣");
+    html += "<p class=\"intro\">每次更新畫面時抓今天（中午以後是明天）白天的天氣。</p>\n<div class=\"card\">"
+            "<div class=\"f col\"><label class=\"lb\" for=\"location\">縣市</label><select id=\"location\" name=\"location\">"
+            "<option value=\"\">（不顯示天氣）</option>";
     for (const char* county : kCounties) {
         html += "<option";
-        if (current.weatherLocation == county) {
+        if (s.weatherLocation == county) {
             html += " selected";
         }
         html += ">";
         html += county;
         html += "</option>";
     }
-    html += "</select>\n<label>中央氣象署開放資料授權碼</label>";
-    if (!current.cwaApiKey.empty()) {
-        removeBox(html, "cwa_key");
+    html += "</select></div>\n";
+    constexpr const char* kWhere = "到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得（CWA- 或 CWB- 開頭）";
+    if (!s.cwaApiKey.empty()) {
+        storedSecret(html, "氣象署授權碼", kWhere, "cwa_key", "text", "CWA-XXXXXXXX-...", "更換", true);
+    } else {
+        html += "<div class=\"f col\"><label class=\"lb\" for=\"cwa_key\">氣象署授權碼<small>";
+        html += kWhere;
+        html += "</small></label><input class=\"t\" type=\"text\" id=\"cwa_key\" name=\"cwa_key\" autocomplete=\"off\" "
+                "placeholder=\"CWA-XXXXXXXX-...\"></div>\n";
     }
-    secretInput(html, "text", "cwa_key", !current.cwaApiKey.empty(), "CWA-XXXXXXXX-...");
-    html += "\n<p class=\"note\">到 opendata.cwa.gov.tw 註冊會員後，在會員資訊頁取得（CWA- 或 CWB- 開頭）。</p>\n";
+    html += "</div>\n</section>\n";
+}
 
-    html += "<h2>WiFi</h2>\n";
-    wifiFields(html, current, nearbySsids);
-    html += "<p class=\"note\">新的 WiFi 連不上時，螢幕會顯示通知；長按按鈕會開啟設定熱點重新設定。</p>\n";
-    displayFields(html, current);
+void privacyView(Html& html, const Settings& s, const DeviceStatus* status) {
+    using CornerQr = Settings::CornerQr;
+    viewStart(html, "privacy", "隱私模式");
+    html += "<p class=\"intro\">按一下按鈕，行程換成一張佔滿畫面的照片，右下角留一小格。</p>\n"
+            "<div class=\"card\"><h2><span>照片</span></h2>"
+            "<a class=\"f\" href=\"#photos\" style=\"text-decoration:none;color:inherit\"><span class=\"lb\">管理照片<small>";
+    if (status && status->landscapePhotos >= 0) {
+        html += "橫放 <span data-photos=\"landscape\">" + std::to_string(status->landscapePhotos) +
+                "</span> 張 · 直立 <span data-photos=\"portrait\">" + std::to_string(status->portraitPhotos) + "</span> 張";
+    } else {
+        html += "上傳、刪除照片";
+    }
+    html += "</small></span>" + icon("chev", "chev") + "</a>\n";
+    toggle(html, "builtin_photos", "也輪播內建的浮世繪", "沒有上傳這個方向的照片時，一定會顯示", s.builtInPhotos);
+    html += "</div>\n<div class=\"card\"><h2><span>右下角那一格</span></h2><div class=\"f col\"><div class=\"lb\"><small>"
+            "可以把天氣換成 QR code：客人用手機相機掃了就能連上 WiFi，或打開你放的網址。</small></div>";
+    const char* corner = s.cornerQr == CornerQr::own     ? "own"
+                         : s.cornerQr == CornerQr::other ? "other"
+                         : s.cornerQr == CornerQr::text  ? "text"
+                                                         : "off";
+    segmented(html, "guest_wifi", {{"off", "天氣"}, {"own", "這個 WiFi"}, {"other", "另一個 WiFi"}, {"text", "網址"}}, corner,
+              "four");
+    html += "<p class=\"help\" data-when=\"guest_wifi=own\">QR code 裡有這台裝置連的 WiFi 密碼，看得到螢幕的人都能連上。"
+            "有訪客網路的話，選「另一個 WiFi」。</p>";
+    html += "</div>\n<div data-when=\"guest_wifi=other\">"
+            "<div class=\"f col\"><label class=\"lb\" for=\"guest_ssid\">另一個網路的名稱</label>"
+            "<input class=\"t\" type=\"text\" id=\"guest_ssid\" name=\"guest_ssid\" autocomplete=\"off\" value=\"" +
+            htmlEscape(s.guestSsid) + "\"></div>\n";
+    if (!s.guestPassword.empty()) {
+        storedSecret(html, "密碼", "", "guest_pass", "password", "新的密碼", "更換", true);
+    } else {
+        html += "<div class=\"f col\"><label class=\"lb\" for=\"guest_pass\">密碼</label><input class=\"t\" "
+                "type=\"password\" id=\"guest_pass\" name=\"guest_pass\" autocomplete=\"off\" placeholder=\"開放網路留空\"></div>\n";
+    }
+    html += "</div>\n<div class=\"f col\" data-when=\"guest_wifi=text\"><label class=\"lb\" for=\"qr_text\">網址或文字<small>最多 " +
+            std::to_string(kMaxCornerTextBytes) +
+            " 個英數字元（中文一個字算 3 個）：內容越長格子越小、越難掃，網址太長可以先轉成短網址。</small></label>"
+            "<input class=\"t\" type=\"text\" id=\"qr_text\" name=\"qr_text\" autocomplete=\"off\" maxlength=\"" +
+            std::to_string(kMaxCornerTextBytes) + "\" placeholder=\"https://…\" value=\"" + htmlEscape(s.cornerText) +
+            "\"></div>\n</div>\n</section>\n";
+}
 
-    html += "<button type=\"submit\">儲存並重新啟動</button>\n</form>\n";
-    // A tab of its own, so whatever is typed above survives a visit.
-    html += "<h2>隱私模式照片</h2>\n<p><a href=\"/photos\" target=\"_blank\" rel=\"opener\">管理照片</a>"
-            "（另開分頁，這頁填的內容會留著）</p>\n";
-    html += "<h2>電池紀錄</h2>\n<p><a href=\"/log.csv\">下載每次醒來的紀錄（CSV）</a></p>\n"
-            "<p class=\"note\">電池電壓、電量、醒著多久、連 WiFi 花多久，用來推算續航。</p>\n";
-    resetForm(html);
+void displayView(Html& html, const Settings& s) {
+    viewStart(html, "display", "畫面");
+    html += "<div class=\"card\"><div class=\"f\"><span class=\"lb\">擺放方向<small>直立是橫放的裝置順時針轉 90 度</small></span>";
+    segmented(html, "orientation", {{"landscape", "橫放"}, {"portrait", "直立"}}, s.portrait ? "portrait" : "landscape",
+              "in-row");
+    html += "</div>\n";
+    // 上下顛倒 is against the way Glance is put together (Settings::panelFlipped).
+    toggle(html, "upside_down", "上下顛倒", "裝置倒過來擺的時候打開；直立時打開是逆時針轉 90 度", !s.panelFlipped);
+    html += "<div class=\"f\"><span class=\"lb\">月曆顏色<small>只影響月曆，隱私模式的照片不變</small></span>";
+    segmented(html, "theme", {{"dark", "深色"}, {"light", "淺色"}},
+              s.theme == Settings::Theme::light ? "light" : "dark", "in-row");
+    html += "</div>\n</div>\n</section>\n";
+}
+
+void scheduleView(Html& html, const Settings& s) {
+    viewStart(html, "schedule", "更新時間");
+    html += "<div class=\"card\"><div class=\"f\"><label class=\"lb\" for=\"refresh_1\">每天更新畫面</label>";
+    timeSelect(html, "refresh_1", s.refreshMinutes, nullptr);
+    html += "</div>\n<div class=\"f\"><label class=\"lb\" for=\"refresh_2\">第二次更新<small>耗電多約兩成，兩次要相隔至少 3 小時</small></label>";
+    timeSelect(html, "refresh_2", s.secondRefreshMinutes, "不更新");
+    html += "</div>\n</div>\n<p class=\"intro\">每次更新畫面會閃幾秒。中午以前更新顯示今天白天的天氣，中午以後顯示明天白天的。</p>\n</section>\n";
+}
+
+void wifiView(Html& html, const Settings& s, std::span<const Network> nearby) {
+    viewStart(html, "wifi", "WiFi");
+    networkPicker(html, s, nearby, true);
+    html += "<p class=\"intro\">Glance 只能連 2.4 GHz 的網路。換到新的 WiFi 連不上的話，裝置會改回目前的網路，"
+            "螢幕上也會顯示通知。</p>\n</section>\n";
+}
+
+void advancedView(Html& html, const Settings& s, const DeviceStatus* status) {
+    viewStart(html, "advanced", "進階");
+    html += "<div class=\"card\"><h2><span>韌體更新</span></h2>\n";
+    toggle(html, "auto_update", "自動更新",
+           "有新版本時，在早上更新畫面後自動安裝。關掉的話不會自己更新，要在這裡檢查、按了才安裝。", s.autoUpdate);
+    if (status && !status->firmwareVersion.empty()) {
+        html += "<div class=\"f col\"><div class=\"hd\"><span class=\"lb\">目前版本<small>" +
+                htmlEscape(status->firmwareVersion) + "</small></span>";
+        if (status->releaseBuild) {
+            html += "<span id=\"upd-out\" class=\"jsonly\"><button type=\"button\" class=\"btn\" data-a=\"check\">檢查更新</button></span>";
+            html += "</div><p class=\"help\" id=\"upd-msg\"></p></div>\n";
+        } else {
+            html += "</div><p class=\"help\">開發版：不會檢查或安裝更新。</p></div>\n";
+        }
+    }
+    html += "</div>\n<div class=\"card\"><h2><span>資料</span></h2>"
+            "<div class=\"f\"><span class=\"lb\">電池紀錄<small>每次醒來的電池電壓、電量、醒著多久、連 WiFi 花多久，用來推算續航（CSV）"
+            "</small></span><a class=\"btn\" href=\"/log.csv\">下載</a></div>\n"
+            "<div class=\"f col\"><div class=\"hd\"><span class=\"lb\">清除所有資料<small>WiFi、行事曆、照片和紀錄都會刪除，"
+            "裝置回到送人前的狀態</small></span>";
+    resetLink(html, "btn dan");
+    html += "</div><p class=\"help\">";
+    html += kResetHelp;
+    html += "</p></div>\n</div>\n</section>\n";
+}
+}  // namespace
+
+void renderWifiForm(Html& html, const Settings& current, std::span<const Network> nearby, std::span<const std::string> errors,
+                           std::string_view revertedFrom) {
+    const bool first = current.wifiSsid.empty();
+    pageStart(html, "Glance 設定");
+    simpleBar(html, "Glance 設定", first ? "第一次設定" : "WiFi 設定");
+    html += "<main class=\"in\">\n";
+    errorBox(html, errors);
+    revertNotice(html, current, revertedFrom);
+    if (first) {
+        html += "<div class=\"steps\"><span class=\"on\"><b>1</b>連上 WiFi</span><span><b>2</b>行事曆和天氣</span></div>\n";
+    }
+    html += "<p class=\"intro\">先讓 Glance 連上家裡的 WiFi。行事曆和天氣下一步再設，那時手機有網路，比較好找網址。</p>\n";
+    html += "<form id=\"f\" method=\"post\" action=\"/save\">\n";
+    networkPicker(html, current, nearby, false);
+    html += "<p class=\"intro\">Glance 只能連 2.4 GHz，這裡也只列得出 2.4 GHz 的網路。找不到家裡的 WiFi 的話，可能它只開了 5 GHz。</p>\n";
+    html += "<div class=\"savebar ap show\"><div class=\"in\"><p class=\"help jsonly\" id=\"hint\"></p>"
+            "<button class=\"btn pri wide\" id=\"go\" type=\"submit\">連線並重新啟動</button></div></div>\n</form>\n";
+    html += "<p class=\"center\" style=\"margin-top:22px\">";
+    resetLink(html, "quiet");
+    html += "</p>\n</main>\n";
+    script(html, {assets::kPrelude, assets::kPicker, assets::kWifiScript});
     html += "</body></html>\n";
-    return html;
 }
 
-std::string renderSaved() {
-    return std::string(kPageHead) +
-           "<h1>已儲存</h1><p>裝置正在重新啟動並更新畫面，大約一分鐘。手機可以切回原本的 WiFi 了。</p></body></html>\n";
+void renderForm(Html& html, const Settings& current, std::span<const Network> nearby, std::span<const std::string> errors,
+                       std::string_view revertedFrom, const DeviceStatus* status) {
+    const Overview o = overviewOf(current, status);
+    pageStart(html, "Glance 設定", errors.empty() ? "" : "data-unsaved=\"1\"");
+
+    html += "<header class=\"bar\"><div class=\"in home\">";
+    html += assets::kLogo;
+    html += "<div class=\"bt\"><b>Glance</b><small>";
+    if (status && status->health.lastGoodRefresh) {
+        html += htmlEscape(status->firmwareVersion) + " · " + when(status->health.lastGoodRefresh, status->utcOffset) + " 更新過";
+    } else {
+        html += "設定";
+    }
+    html += "</small></div>";
+    if (status) {
+        html += o.issues ? "<span class=\"dot w\" title=\"有地方要注意\"></span>" : "<span class=\"dot\" title=\"運作正常\"></span>";
+    }
+    html += "</div><div class=\"in sub\"><button type=\"button\" class=\"back\" id=\"back\">" + icon("back") +
+            "<span id=\"backlabel\">Glance</span></button><div class=\"vt\" id=\"vt\"></div><span class=\"sp84\"></span></div>"
+            "</header>\n<main class=\"in\">\n<form id=\"f\" method=\"post\" action=\"/save\">\n"
+            "<input type=\"hidden\" name=\"display\" value=\"1\">\n";
+
+    homeView(html, current, errors, revertedFrom, status, o);
+    calendarsView(html, current, status);
+    weatherView(html, current);
+    privacyView(html, current, status);
+    viewStart(html, "photos", "管理照片", "privacy");
+    html += photosView();
+    html += "</section>\n";
+    displayView(html, current);
+    scheduleView(html, current);
+    wifiView(html, current, nearby);
+    advancedView(html, current, status);
+
+    html += "<div class=\"savebar\" id=\"savebar\"><div class=\"in\"><div class=\"msg\" id=\"savemsg\"></div>"
+            "<button type=\"button\" class=\"undo jsonly\" id=\"undo\" hidden>還原</button>"
+            "<button class=\"btn pri\" id=\"save\" type=\"submit\">儲存並重新啟動</button></div></div>\n</form>\n</main>\n";
+    script(html, {assets::kPrelude, assets::kPicker, assets::kFormScript});
+    html += "</body></html>\n";
 }
 
+void renderSaved(Html& html, bool wifiStep, std::string_view ssid) {
+    pageStart(html, "Glance 設定");
+    simpleBar(html, "Glance 設定", wifiStep ? "第一步完成" : "已儲存");
+    html += "<main class=\"in\"><div class=\"done\">";
+    if (wifiStep) {
+        const std::string name = htmlEscape(ssid);
+        html += "<div class=\"qr\">" + icon("qr") + "</div><h1>正在連上「" + name +
+                "」</h1><p>大約 30 秒後，螢幕會換成另一個 QR code。</p><ol class=\"next\">"
+                "<li><span>手機的 WiFi 切回「" + name + "」（這個設定熱點會關掉）。</span></li>"
+                "<li><span>用相機掃螢幕上新的 QR code，打開設定頁。</span></li>"
+                "<li><span>在那裡加行事曆、選天氣，手機有網路，比較好找網址。</span></li></ol>"
+                "<p class=\"help\" style=\"margin-top:16px\">連不上的話，螢幕會說明，設定熱點也會重新打開，可以再試一次。</p>";
+    } else {
+        html += "<h1>已儲存</h1><p>裝置正在重新啟動並更新畫面，大約一分鐘。這頁可以關了。</p>";
+    }
+    html += "</div></main></body></html>\n";
+}
+
+void renderResetConfirm(Html& html) {
+    pageStart(html, "清除所有資料");
+    simpleBar(html, "Glance 設定", "清除所有資料");
+    html += "<main class=\"in page\"><h1>確定要清除所有資料嗎？</h1>\n<div class=\"card\"><div class=\"f col\">"
+            "<p style=\"margin:0\">WiFi、行事曆、天氣設定、授權碼、上傳的照片和醒來紀錄都會刪除，無法復原。"
+            "清除後裝置會畫出「按背後按鈕」的圖，然後關機，適合送人或寄出前使用。"
+            "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p></div></div>\n"
+            "<form method=\"post\" action=\"/reset\"><input type=\"hidden\" name=\"confirm\" value=\"yes\">"
+            "<button type=\"submit\" class=\"btn dan solid wide\">確定清除</button></form>\n"
+            "<p class=\"center\"><a href=\"/\">取消，回到設定</a></p></main></body></html>\n";
+}
+
+void renderErased(Html& html) {
+    pageStart(html, "清除所有資料");
+    simpleBar(html, "Glance 設定", "清除所有資料");
+    html += "<main class=\"in\"><div class=\"done\"><h1>正在清除</h1><p>裝置會重新啟動、刪除所有資料，畫出提示畫面後關機。"
+            "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p></div></main></body></html>\n";
+}
+
+void renderDenied(Html& html) {
+    pageStart(html, "Glance");
+    simpleBar(html, "Glance", "設定頁");
+    html += "<main class=\"in\"><div class=\"done\"><div class=\"qr\">" + icon("qr") +
+            "</div><h1>請掃描裝置上的 QR code</h1><p>設定頁只能從裝置螢幕上的 QR code 開啟。</p></div></main></body></html>\n";
+}
+
+// Whole pages, for tests and previews.
+std::string renderWifiForm(const Settings& current, std::span<const Network> nearby, std::span<const std::string> errors,
+                           std::string_view revertedFrom) {
+    Html html;
+    renderWifiForm(html, current, nearby, errors, revertedFrom);
+    return std::move(html.str());
+}
+std::string renderForm(const Settings& current, std::span<const Network> nearby, std::span<const std::string> errors,
+                       std::string_view revertedFrom, const DeviceStatus* status) {
+    Html html;
+    renderForm(html, current, nearby, errors, revertedFrom, status);
+    return std::move(html.str());
+}
+std::string renderSaved(bool wifiStep, std::string_view ssid) {
+    Html html;
+    renderSaved(html, wifiStep, ssid);
+    return std::move(html.str());
+}
 std::string renderResetConfirm() {
-    return std::string(kPageHead) +
-           "<h1>確定要清除所有資料嗎？</h1>\n"
-           "<p>WiFi、行事曆、天氣設定、授權碼、上傳的照片和醒來紀錄都會刪除，無法復原。"
-           "清除後裝置會畫出「按背後按鈕」的圖，然後關機，適合送人或寄出前使用。"
-           "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p>\n"
-           "<form method=\"post\" action=\"/reset\"><input type=\"hidden\" name=\"confirm\" value=\"yes\">"
-           "<button type=\"submit\" class=\"danger\">確定清除</button></form>\n"
-           "<p><a href=\"/\">取消，回到設定</a></p></body></html>\n";
+    Html html;
+    renderResetConfirm(html);
+    return std::move(html.str());
+}
+std::string renderErased() {
+    Html html;
+    renderErased(html);
+    return std::move(html.str());
+}
+std::string renderDenied() {
+    Html html;
+    renderDenied(html);
+    return std::move(html.str());
 }
 
-std::string renderErased() {
-    return std::string(kPageHead) +
-           "<h1>正在清除</h1><p>裝置會重新啟動、刪除所有資料，畫出提示畫面後關機；"
-           "要再使用時，按一下背後的按鈕，就會進入第一次設定。</p></body></html>\n";
+Html::Html(Sink sink) : sink_(std::move(sink)) { buffer_.reserve(kChunk); }
+
+Html& Html::operator+=(std::string_view text) {
+    if (sink_ && buffer_.size() + text.size() > kChunk) {
+        flush();
+        if (text.size() > kChunk) {
+            sink_(text);
+            return *this;
+        }
+    }
+    buffer_ += text;
+    return *this;
 }
+
+void Html::flush() {
+    if (sink_ && !buffer_.empty()) {
+        sink_(buffer_);
+        buffer_.clear();
+    }
+}
+
+namespace {
+std::string jsonString(std::string_view text) {
+    std::string out = "\"";
+    for (char c : text) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+            out += c;
+        } else if (static_cast<unsigned char>(c) < 0x20) {
+            char escaped[8];
+            std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
+            out += escaped;
+        } else {
+            out += c;
+        }
+    }
+    return out + "\"";
+}
+}  // namespace
+
+std::string updateJson(std::string_view current, std::string_view latest, bool installable) {
+    return "{\"current\":" + jsonString(current) + ",\"latest\":" + jsonString(latest) +
+           ",\"installable\":" + (installable ? "true" : "false") + "}";
+}
+
+std::string errorJson(std::string_view message) { return "{\"error\":" + jsonString(message) + "}"; }
 
 bool confirmsReset(std::string_view body) {
     std::vector<Field> fields = parseForm(body);

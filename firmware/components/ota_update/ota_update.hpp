@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 
 // Over-the-air updates from the GitHub release manifest (see
@@ -20,9 +21,23 @@ const char* runningVersion();
 bool onProbation();
 
 // Fetches the manifest (which ends any probation) and, if it offers a newer
-// release and `install` allows, downloads and installs it and restarts into
-// it. Returns without restarting if there's nothing to install or anything
-// fails. Needs network and a synced clock.
-void checkAndInstall(const std::string& manifestUrl, bool install);
+// release, downloads and installs it and restarts into it -- unless
+// `skipReason` says why not (logged; the check still happens). Returns
+// without restarting if there's nothing to install or anything fails.
+// Needs network and a synced clock.
+void checkAndInstall(const std::string& manifestUrl, const char* skipReason = nullptr);
+
+// For the setup page, which offers updates by hand: what the manifest says
+// (reading it ends any probation too). nullopt if it couldn't be read.
+struct Latest {
+    std::string version;  // e.g. "v0.6.1"
+    bool installable;     // newer than this one (by hand, even one that rolled back)
+};
+std::optional<Latest> checkLatest(const std::string& manifestUrl);
+
+// Installs the manifest's release if it's installable (see checkLatest) and
+// restarts into it. Returns false if there was nothing to install or the
+// download failed.
+bool installLatest(const std::string& manifestUrl);
 
 }  // namespace ota_update

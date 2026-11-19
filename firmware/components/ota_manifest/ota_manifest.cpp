@@ -62,13 +62,14 @@ std::optional<Manifest> parseManifest(std::string_view text) {
     return Manifest{std::string(*version->asString()), std::string(*url->asString())};
 }
 
-bool shouldInstall(std::string_view runningVersion, const Manifest& manifest, std::string_view lastFailedVersion) {
+bool shouldInstall(std::string_view runningVersion, const Manifest& manifest, std::string_view lastFailedVersion,
+                   int attempts) {
     auto running = parseVersion(runningVersion);
     auto offered = parseVersion(manifest.version);
     if (!running || !offered || manifest.url.empty()) {
         return false;
     }
-    if (!lastFailedVersion.empty() && parseVersion(lastFailedVersion) == offered) {
+    if (!lastFailedVersion.empty() && parseVersion(lastFailedVersion) == offered && attempts >= kMaxAttempts) {
         return false;
     }
     return *offered > *running;

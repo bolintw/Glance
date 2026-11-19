@@ -1,5 +1,6 @@
 #include "setup_mode.hpp"
 
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -26,6 +27,8 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
+#include "ota_manifest.hpp"
+#include "ota_update.hpp"
 #include "photo_format.hpp"
 #include "photo_store.hpp"
 #include "photos.hpp"
@@ -48,12 +51,6 @@ constexpr int kIntruderBit = BIT2;  // a second device got in: close up
 constexpr int kErasedBit = BIT3;
 constexpr const char* kSessionCookie = "glance_session";
 
-constexpr const char* kDeniedPage = R"(<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">
-<title>Glance</title></head><body style="font-family:system-ui,sans-serif;padding:1rem">
-<h1>請掃描裝置上的 QR code</h1><p>設定頁只能從裝置螢幕上的 QR code 開啟。</p></body></html>
-)";
-
 // What this setup session serves (see setup_mode.hpp).
 enum class Mode { accessPoint, home, devLan };
 
@@ -61,7 +58,9 @@ enum class Mode { accessPoint, home, devLan };
 Mode gMode = Mode::accessPoint;
 httpd_handle_t gServer = nullptr;
 Settings gCurrent;
-std::vector<std::string> gNearby;
+std::vector<setup_page::Network> gNearby;
+setup_mode::HomeOptions gHome;         // home mode: where updates come from
+std::atomic<bool> gInstalling{false};  // an update download is under way
 std::vector<std::string> gWifiErrors;  // shown on the WiFi form, e.g. that the last network didn't work
 std::string gRevertedFrom;             // a new WiFi that didn't connect (see settings::revertWifi)
 std::optional<LanAccess> gAccess;      // home mode's gate
@@ -125,8 +124,8 @@ std::string clientAddress(httpd_req_t* req) {
     return text;
 }
 
-std::vector<std::string> scanNearby() {
-    std::vector<std::string> names;
+std::vector<setup_page::Network> scanNearby() {
+    std::vector<setup_page::Network> names;
     if (esp_wifi_scan_start(nullptr, true) != ESP_OK) {
         return names;
     }
@@ -137,8 +136,9 @@ std::vector<std::string> scanNearby() {
     }
     for (uint16_t i = 0; i < count && names.size() < kMaxNearby; i++) {  // strongest first
         std::string name(reinterpret_cast<const char*>(records[i].ssid));
-        if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end()) {
-            names.push_back(name);
+        auto known = std::find_if(names.begin(), names.end(), [&](const auto& n) { return n.ssid == name; });
+        if (!name.empty() && known == names.end()) {
+            names.push_back({name, records[i].rssi, records[i].authmode == WIFI_AUTH_OPEN});
         }
     }
     return names;
@@ -170,13 +170,30 @@ void dnsTask(void*) {
     }
 }
 
-esp_err_t sendHtml(httpd_req_t* req, const std::string& html) {
+// Sends a page as `write` renders it, in chunks (see setup_page::Html): the
+// device never holds all of it.
+template <typename Write>
+esp_err_t sendHtml(httpd_req_t* req, Write&& write, const char* status = nullptr) {
+    if (status) {
+        httpd_resp_set_status(req, status);
+    }
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, html.data(), static_cast<ssize_t>(html.size()));
+    esp_err_t err = ESP_OK;
+    setup_page::Html html([&](std::string_view part) {
+        if (err == ESP_OK) {
+            err = httpd_resp_send_chunk(req, part.data(), static_cast<ssize_t>(part.size()));
+        }
+    });
+    write(html);
+    html.flush();
+    if (err == ESP_OK) {
+        err = httpd_resp_send_chunk(req, nullptr, 0);
+    }
+    return err;
 }
 
-esp_err_t sendText(httpd_req_t* req, const char* status, const char* type, const std::string& text) {
+esp_err_t sendText(httpd_req_t* req, const char* status, const char* type, std::string_view text) {
     httpd_resp_set_status(req, status);
     httpd_resp_set_type(req, type);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -211,7 +228,7 @@ bool authorize(httpd_req_t* req) {
         case LanAccess::Verdict::deny:
             break;
     }
-    sendText(req, "403 Forbidden", "text/html; charset=utf-8", kDeniedPage);
+    sendHtml(req, [](setup_page::Html& html) { setup_page::renderDenied(html); }, "403 Forbidden");
     return false;
 }
 
@@ -228,6 +245,12 @@ setup_page::DeviceStatus deviceStatus() {
     wake_log_store::forEach([&](const wake_log::Entry& e) { tally.add(e); });
     status.health = tally.health();
     status.calendarFailingSince = settings::loadCalendarFailures();
+    status.releaseBuild = ota_manifest::parseVersion(status.firmwareVersion).has_value();
+    status.landscapePhotos = 0;
+    status.portraitPhotos = 0;
+    for (const photo_store::Entry& entry : photo_store::list()) {
+        (entry.width > entry.height ? status.landscapePhotos : status.portraitPhotos)++;
+    }
     return status;
 }
 
@@ -238,9 +261,13 @@ esp_err_t handleForm(httpd_req_t* req) {
         return ESP_OK;
     }
     const setup_page::DeviceStatus status = gMode == Mode::accessPoint ? setup_page::DeviceStatus{} : deviceStatus();
-    return sendHtml(req, gMode == Mode::accessPoint
-                             ? setup_page::renderWifiForm(gCurrent, gNearby, gWifiErrors, gRevertedFrom)
-                             : setup_page::renderForm(gCurrent, gNearby, {}, gRevertedFrom, &status));
+    return sendHtml(req, [&](setup_page::Html& html) {
+        if (gMode == Mode::accessPoint) {
+            setup_page::renderWifiForm(html, gCurrent, gNearby, gWifiErrors, gRevertedFrom);
+        } else {
+            setup_page::renderForm(html, gCurrent, gNearby, {}, gRevertedFrom, &status);
+        }
+    });
 }
 
 // The whole request body, or nullopt (after answering) if it's too big or
@@ -279,12 +306,72 @@ int slotFromUri(const char* uri) {
 }
 
 
-esp_err_t handlePhotosPage(httpd_req_t* req) {
+// GET /photos.js: the photos view's script, loaded when the view first opens.
+esp_err_t handlePhotosScript(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
         return ESP_OK;
     }
-    return sendHtml(req, setup_page::renderPhotosPage());
+    return sendText(req, "200 OK", "application/javascript; charset=utf-8", setup_page::photosScript());
+}
+
+// GET /update: what the release manifest offers, for installing by hand.
+esp_err_t handleUpdateCheck(httpd_req_t* req) {
+    touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    if (gHome.manifestUrl.empty()) {
+        return sendText(req, "200 OK", "application/json", setup_page::errorJson("這個模式不能檢查更新"));
+    }
+    if (!time_sync::clockIsPlausible() && time_sync::sync(5000) != ESP_OK) {
+        return sendText(req, "200 OK", "application/json", setup_page::errorJson("裝置還沒對到時間，請稍後再試"));
+    }
+    auto latest = ota_update::checkLatest(gHome.manifestUrl);
+    if (!latest) {
+        return sendText(req, "200 OK", "application/json", setup_page::errorJson("讀不到最新版本的資訊，請確認網路後再試"));
+    }
+    return sendText(req, "200 OK", "application/json",
+                    setup_page::updateJson(ota_update::runningVersion(), latest->version, latest->installable));
+}
+
+// While an update installs (POST /update), nothing that writes flash or
+// restarts the device: that would cut the download short.
+bool refuseWhileInstalling(httpd_req_t* req) {
+    if (!gInstalling) {
+        return false;
+    }
+    sendText(req, "409 Conflict", "text/plain; charset=utf-8", "正在安裝更新，裝完裝置會自動重新啟動");
+    return true;
+}
+
+void installTask(void*) {
+    vTaskDelay(pdMS_TO_TICKS(500));  // let the answer reach the phone
+    ota_update::installLatest(gHome.manifestUrl);  // restarts into it on success
+    ESP_LOGW(kTag, "update by hand didn't install");
+    gInstalling = false;
+    vTaskDelete(nullptr);
+}
+
+// POST /update: installs the newer release, then restarts into it.
+esp_err_t handleUpdateInstall(httpd_req_t* req) {
+    touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    if (gHome.manifestUrl.empty()) {
+        return sendText(req, "200 OK", "application/json", setup_page::errorJson("這個模式不能安裝更新"));
+    }
+    if (gHome.lowBattery) {
+        return sendText(req, "200 OK", "application/json", setup_page::errorJson("電池電量太低，充電後再更新"));
+    }
+    if (gInstalling.exchange(true)) {
+        return sendText(req, "200 OK", "application/json", "{\"ok\":true}");
+    }
+    ESP_LOGI(kTag, "installing an update by hand");
+    esp_err_t err = sendText(req, "200 OK", "application/json", "{\"ok\":true}");
+    xTaskCreate(installTask, "ota_install", 8192, nullptr, 5, nullptr);
+    return err;
 }
 
 esp_err_t handlePhotosList(httpd_req_t* req) {
@@ -321,6 +408,9 @@ esp_err_t handlePhotoAdd(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
+    if (refuseWhileInstalling(req)) {
+        return ESP_OK;
+    }
     auto body = readBody<std::vector<uint8_t>>(req, kMaxPhotoBytes);
     if (!body) {
         return ESP_FAIL;
@@ -344,6 +434,9 @@ esp_err_t handlePhotoAdd(httpd_req_t* req) {
 esp_err_t handlePhotoDelete(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
+        return ESP_OK;
+    }
+    if (refuseWhileInstalling(req)) {
         return ESP_OK;
     }
     int slot = slotFromUri(req->uri);
@@ -394,7 +487,7 @@ esp_err_t handleResetConfirm(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
-    return sendHtml(req, setup_page::renderResetConfirm());
+    return sendHtml(req, [](setup_page::Html& html) { setup_page::renderResetConfirm(html); });
 }
 
 // POST /reset (from the confirmation page): asks to erase every setting,
@@ -406,6 +499,9 @@ esp_err_t handleReset(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
+    if (refuseWhileInstalling(req)) {
+        return ESP_OK;
+    }
     auto body = readBody<std::string>(req, kMaxFormBytes);
     if (!body) {
         return ESP_FAIL;
@@ -413,7 +509,7 @@ esp_err_t handleReset(httpd_req_t* req) {
     if (!setup_page::confirmsReset(*body)) {
         return sendText(req, "400 Bad Request", "text/plain", "not confirmed");
     }
-    esp_err_t err = sendHtml(req, setup_page::renderErased());
+    esp_err_t err = sendHtml(req, [](setup_page::Html& html) { setup_page::renderErased(html); });
     xEventGroupSetBits(gEvents, kErasedBit);
     return err;
 }
@@ -423,6 +519,9 @@ esp_err_t handleSave(httpd_req_t* req) {
     if (!authorize(req)) {
         return ESP_OK;
     }
+    if (refuseWhileInstalling(req)) {
+        return ESP_OK;
+    }
     auto body = readBody<std::string>(req, kMaxFormBytes);
     if (!body) {
         return ESP_FAIL;
@@ -430,8 +529,14 @@ esp_err_t handleSave(httpd_req_t* req) {
 
     bool wifiStep = gMode == Mode::accessPoint;
     auto render = [&](const Settings& s, std::span<const std::string> errors) {
-        return wifiStep ? setup_page::renderWifiForm(s, gNearby, errors)
-                        : setup_page::renderForm(s, gNearby, errors);
+        return [&s, errors, wifiStep](setup_page::Html& html) {
+            if (wifiStep) {
+                setup_page::renderWifiForm(html, s, gNearby, errors);
+                return;
+            }
+            const setup_page::DeviceStatus status = deviceStatus();
+            setup_page::renderForm(html, s, gNearby, errors, {}, &status);
+        };
     };
     setup_page::FormResult result =
         wifiStep ? setup_page::applyWifiForm(gCurrent, *body) : setup_page::applyForm(gCurrent, *body);
@@ -444,7 +549,7 @@ esp_err_t handleSave(httpd_req_t* req) {
     }
     ESP_LOGI(kTag, "settings saved");
     gCurrent = result.settings;
-    esp_err_t err = sendHtml(req, setup_page::renderSaved());
+    esp_err_t err = sendHtml(req, [&](setup_page::Html& html) { setup_page::renderSaved(html, wifiStep, gCurrent.wifiSsid); });
     xEventGroupSetBits(gEvents, kSavedBit);
     return err;
 }
@@ -482,8 +587,12 @@ esp_err_t startHttp() {
         .uri = "/log.csv", .method = HTTP_GET, .handler = handleWakeLog, .user_ctx = nullptr};
     static const httpd_uri_t resetConfirm = {
         .uri = "/reset", .method = HTTP_GET, .handler = handleResetConfirm, .user_ctx = nullptr};
-    static const httpd_uri_t photosPage = {
-        .uri = "/photos", .method = HTTP_GET, .handler = handlePhotosPage, .user_ctx = nullptr};
+    static const httpd_uri_t photosScript = {
+        .uri = "/photos.js", .method = HTTP_GET, .handler = handlePhotosScript, .user_ctx = nullptr};
+    static const httpd_uri_t updateCheck = {
+        .uri = "/update", .method = HTTP_GET, .handler = handleUpdateCheck, .user_ctx = nullptr};
+    static const httpd_uri_t updateInstall = {
+        .uri = "/update", .method = HTTP_POST, .handler = handleUpdateInstall, .user_ctx = nullptr};
     static const httpd_uri_t photosList = {
         .uri = "/photos/list", .method = HTTP_GET, .handler = handlePhotosList, .user_ctx = nullptr};
     static const httpd_uri_t photoAdd = {
@@ -505,7 +614,8 @@ esp_err_t startHttp() {
         return ESP_OK;
     }
     // First match wins: the specific paths before their wildcards.
-    for (const httpd_uri_t* handler : {&photosPage, &photosList, &photoAdd, &photoGet, &photoDelete}) {
+    for (const httpd_uri_t* handler :
+         {&photosScript, &photosList, &photoAdd, &photoGet, &photoDelete, &updateCheck, &updateInstall}) {
         httpd_register_uri_handler(gServer, handler);
     }
     if (gMode == Mode::devLan) {
@@ -583,7 +693,7 @@ esp_err_t start(const Settings& current, AccessPoint& out, std::string_view wifi
     return ESP_OK;
 }
 
-esp_err_t startHome(const Settings& current, HomeNetwork& out) {
+esp_err_t startHome(const Settings& current, HomeNetwork& out, const HomeOptions& options) {
     esp_netif_ip_info_t ip = {};
     esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (!sta || esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0) {
@@ -591,6 +701,7 @@ esp_err_t startHome(const Settings& current, HomeNetwork& out) {
     }
     gMode = Mode::home;
     gCurrent = current;
+    gHome = options;
     gRevertedFrom = settings::takeWifiRevertNote();
     gNearby = scanNearby();  // for the WiFi name suggestions
     ESP_LOGI(kTag, "%zu networks nearby", gNearby.size());
@@ -624,6 +735,13 @@ bool eraseAsked() { return gEvents && (xEventGroupGetBits(gEvents) & kErasedBit)
 
 Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
     while (true) {
+        if (gInstalling) {
+            // Nothing ends setup mode mid-download: the update restarts the
+            // device itself, or fails and setup carries on.
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            touch();
+            continue;
+        }
         EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit | kErasedBit, pdTRUE,
                                                pdFALSE, pdMS_TO_TICKS(1000));
         if (bits & kIntruderBit) {

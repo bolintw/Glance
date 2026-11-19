@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
+#include "nvs.h"
 #include "ota_manifest.hpp"
 
 namespace {
@@ -79,37 +80,77 @@ bool onProbation() {
            state == ESP_OTA_IMG_PENDING_VERIFY;
 }
 
-void checkAndInstall(const std::string& manifestUrl, bool install) {
-    if (!ota_manifest::parseVersion(runningVersion())) {
-        ESP_LOGI(kTag, "development build (%s), not checking for updates", runningVersion());
-        return;
-    }
+namespace {
+// The manifest, read; reading it is what ends a fresh update's probation.
+std::optional<ota_manifest::Manifest> readManifest(const std::string& manifestUrl) {
     auto body = fetchManifest(manifestUrl);
     if (!body) {
-        return;
+        return std::nullopt;
     }
     auto manifest = ota_manifest::parseManifest(*body);
     if (!manifest) {
         ESP_LOGW(kTag, "manifest unreadable (%zu bytes)", body->size());
-        return;
+        return std::nullopt;
     }
     if (onProbation()) {
         esp_ota_mark_app_valid_cancel_rollback();
         ESP_LOGI(kTag, "update %s accepted: it reaches the next one", runningVersion());
     }
-    if (!install) {
-        ESP_LOGI(kTag, "battery low: latest is %s, not downloading", manifest->version.c_str());
-        return;
-    }
-    std::string failed = lastFailedVersion();
-    if (!ota_manifest::shouldInstall(runningVersion(), *manifest, failed)) {
-        ESP_LOGI(kTag, "running %s, latest %s%s%s: nothing to do", runningVersion(), manifest->version.c_str(),
-                 failed.empty() ? "" : ", rolled back from ", failed.c_str());
-        return;
-    }
+    return manifest;
+}
 
-    ESP_LOGI(kTag, "installing %s (running %s)", manifest->version.c_str(), runningVersion());
-    esp_http_client_config_t http = httpConfig(manifest->url.c_str());
+// How many times each update was installed (see ota_manifest::kMaxAttempts):
+// the last version installed and its count, in their own NVS namespace.
+constexpr const char* kNvsNamespace = "ota_update";
+constexpr const char* kAttemptVersionKey = "try_ver";
+constexpr const char* kAttemptCountKey = "try_n";
+
+int attempts(const std::string& version) {
+    nvs_handle_t nvs;
+    if (nvs_open(kNvsNamespace, NVS_READONLY, &nvs) != ESP_OK) {
+        return 0;
+    }
+    char stored[32] = {};
+    size_t length = sizeof(stored);
+    uint8_t count = 0;
+    bool same = nvs_get_str(nvs, kAttemptVersionKey, stored, &length) == ESP_OK && version == stored;
+    if (!same || nvs_get_u8(nvs, kAttemptCountKey, &count) != ESP_OK) {
+        count = 0;
+    }
+    nvs_close(nvs);
+    return count;
+}
+
+void countAttempt(const std::string& version) {
+    const int count = attempts(version) + 1;
+    nvs_handle_t nvs;
+    if (nvs_open(kNvsNamespace, NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    nvs_set_str(nvs, kAttemptVersionKey, version.c_str());
+    nvs_set_u8(nvs, kAttemptCountKey, static_cast<uint8_t>(count > 255 ? 255 : count));
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+// Automatic updates (`byHand` false) give up on a version that rolled back
+// kMaxAttempts times; one asked for by hand is always tried.
+bool installable(const ota_manifest::Manifest& manifest, bool byHand) {
+    std::string failed = lastFailedVersion();
+    const int tried = byHand ? 0 : attempts(manifest.version);
+    if (!ota_manifest::shouldInstall(runningVersion(), manifest, failed, tried)) {
+        ESP_LOGI(kTag, "running %s, latest %s%s%s: nothing to do", runningVersion(), manifest.version.c_str(),
+                 failed.empty() ? "" : ", gave up on ", failed.c_str());
+        return false;
+    }
+    return true;
+}
+
+// Downloads and installs, then restarts into it; returns only on failure.
+void install(const ota_manifest::Manifest& manifest) {
+    ESP_LOGI(kTag, "installing %s (running %s)", manifest.version.c_str(), runningVersion());
+    countAttempt(manifest.version);
+    esp_http_client_config_t http = httpConfig(manifest.url.c_str());
     esp_https_ota_config_t ota = {};
     ota.http_config = &http;
     esp_err_t err = esp_https_ota(&ota);  // downloads, verifies the image, sets it to boot next
@@ -117,8 +158,44 @@ void checkAndInstall(const std::string& manifestUrl, bool install) {
         ESP_LOGE(kTag, "update failed: %s", esp_err_to_name(err));
         return;
     }
-    ESP_LOGI(kTag, "installed %s, restarting", manifest->version.c_str());
+    ESP_LOGI(kTag, "installed %s, restarting", manifest.version.c_str());
     esp_restart();
+}
+}  // namespace
+
+void checkAndInstall(const std::string& manifestUrl, const char* skipReason) {
+    if (!ota_manifest::parseVersion(runningVersion())) {
+        ESP_LOGI(kTag, "development build (%s), not checking for updates", runningVersion());
+        return;
+    }
+    auto manifest = readManifest(manifestUrl);
+    if (!manifest) {
+        return;
+    }
+    if (skipReason) {
+        ESP_LOGI(kTag, "%s: latest is %s, not installing", skipReason, manifest->version.c_str());
+        return;
+    }
+    if (installable(*manifest, false)) {
+        install(*manifest);
+    }
+}
+
+std::optional<Latest> checkLatest(const std::string& manifestUrl) {
+    auto manifest = readManifest(manifestUrl);
+    if (!manifest) {
+        return std::nullopt;
+    }
+    return Latest{manifest->version, installable(*manifest, true)};
+}
+
+bool installLatest(const std::string& manifestUrl) {
+    auto manifest = readManifest(manifestUrl);
+    if (!manifest || !installable(*manifest, true)) {
+        return false;
+    }
+    install(*manifest);
+    return false;
 }
 
 }  // namespace ota_update

@@ -34,8 +34,14 @@ struct HomeNetwork {
     std::string qrPayload;  // the page's URL, token included
 };
 
+// Where updates come from, for installing them by hand from the page.
+struct HomeOptions {
+    std::string manifestUrl;  // the board's release manifest; empty: no updates
+    bool lowBattery = false;  // then updates are offered but not installed
+};
+
 // Starts the home-network step. WiFi must already be connected.
-esp_err_t startHome(const Settings& current, HomeNetwork& out);
+esp_err_t startHome(const Settings& current, HomeNetwork& out, const HomeOptions& options);
 
 enum class Event {
     saved,     // valid settings were saved

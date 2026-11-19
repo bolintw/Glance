@@ -137,7 +137,8 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     }
     settings::rememberWorkingWifi({current.wifiSsid, current.wifiPassword});
     setup_mode::HomeNetwork home;
-    if (setup_mode::startHome(current, home) != ESP_OK) {
+    setup_mode::HomeOptions options{std::string(CONFIG_GLANCE_OTA_RELEASE_URL) + "/" + board::kOtaManifest, gLowBattery};
+    if (setup_mode::startHome(current, home, options) != ESP_OK) {
         restartInto(false);
     }
     std::vector<uint8_t> framebuffer(board::kPanelSize.framebufferSize());

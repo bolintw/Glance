@@ -39,6 +39,11 @@ struct Settings {
     // on the days they came round.
     bool builtInPhotos = false;
 
+    // Installs new releases by itself after a morning refresh. Off, the
+    // setup page offers each one to install by hand (the manifest is still
+    // read: that ends a fresh update's probation, see ota_update).
+    bool autoUpdate = true;
+
     // The daily refreshes, in minutes after local midnight: one, and an
     // optional second at least kMinRefreshGapMinutes from it either way
     // round the clock -- more than a failed refresh's retries take.

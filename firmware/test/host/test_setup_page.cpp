@@ -1,3 +1,4 @@
+#include <algorithm>
 // Host-side tests for the setup page: form round trips, secrets, validation.
 // Build and run: `make -C firmware/test/host`.
 
@@ -53,11 +54,11 @@ void testUrlDecode() {
 void testHtmlEscape() { CHECK(setup_page::htmlEscape("<a href=\"x\">&'") == "&lt;a href=&quot;x&quot;&gt;&amp;&#39;"); }
 
 void testFormsNeverLeakSecrets() {
-    std::vector<std::string> nearby = {"Neighbor<1>"};
+    std::vector<setup_page::Network> nearby = {{"Neighbor<1>", -60, false}};
     std::string wifi = setup_page::renderWifiForm(configured(), nearby, {});
     CHECK(!contains(wifi, "secret-wifi-pass"));
     CHECK(contains(wifi, "value=\"Home &quot;5G&quot; &lt;net&gt;\""));  // SSID is shown, escaped
-    CHECK(contains(wifi, "<option value=\"Neighbor&lt;1&gt;\">"));
+    CHECK(contains(wifi, "data-ssid=\"Neighbor&lt;1&gt;\""));
     CHECK(contains(wifi, "已設定"));
     CHECK(!contains(wifi, "ics1"));  // the WiFi step is only WiFi
 
@@ -67,7 +68,9 @@ void testFormsNeverLeakSecrets() {
     CHECK(!contains(html, "CWA-SECRET-KEY"));
     CHECK(!contains(html, "secret-wifi-pass"));
     CHECK(contains(html, "value=\"Home &quot;5G&quot; &lt;net&gt;\""));  // WiFi can change here too
-    CHECK(contains(html, "<option value=\"Neighbor&lt;1&gt;\">"));
+    CHECK(contains(html, "data-ssid=\"Neighbor&lt;1&gt;\""));
+    CHECK(contains(html, ">calendar.google.com<"));  // which calendar it is, without its secret path
+    CHECK(contains(html, ">example.com<"));
     CHECK(contains(html, "<option selected>新竹縣</option>"));
     CHECK(contains(html, "name=\"ics1_remove\""));   // set slots can be removed
     CHECK(!contains(html, "name=\"ics2_remove\""));  // empty ones can't
@@ -197,7 +200,7 @@ void testRevertNoticeAndReset() {
     CHECK(contains(setup_page::renderWifiForm(configured(), {}, {}, "Cafe"), "上次改的「Cafe」"));
     CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "上次改的"));
     for (const std::string& page : {home, setup_page::renderWifiForm(configured(), {}, {})}) {
-        CHECK(contains(page, "method=\"get\" action=\"/reset\""));  // only to the confirmation page
+        CHECK(contains(page, "href=\"/reset\""));  // only to the confirmation page
         CHECK(!contains(page, "name=\"confirm\""));
     }
     std::string confirmPage = setup_page::renderResetConfirm();
@@ -213,12 +216,13 @@ void testDeviceStatus() {
     setup_page::DeviceStatus status;
     status.utcOffset = 8 * 3600;
     std::string none = setup_page::renderForm(configured(), {}, {}, {}, &status);
-    CHECK(contains(none, "<h2>裝置狀態</h2>"));
-    CHECK(contains(none, "最後成功更新：還沒有紀錄"));
-    CHECK(contains(none, "電池：沒有讀到"));
+    CHECK(contains(none, "class=\"tiles\""));
+    CHECK(contains(none, "還沒有紀錄"));
+    CHECK(contains(none, "沒有讀到"));
     CHECK(contains(none, "最近 7 天沒有異常"));
     CHECK(!contains(none, "韌體版本"));  // no version given, no line
-    CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "裝置狀態"));  // no status, no section
+    CHECK(!contains(none, "data-photos=\"total\""));  // photo counts unknown
+    CHECK(!contains(setup_page::renderForm(configured(), {}, {}), "class=\"tiles\""));  // no status, no tiles
 
     wake_log::Entry battery;
     battery.millivolts = 3987;
@@ -229,16 +233,27 @@ void testDeviceStatus() {
     status.health.failedRuns = 5;
     status.health.highVoltage = 3;
     status.health.highestMillivolts = 4490;
-    status.calendarFailingSince[1] = 1791039600;  // 10/03 15:00 UTC = 10/03 23:00
+    status.calendarFailingSince[2] = 1791039600;  // 10/03 15:00 UTC = 10/03 23:00
+    status.calendarFailingSince[1] = 1791039600;  // an empty slot: nothing to say
     status.firmwareVersion = "v0.2.4";
+    status.landscapePhotos = 3;
+    status.portraitPhotos = 1;
     std::string html = setup_page::renderForm(configured(), {}, {}, {}, &status);
     CHECK(contains(html, "韌體版本：v0.2.4"));
-    CHECK(contains(html, "最後成功更新：10/08 07:00"));
-    CHECK(contains(html, "電池：3.99V，82%"));
-    CHECK(contains(html, "行事曆 2：從 10/03 起抓不到"));
-    CHECK(!contains(html, "行事曆 1："));
+    CHECK(contains(html, "v0.2.4 · 10/08 07:00 更新過"));
+    CHECK(contains(html, "82<span>%</span>") && contains(html, "3.99V"));
+    CHECK(contains(html, "行事曆 3：從 10/03 起抓不到"));
+    CHECK(!contains(html, "行事曆 2：從"));
+    CHECK(contains(html, "10/03 起抓不到</span>"));  // on the calendar itself too
+    CHECK(!contains(html, "行事曆 1：從"));
     CHECK(contains(html, "電池電壓偏高：最高 4.49V（3 次）"));
     CHECK(contains(html, "最近 7 天：當機重開 2 次、更新失敗 5 次（含重試）"));
+    CHECK(contains(html, "class=\"dot w\""));
+    CHECK(contains(html, "data-photos=\"total\">4<"));
+    CHECK(contains(html, "開發版"));  // not a release: no update check
+    CHECK(!contains(html, "data-a=\"check\""));
+    status.releaseBuild = true;
+    CHECK(contains(setup_page::renderForm(configured(), {}, {}, {}, &status), "data-a=\"check\""));
 }
 
 void testWifiQrPayload() {
@@ -373,12 +388,77 @@ void testPhotosPage() {
           R"({"slot":3,"width":480,"height":800}]})");
     CHECK(setup_page::photosListJson({}, 20, 480, 800, false) ==
           R"({"max":20,"width":480,"height":800,"builtIn":false,"photos":[]})");
-    std::string page = setup_page::renderPhotosPage();
-    CHECK(contains(page, "fetch('/photos/list')"));
-    CHECK(contains(page, "fetch('/photos/add'"));
-    CHECK(contains(page, "// --- dither begin ---") && contains(page, "// --- dither end ---"));
-    CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/photos\" target=\"_blank\""));
-    CHECK(contains(setup_page::renderForm(Settings{}, {}, {}), "href=\"/log.csv\""));
+    std::string script(setup_page::photosScript());
+    CHECK(contains(script, "fetch('/photos/list')"));
+    CHECK(contains(script, "fetch('/photos/add'"));
+    CHECK(contains(script, "// --- dither begin ---") && contains(script, "// --- dither end ---"));
+    std::string form = setup_page::renderForm(Settings{}, {}, {});
+    CHECK(contains(form, "href=\"#photos\"") && contains(form, "id=\"v-photos\""));
+    CHECK(contains(form, "id=\"file\"") && contains(form, "id=\"upload\""));  // what photosScript drives
+    CHECK(contains(form, "'/photos.js'"));
+    CHECK(contains(form, "href=\"/log.csv\""));
+}
+
+void testAutoUpdate() {
+    std::string home = setup_page::renderForm(configured(), {}, {});
+    CHECK(contains(home, "name=\"auto_update\" checked"));  // on by default
+    auto off = setup_page::applyForm(configured(), "display=1");
+    CHECK(off.errors.empty() && !off.settings.autoUpdate);  // unchecked box: off
+    CHECK(contains(setup_page::renderForm(off.settings, {}, {}), "name=\"auto_update\">"));
+    CHECK(contains(setup_page::renderForm(off.settings, {}, {}), "手動更新"));
+    auto on = setup_page::applyForm(off.settings, "display=1&auto_update=on");
+    CHECK(on.settings.autoUpdate);
+    CHECK(!setup_page::applyForm(off.settings, "ics1=").settings.autoUpdate);  // no display fields: kept
+
+    CHECK(setup_page::updateJson("v0.6.0", "v0.6.1", true) ==
+          R"({"current":"v0.6.0","latest":"v0.6.1","installable":true})");
+    CHECK(setup_page::errorJson("連不上 \"GitHub\"") == R"({"error":"連不上 \"GitHub\""})");
+}
+
+void testWifiStepPage() {
+    std::vector<setup_page::Network> nearby = {{"Home", -50, false}, {"Cafe", -80, true}};
+    std::string first = setup_page::renderWifiForm(Settings{}, nearby, {});
+    CHECK(contains(first, "第一次設定") && contains(first, "class=\"steps\""));
+    CHECK(contains(first, "data-ssid=\"Home\">"));                       // needs a password
+    CHECK(contains(first, "data-ssid=\"Cafe\" data-open=\"1\">"));     // doesn't
+    CHECK(contains(first, "<i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i>"));
+    CHECK(contains(first, "name=\"ssid\"") && contains(first, "name=\"wifi_pass\""));
+    CHECK(!contains(first, "placeholder=\"已設定"));
+    CHECK(!contains(setup_page::renderWifiForm(configured(), nearby, {}), "class=\"steps\""));  // not the first time
+    CHECK(contains(setup_page::renderWifiForm(Settings{}, {}, {}), "附近沒有找到"));
+
+    std::string saved = setup_page::renderSaved(true, "Home <5G>");
+    CHECK(contains(saved, "正在連上「Home &lt;5G&gt;」") && contains(saved, "QR code"));
+    CHECK(contains(setup_page::renderSaved(false, ""), "已儲存"));
+    CHECK(contains(setup_page::renderDenied(), "QR code"));
+}
+
+// Streamed pages (what the device sends, a few KB at a time) are the same
+// as whole ones, and no piece but the long constant ones is big.
+void testStreamedPages() {
+    Settings s;
+    s.wifiSsid = "Home";
+    s.icsUrls[0] = "https://example.com/a.ics";
+    const setup_page::Network nearby[] = {{"Home", -50, false}, {"Cafe", -70, true}};
+    const setup_page::DeviceStatus status;
+    std::string streamed;
+    size_t pieces = 0, largest = 0;
+    setup_page::Html html([&](std::string_view part) {
+        streamed += part;
+        pieces++;
+        largest = std::max(largest, part.size());
+    });
+    setup_page::renderForm(html, s, nearby, {}, {}, &status);
+    html.flush();
+    CHECK(streamed == setup_page::renderForm(s, nearby, {}, {}, &status));
+    CHECK(pieces > 10);
+    CHECK(largest < 16 * 1024);  // the style sheet, the biggest constant part
+
+    std::string wifi;
+    setup_page::Html wifiHtml([&](std::string_view part) { wifi += part; });
+    setup_page::renderWifiForm(wifiHtml, Settings{}, nearby, {});
+    wifiHtml.flush();
+    CHECK(wifi == setup_page::renderWifiForm(Settings{}, nearby, {}));
 }
 
 int main() {
@@ -401,6 +481,9 @@ int main() {
     testCornerText();
     testAccessPointPassword();
     testPhotosPage();
+    testAutoUpdate();
+    testWifiStepPage();
+    testStreamedPages();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;

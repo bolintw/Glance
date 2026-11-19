@@ -58,8 +58,11 @@ void testShouldInstall() {
     CHECK(!ota_manifest::shouldInstall("v1.4.0", next, ""));  // no downgrades
     CHECK(!ota_manifest::shouldInstall("66ccf26-dirty", next, ""));       // development build
     CHECK(!ota_manifest::shouldInstall("v1.2.3-4-g66ccf26", next, ""));   // ditto
-    CHECK(!ota_manifest::shouldInstall("v1.2.9", next, "v1.3.0"));        // already failed once
-    CHECK(!ota_manifest::shouldInstall("v1.2.9", next, "1.3.0"));         // same version, other spelling
+    CHECK(ota_manifest::shouldInstall("v1.2.9", next, "v1.3.0", 1));      // rolled back once: try again
+    CHECK(ota_manifest::shouldInstall("v1.2.9", next, "v1.3.0", 2));
+    CHECK(!ota_manifest::shouldInstall("v1.2.9", next, "v1.3.0", 3));     // three times: give up
+    CHECK(!ota_manifest::shouldInstall("v1.2.9", next, "1.3.0", 3));      // same version, other spelling
+    CHECK(ota_manifest::shouldInstall("v1.2.9", next, "v1.3.0"));         // by hand: no count
     CHECK(ota_manifest::shouldInstall("v1.2.9", next, "v1.2.10"));        // an older failure doesn't block
     CHECK(!ota_manifest::shouldInstall("v1.2.9", {"v1.3.0-rc1", "https://x"}, ""));
     CHECK(!ota_manifest::shouldInstall("v1.2.9", {"v1.3.0", ""}, ""));
