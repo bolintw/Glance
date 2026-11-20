@@ -410,6 +410,12 @@ void testAutoUpdate() {
     CHECK(on.settings.autoUpdate);
     CHECK(!setup_page::applyForm(off.settings, "ics1=").settings.autoUpdate);  // no display fields: kept
 
+    // The button, told where a new owner will see it: after saving, and in 進階.
+    const std::string saved = setup_page::renderSaved(false, "Home");
+    CHECK(contains(saved, "按住約 5 秒再放開") && contains(saved, "按住約 20 秒再放開") && contains(saved, "這頁可以關了"));
+    CHECK(!contains(setup_page::renderSaved(true, "Home"), "按住約 5 秒"));  // the WiFi step: rejoin first
+    CHECK(contains(home, "按住約 5 秒再放開"));
+
     CHECK(setup_page::updateJson("v0.6.0", "v0.6.1", true) ==
           R"({"current":"v0.6.0","latest":"v0.6.1","installable":true})");
     CHECK(setup_page::errorJson("連不上 \"GitHub\"") == R"({"error":"連不上 \"GitHub\""})");

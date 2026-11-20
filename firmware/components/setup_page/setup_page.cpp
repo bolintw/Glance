@@ -799,6 +799,21 @@ void wifiView(Html& html, const Settings& s, std::span<const Network> nearby) {
             "螢幕上也會顯示通知。</p>\n</section>\n";
 }
 
+// What the button on the back does, for the saved page (the screen shows
+// no words, so this is where a new owner learns how to get back here) and
+// the advanced view. The seconds are what to count, not the firmware's
+// thresholds (3 s for setup, 15-30 s to erase): the middle of each window,
+// which holds up when the LED is hidden in a frame and the count is rough.
+void buttonTips(Html& html) {
+    html += "<div class=\"card tips\"><h2><span>背後的按鈕</span></h2>\n"
+            "<div class=\"f\"><span class=\"key\">短按</span><span class=\"lb\">切換月曆和照片"
+            "<small>隱私模式：有客人來時按一下，就只顯示照片。</small></span></div>\n"
+            "<div class=\"f\"><span class=\"key\">5 秒</span><span class=\"lb\">按住約 5 秒再放開"
+            "<small>打開設定頁，就是這一頁。看得到燈的話，它會一直亮著。</small></span></div>\n"
+            "<div class=\"f\"><span class=\"key\">20 秒</span><span class=\"lb\">按住約 20 秒再放開"
+            "<small>清除所有資料，送人或從頭來過時用。看得到燈的話，它會快閃。</small></span></div>\n</div>\n";
+}
+
 void advancedView(Html& html, const Settings& s, const DeviceStatus* status) {
     viewStart(html, "advanced", "進階");
     html += "<div class=\"card\"><h2><span>韌體更新</span></h2>\n";
@@ -814,7 +829,9 @@ void advancedView(Html& html, const Settings& s, const DeviceStatus* status) {
             html += "</div><p class=\"help\">開發版：不會檢查或安裝更新。</p></div>\n";
         }
     }
-    html += "</div>\n<div class=\"card\"><h2><span>資料</span></h2>"
+    html += "</div>\n";
+    buttonTips(html);
+    html += "<div class=\"card\"><h2><span>資料</span></h2>"
             "<div class=\"f\"><span class=\"lb\">電池紀錄<small>每次醒來的電池電壓、電量、醒著多久、連 WiFi 花多久，用來推算續航（CSV）"
             "</small></span><a class=\"btn\" href=\"/log.csv\">下載</a></div>\n"
             "<div class=\"f col\"><div class=\"hd\"><span class=\"lb\">清除所有資料<small>WiFi、行事曆、照片和紀錄都會刪除，"
@@ -904,7 +921,10 @@ void renderSaved(Html& html, bool wifiStep, std::string_view ssid) {
                 "<li><span>在那裡加行事曆、選天氣，手機有網路，比較好找網址。</span></li></ol>"
                 "<p class=\"help\" style=\"margin-top:16px\">連不上的話，螢幕會說明，設定熱點也會重新打開，可以再試一次。</p>";
     } else {
-        html += "<h1>已儲存</h1><p>裝置正在重新啟動並更新畫面，大約一分鐘。這頁可以關了。</p>";
+        html += "<div class=\"ok\">" + icon("check") + "</div><h1>已儲存</h1><p>裝置正在重新啟動並更新畫面，大約一分鐘。</p></div>";
+        buttonTips(html);
+        html += "<p class=\"help\">這些說明在設定頁的「進階」裡也找得到。這頁可以關了。</p></main></body></html>\n";
+        return;
     }
     html += "</div></main></body></html>\n";
 }

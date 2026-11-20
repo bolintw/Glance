@@ -116,6 +116,9 @@ html:not(.js) .netform{padding-left:0;border-top:1px solid var(--line);padding-t
 .center{text-align:center}
 .quiet{color:var(--mut);font-size:13px}
 .done{text-align:center;padding:22px 4px 4px}.done h1{font-size:21px;margin:12px 0 6px}.done>p{color:var(--mut);margin:0 0 18px}
+.ok{width:64px;height:64px;border-radius:50%;background:var(--good-soft);color:var(--good);display:grid;place-items:center;margin:0 auto}.ok svg{width:30px;height:30px}
+.key{flex:none;width:56px;height:30px;border-radius:15px;background:var(--acc-soft);color:var(--acc);font-weight:700;font-size:13px;display:grid;place-items:center;align-self:flex-start;margin-top:1px}
+.tips .f{align-items:flex-start}
 .qr{width:120px;height:120px;margin:0 auto;border-radius:12px;background:var(--card);border:1px solid var(--line);display:grid;place-items:center}.qr svg{width:84px;height:84px}
 ol.next{text-align:left;margin:0;padding:0;list-style:none;display:grid;gap:10px;counter-reset:n}
 ol.next li{display:flex;gap:12px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;counter-increment:n}
@@ -143,6 +146,7 @@ const char* const kIcons = R"SVG(<svg width="0" height="0" style="position:absol
 <symbol id="i-gear" viewBox="0 0 18 18"><circle cx="9" cy="9" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 1.8v2.1M9 14.1v2.1M1.8 9h2.1M14.1 9h2.1M3.9 3.9l1.5 1.5M12.6 12.6l1.5 1.5M3.9 14.1l1.5-1.5M12.6 5.4l1.5-1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 <symbol id="i-warn" viewBox="0 0 18 18"><path d="M9 2l7.5 13h-15z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 7v3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="12.8" r="1" fill="currentColor"/></symbol>
 <symbol id="i-lock" viewBox="0 0 14 14"><rect x="2.5" y="6" width="9" height="6.5" rx="1.5" fill="currentColor"/><path d="M4.5 6V4.5a2.5 2.5 0 0 1 5 0V6" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="i-qr" viewBox="0 0 21 21"><path fill="currentColor" d="M0 0h7v7H0zM2 2v3h3V2zM14 0h7v7h-7zM16 2v3h3V2zM0 14h7v7H0zM2 16v3h3v-3zM9 0h2v2H9zM9 4h3v3H9zM9 9h3v2H9zM14 9h2v3h-2zM18 9h3v2h-3zM9 13h2v3H9zM13 14h3v2h-3zM18 13h3v3h-3zM12 18h2v3h-2zM16 18h5v3h-5zM9 18h2v3H9z"/></symbol>
 </svg>
 )SVG";
