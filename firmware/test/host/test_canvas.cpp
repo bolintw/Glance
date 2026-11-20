@@ -149,6 +149,39 @@ void testEllipsize() {
     CHECK(ellipsize("A AAA", kFont, 19) == "A...");
 }
 
+void testDropUndrawable() {
+    // "👑測", "🎂 A", "A 🎉 A", "A 🎉": the emoji and the space it leaves go.
+    CHECK(dropUndrawable("\xF0\x9F\x91\x91\xE6\xB8\xAC", kFont) == "\xE6\xB8\xAC");
+    CHECK(dropUndrawable("\xF0\x9F\x8E\x82 A", kFont) == "A");
+    CHECK(dropUndrawable("A \xF0\x9F\x8E\x89 A", kFont) == "A A");
+    CHECK(dropUndrawable("A \xF0\x9F\x8E\x89", kFont) == "A");
+    // "❤️" (with VS16), a ZWJ family, a skin-toned wave: nothing left.
+    CHECK(dropUndrawable("\xE2\x9D\xA4\xEF\xB8\x8F", kFont).empty());
+    CHECK(dropUndrawable("\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7", kFont).empty());
+    CHECK(dropUndrawable("\xF0\x9F\x91\x8B\xF0\x9F\x8F\xBD", kFont).empty());
+    // A keycap keeps its digit ('.' stands in: "A." + VS16 + U+20E3).
+    CHECK(dropUndrawable("A.\xEF\xB8\x8F\xE2\x83\xA3", kFont) == "A.");
+    // An emoji the font has stays; a missing non-emoji stays (still a box);
+    // spacing nobody's emoji touched is left alone.
+    const auto glyph = [](uint32_t cp) {
+        return Glyph{.codepoint = cp, .bitmapOffset = 0, .width = 3, .height = 3, .bearingX = 1, .bearingY = 3,
+                     .advance = 5};
+    };
+    // Sorted by codepoint, as Font::find needs.
+    const Glyph withEmoji[] = {glyph('A'), glyph(0x2764), glyph(0x1F468), glyph(0x1F469), glyph(0x1F525)};
+    const Font emojiFont{.glyphs = withEmoji, .bitmaps = kBitmaps, .ascent = 6, .lineHeight = 8};
+    CHECK(dropUndrawable("\xE2\x9D\xA4\xEF\xB8\x8F A", emojiFont) == "\xE2\x9D\xA4 A");
+    CHECK(dropUndrawable("Z  A ", kFont) == "Z  A ");
+    // A ZWJ sequence draws as its first emoji, even when the font has the
+    // others: 👨‍👩‍👧 -> 👨, ❤️‍🔥 -> ❤; two emoji side by side both stay.
+    CHECK(dropUndrawable("\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7 A", emojiFont) ==
+          "\xF0\x9F\x91\xA8 A");
+    CHECK(dropUndrawable("\xE2\x9D\xA4\xEF\xB8\x8F\xE2\x80\x8D\xF0\x9F\x94\xA5", emojiFont) == "\xE2\x9D\xA4");
+    CHECK(dropUndrawable("\xF0\x9F\x91\xA8\xF0\x9F\x91\xA9", emojiFont) == "\xF0\x9F\x91\xA8\xF0\x9F\x91\xA9");
+    // A flag (two regional indicators) isn't in the font: gone.
+    CHECK(dropUndrawable("\xF0\x9F\x87\xAF\xF0\x9F\x87\xB5 A", emojiFont) == "A");
+}
+
 }  // namespace
 
 void testDrawBitmap() {
@@ -295,6 +328,7 @@ int main() {
     testDrawText();
     testMissingAndMalformed();
     testEllipsize();
+    testDropUndrawable();
     testDrawBitmap();
     testGrayOverlay();
 

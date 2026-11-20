@@ -1,5 +1,12 @@
 """Bakes Noto Sans TC into the bitmap fonts the firmware draws with.
 
+Latin letters Noto Sans TC lacks (Polish, Czech, Turkish... ł č ş) come from
+Source Sans 3, the family Noto Sans CJK's own Latin glyphs were drawn from,
+scaled so its letters match the CJK font's. The event list also carries a
+few hundred emoji from the black-and-white Noto Emoji: the ones calendars
+use and the most used ones overall, not all ~1,400 (those would take a
+third of the app's free flash).
+
 Each entry in FONTS becomes components/fonts/<name>.cpp: a flash-resident
 Glyph table plus 1bpp bitmaps for exactly the characters that font needs.
 Big sizes (the day number, the weekday) only carry the handful of glyphs
@@ -8,7 +15,7 @@ they show, so only the event-list font pays for the full character set.
     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
     .venv/bin/python font_subset.py
 
-The font is downloaded into .cache/ on first run (gitignored); its SHA-256
+The fonts are downloaded into .cache/ on first run (gitignored); their SHA-256
 is pinned so an upstream change can't silently alter the output.
 """
 import hashlib
@@ -27,6 +34,19 @@ OUT_DIR = HERE.parent.parent / "components" / "fonts"
 FONT_URL = "https://github.com/google/fonts/raw/main/ofl/notosanstc/NotoSansTC%5Bwght%5D.ttf"
 FONT_SHA256 = "864727d210d54f2537bbe23b3a839436c3992af72de9322af5270897246bd44f"
 LICENSE_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanstc/OFL.txt"
+
+LATIN_FONT_URL = "https://github.com/google/fonts/raw/main/ofl/sourcesans3/SourceSans3%5Bwght%5D.ttf"
+LATIN_FONT_SHA256 = "042fe2cc0b933e328410d7acbd0aa6a1873dca5aef81875f4bc214b08825c7b9"
+LATIN_LICENSE_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/sourcesans3/OFL.txt"
+# Source Sans 3 at 34px has the same x-height and widths as Noto Sans TC's
+# Latin at 30px.
+LATIN_SCALE = 34 / 30
+
+EMOJI_FONT_URL = "https://github.com/google/fonts/raw/main/ofl/notoemoji/NotoEmoji%5Bwght%5D.ttf"
+EMOJI_FONT_SHA256 = "de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551"
+EMOJI_LICENSE_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notoemoji/OFL.txt"
+# Noto Emoji at 27px stands as tall as Noto Sans TC's hanzi at 30px.
+EMOJI_SCALE = 27 / 30
 
 # Pixels with antialiased coverage at or above this become ink. Thresholding
 # an antialiased render keeps stroke shapes more faithful than FreeType's
@@ -55,8 +75,40 @@ BIG5_SYMBOLS = big5_range(0xA140, 0xA3BF)
 # of Education's common-character standard).
 BIG5_COMMON_HANZI = big5_range(0xA440, 0xC67E)
 EXTRA_PUNCTUATION = "…—–‘’“”•·～"
+# Latin-1 Supplement and Latin Extended-A: accented letters (Café, Zoë,
+# São Paulo, Kraków), ß, ¿¡, and the € sign for European event titles.
+LATIN = "".join(chr(c) for c in range(0xA1, 0x180) if c != 0xAD) + "€"
 
-CALENDAR_TEXT = ASCII + BIG5_SYMBOLS + BIG5_COMMON_HANZI + EXTRA_PUNCTUATION
+CALENDAR_TEXT = ASCII + BIG5_SYMBOLS + BIG5_COMMON_HANZI + EXTRA_PUNCTUATION + LATIN
+
+# Emoji people put in calendar titles: occasions, travel, health, sports,
+# work and school, home, food, music and films, weather.
+CALENDAR_EMOJI = (
+    "🎂🎉🎊🎁🎈🥳🍰🎄🎃🧧🏮🎆🎇💍💒🎓🏆🥇✈🛫🛬🚆🚄🚌🚗🚕🚲🛵🚢⛴"
+    "🗺🧳🏖🏝⛰🏕🗼🏨🚇🚉⛽🅿🏥💊💉🦷🩺🩸🧘💆💇⚽🏀🏸🎾🏐⚾🏈🏓🏊"
+    "🏃🚴🧗⛳🏋🥊⛷🏄🤸🎳🏌💼📅📆🗓📌📝📚✏💻🖥📞☎📧📮📦📊📈🏢🏫"
+    "🎒🧑🔔⏰⌛💰💳🧾🏦🏠🧹🧺🛒🔧🔨🪴🌱🐶🐱🐾🚿🗑🔑🍽🍴☕🍵🍺🍻🍷"
+    "🥂🍕🍔🍜🍣🍱🍲🥘🍝🥗🍳🥐🍦🧋🍙🍗🎵🎶🎤🎧🎸🎹🎻🥁🎬🎥🎮🎨🎭🎟"
+    "🎫📸📷📺🍿📖🎲☀🌧☔⛅❄🌙⭐🌈🔥💧👶👪❤💕✅❗⚠📍🔴🟢🔵⭕❌"
+    "✨💡🙏👑🌸🌹💐"
+)
+# The 300 most used emoji, from Unicode's frequency ranking
+# (https://www.unicode.org/emoji/frequency.html); about 94% of all emoji use
+# by its estimate. A sequence (👩‍🚀, 👍🏽) counts as its first emoji, which is
+# all the firmware draws of it.
+FREQUENT_EMOJI = (
+    "😂❤😍🤣😊🙏💕😭😘👍😅👏😁♥🔥💔💖💙😢🤔😆🙄💪😉☺👌🤗💜😔😎"
+    "😇🌹🤦🎉‼💞✌✨🤷😱😌🌸🙌😋💗💚😏💛🙂💓🤩😄😀🖤😃💯🙈👇🎶😒"
+    "🤭❣❗😜💋👀😪😑💥🙋😞😩😡🤪👊☀😥🤤👉💃😳✋😚😝😴🌟😬🙃🍀🌷"
+    "😻😓⭐✅🌈😈🤘💦✔😣🏃💐☹🎊💘😠☝😕🌺🎂🌻😐🖕💝🙊😹🗣💫💀👑"
+    "🎵🤞😛🔴😤🌼😫⚽🤙☕🏆🧡🎁⚡🌞🎈❌✊👋😲🌿🤫👈😮🙆🍻🍃🐶💁😰"
+    "🤨😶🤝🚶💰🍓💢🇺🤟🙁🚨💨🤬✈🎀🍺🤓😙💟🌱😖👶▶➡❓💎💸⬇😨🌚"
+    "🦋😷🕺⚠🙅😟😵👎🤲🤠🤧📌🔵💅🧐🐾🍒😗🤑🚀🌊🤯🐷☎💧😯💆👆🎤🙇"
+    "🍑❄🌴🇧💣🐸💌📍🥀🤢👅💡💩⁉👐📸👻🤐🤮🎼✍🚩🍎🍊👼💍📣🥂⤵📱"
+    "☔🌙🍾🎧🍁⭕🏀☠⚫🖐😧🎯📲☘👁🍷👄🐟🍰💤🕊📺💭🐱🐝🇲🧚🔝📢📷"
+    "🐕🎸🔫🤚🍭🍆💉🌎😦🌀👿☑🎥🌧👽🍋🤒🤡🍫📚🏁🤕🦄🍅🚗🚫💵⚾🔪🔔"
+)
+EMOJI = CALENDAR_EMOJI + FREQUENT_EMOJI
 DIGITS = "0123456789"
 WEEKDAYS = "一二三四五六日"
 MONTH_ABBREVIATIONS = "Jan.Feb.Mar.Apr.May.Jun.Jul.Aug.Sep.Oct.Nov.Dec."
@@ -70,11 +122,13 @@ class FontSpec:
     size: int  # em size in pixels
     chars: str
     purpose: str
+    latin_fallback: bool = False  # fill letters Noto Sans TC lacks from Source Sans 3
+    emoji: str = ""  # drawn from Noto Emoji, unless `chars` already has them
 
 
 # Sizes follow the Raspberry Pi version's layout as a starting point.
 FONTS = [
-    FontSpec("noto_sans_tc_bold_30", 700, 30, CALENDAR_TEXT, "event list"),
+    FontSpec("noto_sans_tc_bold_30", 700, 30, CALENDAR_TEXT, "event list", latin_fallback=True, emoji=EMOJI),
     FontSpec("noto_sans_tc_bold_40", 700, 40, DIGITS + WEEKDAYS, "year, weekday"),
     FontSpec("noto_sans_tc_medium_50", 500, 50, MONTH_ABBREVIATIONS, "month"),
     FontSpec("noto_sans_tc_regular_100", 400, 100, DIGITS, "day of month"),
@@ -101,11 +155,11 @@ def fetch(url, path):
     return path
 
 
-def fetch_font():
-    path = fetch(FONT_URL, CACHE / "NotoSansTC[wght].ttf")
+def fetch_font(url, name, sha256):
+    path = fetch(url, CACHE / name)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if FONT_SHA256 and digest != FONT_SHA256:
-        raise SystemExit(f"{path.name} changed upstream (sha256 {digest}); review, then update FONT_SHA256")
+    if sha256 and digest != sha256:
+        raise SystemExit(f"{path.name} changed upstream (sha256 {digest}); review, then update its pinned SHA-256")
     return path
 
 
@@ -140,14 +194,31 @@ def rasterize(font, ch):
     return Glyph(ord(ch), width, height, x0 + box[0], -(y0 + box[1]), advance, bytes(rows))
 
 
-def bake(spec, font_path, covered):
+def bake(spec, sources):
+    (font_path, covered), (latin_path, latin_covered), (emoji_path, emoji_covered) = sources
     font = ImageFont.truetype(str(font_path), spec.size)
     font.set_variation_by_axes([spec.weight])
     ascent, descent = font.getmetrics()
+    latin = None
+    if spec.latin_fallback:
+        latin = ImageFont.truetype(str(latin_path), round(spec.size * LATIN_SCALE))
+        latin.set_variation_by_axes([spec.weight])
+    emoji = None
+    if spec.emoji:
+        emoji = ImageFont.truetype(str(emoji_path), round(spec.size * EMOJI_SCALE))
+        emoji.set_variation_by_axes([spec.weight])
 
-    chars = sorted(set(spec.chars), key=ord)
-    missing = [c for c in chars if ord(c) not in covered]
-    glyphs = [rasterize(font, c) for c in chars if ord(c) in covered]
+    text = set(spec.chars)
+    glyphs, missing = [], []
+    for c in sorted(text | set(spec.emoji), key=ord):
+        if c in text and ord(c) in covered:
+            glyphs.append(rasterize(font, c))
+        elif c in text and latin and ord(c) in latin_covered:
+            glyphs.append(rasterize(latin, c))
+        elif emoji and ord(c) in emoji_covered:
+            glyphs.append(rasterize(emoji, c))
+        else:
+            missing.append(c)
     return glyphs, ascent, ascent + descent, missing
 
 
@@ -155,8 +226,11 @@ def emit_cpp(spec, glyphs, ascent, line_height):
     symbol = symbol_name(spec.name)
     lines = [
         f"// Generated by tools/font_subset/font_subset.py -- do not edit.",
-        f"// Noto Sans TC, weight {spec.weight}, {spec.size}px: {spec.purpose}.",
-        "// SIL Open Font License 1.1, see LICENSE-OFL.txt.",
+        f"// Noto Sans TC, weight {spec.weight}, {spec.size}px: {spec.purpose}."
+        + (" Latin letters it lacks from Source Sans 3." if spec.latin_fallback else "")
+        + (" Emoji from Noto Emoji." if spec.emoji else ""),
+        "// SIL Open Font License 1.1, see LICENSE-OFL.txt"
+        + (", LICENSE-OFL-SourceSans3.txt and LICENSE-OFL-NotoEmoji.txt." if spec.emoji else "."),
         "",
         '#include "fonts.hpp"',
         "",
@@ -197,7 +271,8 @@ def emit_header_and_cmake(specs):
         "#pragma once",
         "",
         "// Generated by tools/font_subset/font_subset.py -- do not edit.",
-        "// Noto Sans TC baked to 1bpp bitmaps; SIL Open Font License 1.1, see LICENSE-OFL.txt.",
+        "// Noto Sans TC (plus Source Sans 3 for Latin letters it lacks, and Noto Emoji) baked to",
+        "// 1bpp bitmaps; SIL Open Font License 1.1, see the LICENSE-OFL*.txt files.",
         "",
         '#include "font.hpp"',
         "",
@@ -212,15 +287,22 @@ def emit_header_and_cmake(specs):
 
 
 def main():
-    font_path = fetch_font()
+    font_path = fetch_font(FONT_URL, "NotoSansTC[wght].ttf", FONT_SHA256)
+    latin_path = fetch_font(LATIN_FONT_URL, "SourceSans3[wght].ttf", LATIN_FONT_SHA256)
+    emoji_path = fetch_font(EMOJI_FONT_URL, "NotoEmoji[wght].ttf", EMOJI_FONT_SHA256)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    license_text = fetch(LICENSE_URL, CACHE / "OFL.txt").read_text(encoding="utf-8")
-    (OUT_DIR / "LICENSE-OFL.txt").write_text(license_text, encoding="utf-8")
+    for url, cached, out in [
+        (LICENSE_URL, "OFL.txt", "LICENSE-OFL.txt"),
+        (LATIN_LICENSE_URL, "OFL-SourceSans3.txt", "LICENSE-OFL-SourceSans3.txt"),
+        (EMOJI_LICENSE_URL, "OFL-NotoEmoji.txt", "LICENSE-OFL-NotoEmoji.txt"),
+    ]:
+        license_text = fetch(url, CACHE / cached).read_text(encoding="utf-8")
+        (OUT_DIR / out).write_text(license_text, encoding="utf-8")
 
-    covered = set(TTFont(str(font_path)).getBestCmap().keys())
+    sources = [(path, set(TTFont(str(path)).getBestCmap().keys())) for path in (font_path, latin_path, emoji_path)]
     total = 0
     for spec in FONTS:
-        glyphs, ascent, line_height, missing = bake(spec, font_path, covered)
+        glyphs, ascent, line_height, missing = bake(spec, sources)
         size = emit_cpp(spec, glyphs, ascent, line_height)
         total += size
         note = f", {len(missing)} not in the font: {''.join(missing)[:40]!r}" if missing else ""

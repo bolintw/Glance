@@ -205,3 +205,56 @@ std::string ellipsize(std::string_view utf8, const Font& font, int maxWidth) {
     }
     return std::string(utf8.substr(0, keep)) + std::string(kEllipsis);
 }
+
+namespace {
+
+// Characters that never draw anything: joiners, variation selectors, skin
+// tone modifiers, tag characters (subdivision flags), zero-width spaces.
+bool invisible(uint32_t cp) {
+    return cp == 0x00AD || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x2060 && cp <= 0x2064) || cp == 0x20E3 ||
+           (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0xFEFF || (cp >= 0x1F3FB && cp <= 0x1F3FF) ||
+           (cp >= 0xE0000 && cp <= 0xE007F);
+}
+
+// Blocks emoji live in (with some ordinary symbols, which is why only the
+// ones the font can't draw are dropped).
+bool emojiLike(uint32_t cp) {
+    return cp == 0x203C || cp == 0x2049 || cp == 0x2122 || cp == 0x2139 || (cp >= 0x2190 && cp <= 0x21FF) ||
+           (cp >= 0x2300 && cp <= 0x23FF) || cp == 0x24C2 || (cp >= 0x25A0 && cp <= 0x27BF) ||
+           (cp >= 0x2900 && cp <= 0x297F) || (cp >= 0x2B00 && cp <= 0x2BFF) || cp == 0x3030 || cp == 0x303D ||
+           cp == 0x3297 || cp == 0x3299 || (cp >= 0x1F000 && cp <= 0x1FAFF);
+}
+
+}  // namespace
+
+std::string dropUndrawable(std::string_view utf8, const Font& font) {
+    std::string out;
+    out.reserve(utf8.size());
+    bool dropped = false;  // since the last kept character
+    bool joined = false;   // right after a zero-width joiner
+    for (size_t pos = 0; pos < utf8.size();) {
+        const size_t start = pos;
+        const uint32_t cp = nextCodepoint(utf8, pos);
+        // A ZWJ sequence (👨‍👩‍👧, 🏃‍♀️) draws as its first emoji: the font has
+        // no glyph for the whole, and its parts side by side read wrong.
+        const bool partOfSequence = joined && emojiLike(cp);
+        joined = cp == 0x200D || (joined && invisible(cp));
+        if (invisible(cp) || partOfSequence || (emojiLike(cp) && !font.find(cp))) {
+            dropped = true;
+            continue;
+        }
+        // The space after a dropped emoji, when there's already one before it
+        // (or nothing before it at all).
+        if (dropped && cp == ' ' && (out.empty() || out.back() == ' ')) {
+            continue;
+        }
+        dropped = false;
+        out.append(utf8.substr(start, pos - start));
+    }
+    if (dropped) {
+        while (!out.empty() && out.back() == ' ') {
+            out.pop_back();
+        }
+    }
+    return out;
+}

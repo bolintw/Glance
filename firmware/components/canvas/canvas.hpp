@@ -59,3 +59,10 @@ int measureText(std::string_view utf8, const Font& font);
 // `utf8` unchanged if it fits in maxWidth, otherwise its longest prefix (cut
 // on a character boundary) that still fits once "..." is appended.
 std::string ellipsize(std::string_view utf8, const Font& font, int maxWidth);
+
+// `utf8` without the emoji (and invisible joiners, variation selectors,
+// zero-width spaces...) `font` has no glyph for, which drawText would
+// otherwise draw as boxes; the space an emoji leaves behind goes with it
+// ("🎂 生日" -> "生日", "A 🎉 B" -> "A B"). Other missing characters stay, so
+// they still show up as boxes.
+std::string dropUndrawable(std::string_view utf8, const Font& font);

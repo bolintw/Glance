@@ -115,6 +115,13 @@ void drawOnBaseline(Canvas& canvas, int x, int baseline, std::string_view text, 
     canvas.drawText(x, baseline - font.ascent, text, font, ink);
 }
 
+// An event's title as the list shows it: without the emoji the font can't
+// draw, and "(無標題)" if nothing is left.
+std::string title(const ics::Occurrence& event) {
+    std::string text = dropUndrawable(event.summary, kNotoSansTcBold30);
+    return text.empty() ? "(無標題)" : text;
+}
+
 void drawHeader(Canvas& canvas, ics::Date today, Color ink) {
     char text[8];
 
@@ -259,7 +266,7 @@ void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurr
         ics::Date date = localDate(event.start, utcOffset);
         char prefix[16];
         std::snprintf(prefix, sizeof(prefix), "%d/%d : ", date.month, date.day);
-        std::string line = std::string(prefix) + (event.summary.empty() ? "(無標題)" : event.summary);
+        std::string line = std::string(prefix) + title(event);
 
         int column = static_cast<int>(i) / kRowsPerColumn;
         int row = static_cast<int>(i) % kRowsPerColumn;
@@ -388,7 +395,7 @@ void renderPortrait(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<co
         ics::Date date = localDate(event.start, utcOffset);
         char prefix[16];
         std::snprintf(prefix, sizeof(prefix), "%d/%d : ", date.month, date.day);
-        std::string line = std::string(prefix) + (event.summary.empty() ? "(無標題)" : event.summary);
+        std::string line = std::string(prefix) + title(event);
         canvas.drawText(portrait::kTextX, portrait::kFirstRowY + static_cast<int>(i) * kRowPitch,
                         ellipsize(line, kNotoSansTcBold30, portrait::kMaxTextWidth), kNotoSansTcBold30, ink);
     }
