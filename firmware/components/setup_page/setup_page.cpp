@@ -782,7 +782,7 @@ void displayView(Html& html, const Settings& s) {
     segmented(html, "theme", {{"dark", "深色"}, {"light", "淺色"}},
               s.theme == Settings::Theme::light ? "light" : "dark", "in-row");
     html += "</div>\n";
-    toggle(html, "event_times", "顯示行程時間", "在日期和標題中間加上開始和結束時間，整天的行程畫一條短線", s.eventTimes);
+    toggle(html, "event_times", "顯示行程時間", "在日期和標題中間加上開始和結束時間，整天的行程標示 ALL DAY", s.eventTimes);
     html += "</div>\n</section>\n";
 }
 

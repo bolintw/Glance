@@ -64,11 +64,11 @@ constexpr int kRowPitch = 48;
 // Within an event row (kRowPitch tall, from its top): the 26px date and
 // title sit on kEventBaseline. With times shown, the start and the end are
 // stacked in small digits between the date and the title, and an all-day
-// event has a short bar there instead, level with the digits' middle.
+// event has "ALL" over "DAY" there instead: the same block as the times,
+// told apart from them at a glance by being letters.
 constexpr int kEventBaseline = 32;
 constexpr int kStartBaseline = 19, kEndBaseline = 37;
 constexpr int kTimesGap = 8;  // date to times, times to title
-constexpr int kAllDayBarTop = 19, kAllDayBarWidth = 30, kAllDayBarHeight = 3;
 constexpr int kRowsPerColumn = 5;
 constexpr int kMaxTextWidth = 331;
 
@@ -275,7 +275,7 @@ void drawLabelWeather(Canvas& canvas, const weather::Forecast& forecast, int lef
 
 // A column of events, one per row from the row at `top`, each cut to
 // `maxWidth`: "10/5 : 牙醫回診"; with `showTimes`, the date, the start over
-// the end (or an all-day bar), and the title, in columns of their own so
+// the end (or ALL over DAY), and the title, in columns of their own so
 // the titles line up.
 void drawEventRows(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events, int x, int top,
                    int maxWidth, bool showTimes, Color ink) {
@@ -301,8 +301,10 @@ void drawEventRows(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occur
         const int rowTop = top + static_cast<int>(i) * kRowPitch;
         drawOnBaseline(canvas, x, rowTop + kEventBaseline, dateText(event.start, utcOffset), font, ink);
         if (event.allDay) {
-            canvas.fillRect(timesX + (timesWidth - kAllDayBarWidth) / 2, rowTop + kAllDayBarTop, kAllDayBarWidth,
-                            kAllDayBarHeight, ink);
+            for (auto [word, baseline] : {std::pair{"ALL", kStartBaseline}, std::pair{"DAY", kEndBaseline}}) {
+                drawOnBaseline(canvas, timesX + (timesWidth - measureText(word, small)) / 2, rowTop + baseline, word,
+                               small, ink);
+            }
         } else {
             drawOnBaseline(canvas, timesX, rowTop + kStartBaseline, clockText(event.start, utcOffset), small, ink);
             if (event.end > event.start) {

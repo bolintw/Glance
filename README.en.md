@@ -26,7 +26,7 @@ A few more things it can do:
 -   **A QR code in the corner**: in privacy mode the weather's square can show a QR code your friends scan to join your WiFi (ideally your router's guest network) -- or one that opens any link you like: a shared album, a party playlist... or a Rick Roll.
 -   **On its side or upright**: stood upright, the calendar becomes one column of twelve events, and the photos come in two sets, upright and sideways: it shows the ones that fit.
 -   **Dark or light**: the calendar in white on black or black on white.
--   **Event times**: by default just the date and the title. Switch them on under 畫面 (Display) on the setup page and each event gets its start and end in small figures between the two, or a short bar if it lasts all day.
+-   **Event times**: by default just the date and the title. Switch them on under 畫面 (Display) on the setup page and each event gets its start and end in small figures between the two, or ALL DAY if it lasts all day.
 -   **Your refresh times**: 07:00 by default, or any time you like, plus an optional second one in the evening -- which then shows tomorrow's weather.
 -   **Keeps itself up to date**: new firmware arrives on its own, over WiFi.
 -   **Tells you only when something's wrong**: a small icon appears if it can't get online, a calendar stops working, or the battery runs low.

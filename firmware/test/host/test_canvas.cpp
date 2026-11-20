@@ -177,8 +177,8 @@ void testFixedTextCovered() {
                              "Dec.", "\xE8\xAB\x8B\xE5\x85\x85\xE9\x9B\xBB", "Glance-AB12", "http://192.168.4.1"}) {
         CHECK(covered(text, kNotoSansTcBold30));
     }
-    // Event times: digits and the colon.
-    CHECK(covered("09:41", kNotoSansTcBold16));
+    // Event times: digits and the colon, and ALL DAY.
+    CHECK(covered("09:41", kNotoSansTcBold16) && covered("ALL", kNotoSansTcBold16) && covered("DAY", kNotoSansTcBold16));
 }
 
 void testDropUndrawable() {

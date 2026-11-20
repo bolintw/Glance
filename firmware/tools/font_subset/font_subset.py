@@ -115,7 +115,7 @@ DIGITS = "0123456789"
 WEEKDAYS = "一二三四五六日"
 MONTH_ABBREVIATIONS = "Jan.Feb.Mar.Apr.May.Jun.Jul.Aug.Sep.Oct.Nov.Dec."
 WEATHER_TEXT = DIGITS + "°-% "  # "24° - 28°", "50%"
-EVENT_TIME_TEXT = DIGITS + ":"  # "14:30"
+EVENT_TIME_TEXT = DIGITS + ":ALDY"  # "14:30", and "ALL" over "DAY" for an all-day event
 # The 30px font only writes fixed text now: the setup screens' network
 # name, password and address (ASCII), privacy mode's month, "請充電".
 FIXED_TEXT = ASCII + "請充電"
