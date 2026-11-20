@@ -8,6 +8,7 @@
 
 #include "calendar_view.hpp"
 #include "canvas.hpp"
+#include "fonts.hpp"
 #include "photos.hpp"
 
 namespace {
@@ -147,6 +148,37 @@ void testEllipsize() {
     // A cut right after a space doesn't leave "A ...".
     CHECK(measureText(" ", kFont) == 5);  // missing glyph -> placeholder advance
     CHECK(ellipsize("A AAA", kFont, 19) == "A...");
+}
+
+// The 30px font carries only the fixed text it writes (font_subset.py's
+// FIXED_TEXT): every character of it must be there, or it draws as a box.
+void testFixedTextCovered() {
+    const auto covered = [](std::string_view utf8, const Font& font) {
+        // Missing glyphs measure as the placeholder box; compare with the
+        // glyphs' own advances.
+        int width = 0;
+        for (size_t pos = 0; pos < utf8.size();) {
+            const unsigned char lead = static_cast<unsigned char>(utf8[pos]);
+            const size_t length = lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+            uint32_t cp = length == 1 ? lead : lead & (0xFF >> (length + 1));
+            for (size_t i = 1; i < length; i++) {
+                cp = (cp << 6) | (static_cast<unsigned char>(utf8[pos + i]) & 0x3F);
+            }
+            pos += length;
+            const Glyph* glyph = font.find(cp);
+            if (!glyph) {
+                return false;
+            }
+            width += glyph->advance;
+        }
+        return width == measureText(utf8, font);
+    };
+    for (const char* text : {"Jan.", "Feb.", "Mar.", "Apr.", "May.", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.",
+                             "Dec.", "\xE8\xAB\x8B\xE5\x85\x85\xE9\x9B\xBB", "Glance-AB12", "http://192.168.4.1"}) {
+        CHECK(covered(text, kNotoSansTcBold30));
+    }
+    // Event times: digits and the colon.
+    CHECK(covered("09:41", kNotoSansTcBold16));
 }
 
 void testDropUndrawable() {
@@ -329,6 +361,7 @@ int main() {
     testMissingAndMalformed();
     testEllipsize();
     testDropUndrawable();
+    testFixedTextCovered();
     testDrawBitmap();
     testGrayOverlay();
 

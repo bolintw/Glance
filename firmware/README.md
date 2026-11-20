@@ -129,7 +129,7 @@ Off by default (release builds use the defaults); set in `idf.py menuconfig`:
 
 The device wakes at its refresh times (once or twice a day), draws the panel and goes back to deep sleep. Everything else is set up from a phone.
 
--   **Calendar:** up to five private iCal (ICS) URLs, merged into the next ten events, shown as date and title only, two columns of five. Recurring events, exceptions and time zones are expanded on the device.
+-   **Calendar:** up to five private iCal (ICS) URLs, merged into the next ten events, shown as date and title, two columns of five (one of twelve upright); the setup page can add each event's start and end, stacked small between the two, with a short bar for an all-day event. Recurring events, exceptions and time zones are expanded on the device.
 -   **Weather:** the daytime forecast for a Taiwan county from the Central Weather Administration (an API key is entered at setup).
 -   **Daily refresh at 07:00**, or at a time set on the setup page (every half hour), with an optional second one at least 3 hours apart (a refresh flashes the panel for a few seconds, and a second one costs about a fifth more battery). Before noon a refresh shows today's daytime weather, from noon on tomorrow's. A failed refresh is retried hourly, at most three times in a row (07:00, 08:00, 09:00); then it waits for the next refresh time.
 -   **The button:** a short press toggles privacy mode; a long press (3 s, the LED lights when it's long enough) opens setup mode. Held for 15 s (the LED blinks fast) and let go, it erases everything, like the setup page's reset: the way out when the setup page can't be reached. It wakes the device from deep sleep, and the LED blinks at once to show the press got through.

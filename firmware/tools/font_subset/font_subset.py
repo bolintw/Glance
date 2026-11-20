@@ -108,11 +108,17 @@ FREQUENT_EMOJI = (
     "☔🌙🍾🎧🍁⭕🏀☠⚫🖐😧🎯📲☘👁🍷👄🐟🍰💤🕊📺💭🐱🐝🇲🧚🔝📢📷"
     "🐕🎸🔫🤚🍭🍆💉🌎😦🌀👿☑🎥🌧👽🍋🤒🤡🍫📚🏁🤕🦄🍅🚗🚫💵⚾🔪🔔"
 )
-EMOJI = CALENDAR_EMOJI + FREQUENT_EMOJI
+# Without the regional indicators: a flag is two of them, and half a flag
+# reads worse than none (the firmware drops what the font lacks).
+EMOJI = "".join(c for c in CALENDAR_EMOJI + FREQUENT_EMOJI if not 0x1F1E6 <= ord(c) <= 0x1F1FF)
 DIGITS = "0123456789"
 WEEKDAYS = "一二三四五六日"
 MONTH_ABBREVIATIONS = "Jan.Feb.Mar.Apr.May.Jun.Jul.Aug.Sep.Oct.Nov.Dec."
 WEATHER_TEXT = DIGITS + "°-% "  # "24° - 28°", "50%"
+EVENT_TIME_TEXT = DIGITS + ":"  # "14:30"
+# The 30px font only writes fixed text now: the setup screens' network
+# name, password and address (ASCII), privacy mode's month, "請充電".
+FIXED_TEXT = ASCII + "請充電"
 
 
 @dataclass
@@ -128,7 +134,9 @@ class FontSpec:
 
 # Sizes follow the Raspberry Pi version's layout as a starting point.
 FONTS = [
-    FontSpec("noto_sans_tc_bold_30", 700, 30, CALENDAR_TEXT, "event list", latin_fallback=True, emoji=EMOJI),
+    FontSpec("noto_sans_tc_bold_26", 700, 26, CALENDAR_TEXT, "event list", latin_fallback=True, emoji=EMOJI),
+    FontSpec("noto_sans_tc_bold_16", 700, 16, EVENT_TIME_TEXT, "event start and end times"),
+    FontSpec("noto_sans_tc_bold_30", 700, 30, FIXED_TEXT, "setup screens, privacy label month, charge reminder"),
     FontSpec("noto_sans_tc_bold_40", 700, 40, DIGITS + WEEKDAYS, "year, weekday"),
     FontSpec("noto_sans_tc_medium_50", 500, 50, MONTH_ABBREVIATIONS, "month"),
     FontSpec("noto_sans_tc_regular_100", 400, 100, DIGITS, "day of month"),

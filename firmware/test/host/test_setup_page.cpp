@@ -344,6 +344,14 @@ void testThemeOrientationAndPhotos() {
           !back.settings.builtInPhotos);  // unchecked box: off
     auto untouched = setup_page::applyForm(changed.settings, "ics1=");  // no display fields at all
     CHECK(untouched.settings.theme == Theme::light && untouched.settings.portrait && untouched.settings.builtInPhotos);
+
+    // Event times: off by default, a box in 畫面, kept when the form has no display fields.
+    CHECK(contains(home, "name=\"event_times\"") && !contains(home, "name=\"event_times\" checked"));
+    auto times = setup_page::applyForm(configured(), "display=1&event_times=on");
+    CHECK(times.errors.empty() && times.settings.eventTimes);
+    CHECK(contains(setup_page::renderForm(times.settings, {}, {}), "name=\"event_times\" checked"));
+    CHECK(!setup_page::applyForm(times.settings, "display=1").settings.eventTimes);  // unchecked box: off
+    CHECK(setup_page::applyForm(times.settings, "ics1=").settings.eventTimes);       // no display fields: kept
 }
 
 void testRefreshTimes() {

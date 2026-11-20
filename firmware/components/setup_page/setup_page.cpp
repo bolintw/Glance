@@ -258,6 +258,7 @@ void applyDisplay(const std::vector<Field>& fields, Settings& s, std::vector<std
     s.panelFlipped = find(fields, "upside_down") == nullptr;  // a checkbox: sent only when checked
     s.builtInPhotos = find(fields, "builtin_photos") != nullptr;
     s.autoUpdate = find(fields, "auto_update") != nullptr;
+    s.eventTimes = find(fields, "event_times") != nullptr;
     if (const std::string* orientation = find(fields, "orientation")) {
         s.portrait = *orientation == "portrait";
     }
@@ -780,7 +781,9 @@ void displayView(Html& html, const Settings& s) {
     html += "<div class=\"f\"><span class=\"lb\">月曆顏色<small>只影響月曆，隱私模式的照片不變</small></span>";
     segmented(html, "theme", {{"dark", "深色"}, {"light", "淺色"}},
               s.theme == Settings::Theme::light ? "light" : "dark", "in-row");
-    html += "</div>\n</div>\n</section>\n";
+    html += "</div>\n";
+    toggle(html, "event_times", "顯示行程時間", "在日期和標題中間加上開始和結束時間，整天的行程畫一條短線", s.eventTimes);
+    html += "</div>\n</section>\n";
 }
 
 void scheduleView(Html& html, const Settings& s) {

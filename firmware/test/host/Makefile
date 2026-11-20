@@ -2,7 +2,7 @@
 # Fast iteration without flashing:
 #
 #   make -C firmware/test/host                                  # unit tests
-#   make -C firmware/test/host preview [NOW=2026-11-25T12:00] [SCREEN=setup|lan|joined|joinedlan|intruder|ship|privacy[1]|gray[1]|offline|lowbattery|charge|calendarerror|weathererror|nocalendar|guest|qrtext|light][-p]   # build/preview.png; -p: upright
+#   make -C firmware/test/host preview [NOW=2026-11-25T12:00] [SCREEN=setup|lan|joined|joinedlan|intruder|ship|privacy[1]|gray[1]|offline|lowbattery|charge|calendarerror|weathererror|nocalendar|guest|qrtext|light|times][-p]   # build/preview.png; -p: upright
 
 CXX ?= c++
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -g

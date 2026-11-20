@@ -33,6 +33,11 @@ struct Settings {
     enum class Theme : uint8_t { dark, light };
     Theme theme = Theme::dark;
 
+    // The calendar shows each event's start and end between its date and
+    // its title. Off by default: a glance needs the day and what it is, the
+    // phone has the rest.
+    bool eventTimes = false;
+
     // Privacy mode shows the built-in prints along with the uploaded photos.
     // Without any uploaded photos of the screen's shape it shows them anyway.
     // Off by default: with the prints mixed in, an upload seemed to vanish

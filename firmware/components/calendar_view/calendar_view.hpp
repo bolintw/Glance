@@ -28,14 +28,18 @@ enum class Theme : uint8_t { dark, light };
 
 // Draws the whole screen: today's date header, the weather (left blank
 // without a forecast) and up to ten upcoming events in two columns. `now`
-// and `utcOffset` decide what "today" is and how event dates are written.
+// and `utcOffset` decide what "today" is and how event dates and times are
+// written. `showTimes` adds each event's start and end (a bar for an
+// all-day one) between its date and its title.
 void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-            const std::optional<weather::Forecast>& forecast, Status status = {}, Theme theme = Theme::dark);
+            const std::optional<weather::Forecast>& forecast, Status status = {}, Theme theme = Theme::dark,
+            bool showTimes = false);
 
 // The calendar on a portrait screen (480x800): the date and the weather on
 // top, up to twelve upcoming events in one column.
 void renderPortrait(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-                    const std::optional<weather::Forecast>& forecast, Status status = {}, Theme theme = Theme::dark);
+                    const std::optional<weather::Forecast>& forecast, Status status = {}, Theme theme = Theme::dark,
+                    bool showTimes = false);
 
 // Privacy mode: `photo` (the canvas's size, landscape or portrait) fills
 // the screen, with a white label in the bottom-right corner -- the date,

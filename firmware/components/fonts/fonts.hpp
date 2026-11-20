@@ -6,7 +6,9 @@
 
 #include "font.hpp"
 
-extern const Font kNotoSansTcBold30;  // event list
+extern const Font kNotoSansTcBold26;  // event list
+extern const Font kNotoSansTcBold16;  // event start and end times
+extern const Font kNotoSansTcBold30;  // setup screens, privacy label month, charge reminder
 extern const Font kNotoSansTcBold40;  // year, weekday
 extern const Font kNotoSansTcMedium50;  // month
 extern const Font kNotoSansTcRegular100;  // day of month

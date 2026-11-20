@@ -546,7 +546,8 @@ bool refresh(Settings& settings) {
                                        .calendarError = calendarStale,
                                        .weatherError = weatherFailed(settings, forecast)};
     (settings.portrait ? calendar_view::renderPortrait : calendar_view::render)(
-        canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast, status, themeFor(settings));
+        canvas, time(nullptr), time_sync::kUtcOffsetSeconds, *events, forecast, status, themeFor(settings),
+        settings.eventTimes);
     ESP_LOGI(kTag, "showing calendar%s", settings.portrait ? " (portrait)" : "");
     if (!show(framebuffer, nullptr, settings.portrait)) {
         ESP_LOGE(kTag, "panel did not respond, calendar not shown");

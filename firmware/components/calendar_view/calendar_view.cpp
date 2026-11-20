@@ -1,5 +1,6 @@
 #include "calendar_view.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <string>
@@ -60,6 +61,14 @@ constexpr int kColumnRuleX[] = {50, 419};
 constexpr int kRuleWidth = 333;
 constexpr int kFirstRowY = 165;
 constexpr int kRowPitch = 48;
+// Within an event row (kRowPitch tall, from its top): the 26px date and
+// title sit on kEventBaseline. With times shown, the start and the end are
+// stacked in small digits between the date and the title, and an all-day
+// event has a short bar there instead, level with the digits' middle.
+constexpr int kEventBaseline = 32;
+constexpr int kStartBaseline = 19, kEndBaseline = 37;
+constexpr int kTimesGap = 8;  // date to times, times to title
+constexpr int kAllDayBarTop = 19, kAllDayBarWidth = 30, kAllDayBarHeight = 3;
 constexpr int kRowsPerColumn = 5;
 constexpr int kMaxTextWidth = 331;
 
@@ -103,6 +112,22 @@ int64_t floorDiv(int64_t a, int64_t b) { return a / b - ((a % b != 0) && ((a < 0
 
 ics::Date localDate(int64_t unix, int32_t utcOffset) { return ics::civilFromDays(floorDiv(unix + utcOffset, 86400)); }
 
+// "14:30": the local time of day.
+std::string clockText(int64_t unix, int32_t utcOffset) {
+    const int64_t minutes = (unix + utcOffset - floorDiv(unix + utcOffset, 86400) * 86400) / 60;
+    char text[8];
+    std::snprintf(text, sizeof(text), "%02d:%02d", static_cast<int>(minutes / 60), static_cast<int>(minutes % 60));
+    return text;
+}
+
+// "10/5"
+std::string dateText(int64_t unix, int32_t utcOffset) {
+    const ics::Date date = localDate(unix, utcOffset);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%d/%d", date.month, date.day);
+    return text;
+}
+
 // The Pi version's row separators were grey; on a 1bpp panel a dotted line
 // reads as the lighter rule.
 void dottedRule(Canvas& canvas, int x, int y, int width, Color ink) {
@@ -118,7 +143,7 @@ void drawOnBaseline(Canvas& canvas, int x, int baseline, std::string_view text, 
 // An event's title as the list shows it: without the emoji the font can't
 // draw, and "(無標題)" if nothing is left.
 std::string title(const ics::Occurrence& event) {
-    std::string text = dropUndrawable(event.summary, kNotoSansTcBold30);
+    std::string text = dropUndrawable(event.summary, kNotoSansTcBold26);
     return text.empty() ? "(無標題)" : text;
 }
 
@@ -248,7 +273,49 @@ void drawLabelWeather(Canvas& canvas, const weather::Forecast& forecast, int lef
     drawOnBaseline(canvas, rainLeft + dropWidth + 2, top + kLabelRainBaseline, text, kNotoSansTcBold20, Color::black);
 }
 
-void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events, Color ink) {
+// A column of events, one per row from the row at `top`, each cut to
+// `maxWidth`: "10/5 : 牙醫回診"; with `showTimes`, the date, the start over
+// the end (or an all-day bar), and the title, in columns of their own so
+// the titles line up.
+void drawEventRows(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events, int x, int top,
+                   int maxWidth, bool showTimes, Color ink) {
+    const Font& font = kNotoSansTcBold26;
+    if (!showTimes) {
+        for (size_t i = 0; i < events.size(); i++) {
+            std::string line = dateText(events[i].start, utcOffset) + " : " + title(events[i]);
+            drawOnBaseline(canvas, x, top + static_cast<int>(i) * kRowPitch + kEventBaseline,
+                           ellipsize(line, font, maxWidth), font, ink);
+        }
+        return;
+    }
+    const Font& small = kNotoSansTcBold16;
+    int dateWidth = 0;
+    for (const ics::Occurrence& event : events) {
+        dateWidth = std::max(dateWidth, measureText(dateText(event.start, utcOffset), font));
+    }
+    const int timesX = x + dateWidth + kTimesGap;
+    const int timesWidth = measureText("00:00", small);
+    const int titleX = timesX + timesWidth + kTimesGap;
+    for (size_t i = 0; i < events.size(); i++) {
+        const ics::Occurrence& event = events[i];
+        const int rowTop = top + static_cast<int>(i) * kRowPitch;
+        drawOnBaseline(canvas, x, rowTop + kEventBaseline, dateText(event.start, utcOffset), font, ink);
+        if (event.allDay) {
+            canvas.fillRect(timesX + (timesWidth - kAllDayBarWidth) / 2, rowTop + kAllDayBarTop, kAllDayBarWidth,
+                            kAllDayBarHeight, ink);
+        } else {
+            drawOnBaseline(canvas, timesX, rowTop + kStartBaseline, clockText(event.start, utcOffset), small, ink);
+            if (event.end > event.start) {
+                drawOnBaseline(canvas, timesX, rowTop + kEndBaseline, clockText(event.end, utcOffset), small, ink);
+            }
+        }
+        drawOnBaseline(canvas, titleX, rowTop + kEventBaseline, ellipsize(title(event), font, maxWidth - (titleX - x)),
+                       font, ink);
+    }
+}
+
+void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurrence> events, bool showTimes,
+                  Color ink) {
     canvas.roundedRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight, kBoxRadius, 2, ink);
     canvas.fillRect(kColumnDividerX, kBoxY, 2, kBoxHeight, ink);
     for (int column = 0; column < 2; column++) {
@@ -258,20 +325,13 @@ void drawEventBox(Canvas& canvas, int32_t utcOffset, std::span<const ics::Occurr
     }
 
     if (events.empty()) {
-        canvas.drawText(kColumnTextX[0], kFirstRowY, "沒有接下來的行程", kNotoSansTcBold30, ink);
+        drawOnBaseline(canvas, kColumnTextX[0], kFirstRowY + kEventBaseline, "沒有接下來的行程", kNotoSansTcBold26, ink);
         return;
     }
-    for (size_t i = 0; i < events.size() && i < 2 * kRowsPerColumn; i++) {
-        const ics::Occurrence& event = events[i];
-        ics::Date date = localDate(event.start, utcOffset);
-        char prefix[16];
-        std::snprintf(prefix, sizeof(prefix), "%d/%d : ", date.month, date.day);
-        std::string line = std::string(prefix) + title(event);
-
-        int column = static_cast<int>(i) / kRowsPerColumn;
-        int row = static_cast<int>(i) % kRowsPerColumn;
-        canvas.drawText(kColumnTextX[column], kFirstRowY + row * kRowPitch,
-                        ellipsize(line, kNotoSansTcBold30, kMaxTextWidth), kNotoSansTcBold30, ink);
+    for (size_t column = 0; column < 2 && column * kRowsPerColumn < events.size(); column++) {
+        drawEventRows(canvas, utcOffset, events.subspan(column * kRowsPerColumn).first(
+                                             std::min<size_t>(kRowsPerColumn, events.size() - column * kRowsPerColumn)),
+                      kColumnTextX[column], kFirstRowY, kMaxTextWidth, showTimes, ink);
     }
 }
 
@@ -301,7 +361,7 @@ Colors colorsFor(Theme theme) {
 }  // namespace
 
 void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-            const std::optional<weather::Forecast>& forecast, Status status, Theme theme) {
+            const std::optional<weather::Forecast>& forecast, Status status, Theme theme, bool showTimes) {
     const auto [background, ink] = colorsFor(theme);
     canvas.fill(background);
     drawHeader(canvas, localDate(now, utcOffset), ink);
@@ -309,7 +369,7 @@ void render(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics:
         drawWeather(canvas, *forecast, ink);
     }
     drawStatus(canvas, status, ink);
-    drawEventBox(canvas, utcOffset, events, ink);
+    drawEventBox(canvas, utcOffset, events, showTimes, ink);
 }
 
 void renderPrivate(Canvas& canvas, std::optional<int64_t> now, int32_t utcOffset,
@@ -354,7 +414,7 @@ GrayOverlay photoOverlay(const GrayBitmap& photo, const std::optional<weather::F
 }
 
 void renderPortrait(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<const ics::Occurrence> events,
-                    const std::optional<weather::Forecast>& forecast, Status status, Theme theme) {
+                    const std::optional<weather::Forecast>& forecast, Status status, Theme theme, bool showTimes) {
     const auto [background, ink] = colorsFor(theme);
     canvas.fill(background);
 
@@ -387,18 +447,12 @@ void renderPortrait(Canvas& canvas, int64_t now, int32_t utcOffset, std::span<co
         dottedRule(canvas, portrait::kRuleX, portrait::kFirstRowY + row * kRowPitch - 5, portrait::kRuleWidth, ink);
     }
     if (events.empty()) {
-        canvas.drawText(portrait::kTextX, portrait::kFirstRowY, "沒有接下來的行程", kNotoSansTcBold30, ink);
+        drawOnBaseline(canvas, portrait::kTextX, portrait::kFirstRowY + kEventBaseline, "沒有接下來的行程",
+                       kNotoSansTcBold26, ink);
         return;
     }
-    for (size_t i = 0; i < events.size() && i < portrait::kRows; i++) {
-        const ics::Occurrence& event = events[i];
-        ics::Date date = localDate(event.start, utcOffset);
-        char prefix[16];
-        std::snprintf(prefix, sizeof(prefix), "%d/%d : ", date.month, date.day);
-        std::string line = std::string(prefix) + title(event);
-        canvas.drawText(portrait::kTextX, portrait::kFirstRowY + static_cast<int>(i) * kRowPitch,
-                        ellipsize(line, kNotoSansTcBold30, portrait::kMaxTextWidth), kNotoSansTcBold30, ink);
-    }
+    drawEventRows(canvas, utcOffset, events.first(std::min<size_t>(portrait::kRows, events.size())), portrait::kTextX,
+                  portrait::kFirstRowY, portrait::kMaxTextWidth, showTimes, ink);
 }
 
 void renderChargeReminder(Canvas& canvas) {

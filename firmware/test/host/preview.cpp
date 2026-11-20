@@ -5,7 +5,7 @@
 //
 //   make -C firmware/test/host preview                      # now = 2026-10-04T15:30
 //   make -C firmware/test/host preview NOW=2026-11-25T12:00
-//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, joinedlan, intruder, ship, privacy[1], gray[1], offline, lowbattery, charge, calendarerror, weathererror, nocalendar, guest, guestlow, qrtext, light
+//   make -C firmware/test/host preview SCREEN=setup         # or lan, joined, joinedlan, intruder, ship, privacy[1], gray[1], offline, lowbattery, charge, calendarerror, weathererror, nocalendar, guest, guestlow, qrtext, light, times
 //   make -C firmware/test/host preview SCREEN=gray-p        # "-p": the device upright (calendar-p, gray1-p, guest-p...)
 //
 // produces build/preview.png.
@@ -79,9 +79,9 @@ int main(int argc, char** argv) {
         }
     };
     auto calendar = [&](const std::optional<weather::Forecast>& weather, calendar_view::Status status,
-                        calendar_view::Theme theme = calendar_view::Theme::dark) {
+                        calendar_view::Theme theme = calendar_view::Theme::dark, bool showTimes = false) {
         (portrait ? calendar_view::renderPortrait : calendar_view::render)(canvas, now, kTaipei, events, weather,
-                                                                            status, theme);
+                                                                            status, theme, showTimes);
     };
     if (screen == "setup") {
         setup_view::render(canvas, setup_page::wifiQrPayload("Glance-AB12", "k7m2qx9p"), "Glance-AB12", "k7m2qx9p",
@@ -107,6 +107,8 @@ int main(int argc, char** argv) {
         privacy(1, forecast, {}, "https://youtu.be/dQw4w9WgXcQ");
     } else if (screen == "light") {  // the calendar in the light theme
         calendar(forecast, {}, calendar_view::Theme::light);
+    } else if (screen == "times") {  // the calendar with event times
+        calendar(forecast, {}, calendar_view::Theme::dark, true);
     } else if (screen == "lan") {
         setup_view::renderLan(canvas, "http://192.168.0.249/?t=8f3a1c0d9e2b4f6a8c1d3e5f7a9b0c2d");
     } else if (screen == "joined") {  // on the access point; "joinedlan" on the home network
