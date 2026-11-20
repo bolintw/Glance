@@ -929,6 +929,15 @@ void renderSaved(Html& html, bool wifiStep, std::string_view ssid) {
     html += "</div></main></body></html>\n";
 }
 
+void renderLeft(Html& html) {
+    pageStart(html, "Glance 設定");
+    simpleBar(html, "Glance 設定", "已離開");
+    html += "<main class=\"in\"><div class=\"done\"><div class=\"ok\">" + icon("check") +
+            "</div><h1>已離開設定</h1><p>沒有儲存任何變更，裝置正在回到月曆，大約一分鐘。</p></div>";
+    buttonTips(html);
+    html += "<p class=\"help\">這些說明在設定頁的「進階」裡也找得到。這頁可以關了。</p></main></body></html>\n";
+}
+
 void renderResetConfirm(Html& html) {
     pageStart(html, "清除所有資料");
     simpleBar(html, "Glance 設定", "清除所有資料");
@@ -976,6 +985,11 @@ std::string renderSaved(bool wifiStep, std::string_view ssid) {
 std::string renderResetConfirm() {
     Html html;
     renderResetConfirm(html);
+    return std::move(html.str());
+}
+std::string renderLeft() {
+    Html html;
+    renderLeft(html);
     return std::move(html.str());
 }
 std::string renderErased() {

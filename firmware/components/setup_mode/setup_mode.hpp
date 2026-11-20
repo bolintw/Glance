@@ -51,6 +51,7 @@ enum class Event {
                // the home-network secret): close up
     erased,    // "清除所有資料" was confirmed: erase everything (from a fresh
                // run, see eraseEverything) and start over
+    left,      // 離開設定 was pressed: back to the calendar, nothing saved
 };
 
 // Blocks until something happens in setup mode (see Event). `idle` also once

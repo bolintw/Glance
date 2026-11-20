@@ -410,6 +410,13 @@ void testAutoUpdate() {
     CHECK(on.settings.autoUpdate);
     CHECK(!setup_page::applyForm(off.settings, "ics1=").settings.autoUpdate);  // no display fields: kept
 
+    // 離開設定: the save button's other face (the page script switches it),
+    // and the page after it.
+    CHECK(contains(home, "id=\"save\"") && contains(home, "/exit"));
+    const std::string left = setup_page::renderLeft();
+    CHECK(contains(left, "已離開設定") && contains(left, "這頁可以關了"));
+    CHECK(contains(left, "按住約 5 秒再放開") && contains(left, "按住約 20 秒再放開"));  // the button, as after saving
+
     // The button, told where a new owner will see it: after saving, and in 進階.
     const std::string saved = setup_page::renderSaved(false, "Home");
     CHECK(contains(saved, "按住約 5 秒再放開") && contains(saved, "按住約 20 秒再放開") && contains(saved, "這頁可以關了"));

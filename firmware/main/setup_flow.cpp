@@ -53,12 +53,14 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
     bool joined = false;
     while (true) {
         uint32_t idleTimeoutMs = onAccessPoint && !joined ? kAccessPointUnusedTimeoutMs : kSetupIdleTimeoutMs;
-        switch (setup_mode::waitForEvent(idleTimeoutMs, kSetupSessionLimitMs)) {
+        const setup_mode::Event event = setup_mode::waitForEvent(idleTimeoutMs, kSetupSessionLimitMs);
+        switch (event) {
             case setup_mode::Event::saved:
                 ESP_LOGI(kTag, "leaving setup mode (saved)");
                 gBoot.justConfigured = true;
                 gBoot.homeStepNext = onAccessPoint;
                 restartInto(false);
+            case setup_mode::Event::left:
             case setup_mode::Event::idle:
                 if (firstSetup) {
                     // No WiFi saved to go back to: a restart would only open
@@ -68,7 +70,7 @@ constexpr uint32_t kSetupSessionLimitMs = 30 * 60 * 1000;
                     setup_mode::close();
                     ship();
                 }
-                ESP_LOGI(kTag, "leaving setup mode (idle)");
+                ESP_LOGI(kTag, "leaving setup mode (%s)", event == setup_mode::Event::left ? "left" : "idle");
                 restartInto(false);
             case setup_mode::Event::erased:
                 // From a fresh run, clear of WiFi (which keeps its own copy

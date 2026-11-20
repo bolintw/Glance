@@ -98,6 +98,8 @@ std::string renderSaved(bool wifiStep, std::string_view ssid);
 std::string renderResetConfirm();
 // Shown after everything was erased, just before the device restarts.
 std::string renderErased();
+// After 離開設定 (POST /exit): nothing saved, the device goes back to the calendar.
+std::string renderLeft();
 // For anyone but the phone that opened the home-network page first.
 std::string renderDenied();
 // The same pages, written to `html` (see Html) instead of returned whole.
@@ -109,6 +111,7 @@ void renderForm(Html& html, const Settings& current, std::span<const Network> ne
 void renderSaved(Html& html, bool wifiStep, std::string_view ssid);
 void renderResetConfirm(Html& html);
 void renderErased(Html& html);
+void renderLeft(Html& html);
 void renderDenied(Html& html);
 
 // GET /update: whether a newer release can be installed by hand

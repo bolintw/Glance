@@ -290,8 +290,14 @@ function update(){
   }
   $$('[data-dirty]').forEach(r=>r.hidden=!touched.has(r.dataset.dirty));
   dirty=groups.size;
-  $('#savebar').classList.toggle('show',dirty>0||document.body.dataset.unsaved==='1');
-  $('#savemsg').innerHTML=dirty?'<b>'+dirty+' 項變更</b>還沒儲存':'還沒儲存';
+  // The bar stays: with nothing changed its button leaves setup (POST
+  // /exit), plain; with changes it saves, in the accent color.
+  const save=$('#save'),changed=dirty>0||document.body.dataset.unsaved==='1';
+  $('#savebar').classList.add('show');
+  save.className=changed?'btn pri':'btn';
+  save.textContent=changed?'儲存並重新啟動':'離開設定';
+  if(changed)save.removeAttribute('formaction');else save.setAttribute('formaction','/exit');
+  $('#savemsg').innerHTML=dirty?'<b>'+dirty+' 項變更</b>還沒儲存':changed?'還沒儲存':'沒有變更';
   $('#undo').hidden=!dirty;
   keepDraft();
 }
@@ -321,7 +327,7 @@ function restoreDraft(){
 }
 form.addEventListener('input',()=>{when();update()});
 form.addEventListener('change',()=>{when();update()});
-form.addEventListener('submit',()=>{submitting=true;keepDraft();$('#save').disabled=true;$('#save').textContent='儲存中…'});
+form.addEventListener('submit',()=>{submitting=true;keepDraft();const s=$('#save');s.textContent=s.hasAttribute('formaction')?'離開中…':'儲存中…';setTimeout(()=>s.disabled=true)});
 addEventListener('beforeunload',e=>{if(dirty&&!submitting){e.preventDefault();e.returnValue=''}});
 const place=picker(null);
 $('#undo').onclick=()=>{

@@ -49,6 +49,7 @@ constexpr int kSavedBit = BIT0;
 constexpr int kJoinedBit = BIT1;    // first station joined: take the QR code down
 constexpr int kIntruderBit = BIT2;  // a second device got in: close up
 constexpr int kErasedBit = BIT3;
+constexpr int kLeftBit = BIT4;  // 離開設定: leave without saving
 constexpr const char* kSessionCookie = "glance_session";
 
 // What this setup session serves (see setup_mode.hpp).
@@ -514,6 +515,24 @@ esp_err_t handleReset(httpd_req_t* req) {
     return err;
 }
 
+// POST /exit: 離開設定, the page's button when nothing has changed. Saves
+// nothing and goes back to the calendar, as if setup had sat idle.
+esp_err_t handleExit(httpd_req_t* req) {
+    touch();
+    if (!authorize(req)) {
+        return ESP_OK;
+    }
+    if (refuseWhileInstalling(req)) {
+        return ESP_OK;
+    }
+    if (!readBody<std::string>(req, kMaxFormBytes)) {  // the form comes along; nothing in it is used
+        return ESP_FAIL;
+    }
+    esp_err_t err = sendHtml(req, [](setup_page::Html& html) { setup_page::renderLeft(html); });
+    xEventGroupSetBits(gEvents, kLeftBit);
+    return err;
+}
+
 esp_err_t handleSave(httpd_req_t* req) {
     touch();
     if (!authorize(req)) {
@@ -574,7 +593,7 @@ esp_err_t startHttp() {
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.lru_purge_enable = true;  // phones open many probe connections at once
     config.stack_size = 8192;        // the form is built with std::string
-    config.max_uri_handlers = 15;
+    config.max_uri_handlers = 16;
     esp_err_t err = httpd_start(&gServer, &config);
     if (err != ESP_OK) {
         return err;
@@ -602,6 +621,7 @@ esp_err_t startHttp() {
     static const httpd_uri_t photoDelete = {
         .uri = "/photos/*", .method = HTTP_POST, .handler = handlePhotoDelete, .user_ctx = nullptr};
     static const httpd_uri_t other = {.uri = "/*", .method = HTTP_GET, .handler = handleRedirect, .user_ctx = nullptr};
+    static const httpd_uri_t leave = {.uri = "/exit", .method = HTTP_POST, .handler = handleExit, .user_ctx = nullptr};
     static const httpd_uri_t restart = {
         .uri = "/restart", .method = HTTP_POST, .handler = handleRestart, .user_ctx = nullptr};
     httpd_register_uri_handler(gServer, &form);
@@ -615,7 +635,7 @@ esp_err_t startHttp() {
     }
     // First match wins: the specific paths before their wildcards.
     for (const httpd_uri_t* handler :
-         {&photosScript, &photosList, &photoAdd, &photoGet, &photoDelete, &updateCheck, &updateInstall}) {
+         {&photosScript, &photosList, &photoAdd, &photoGet, &photoDelete, &updateCheck, &updateInstall, &leave}) {
         httpd_register_uri_handler(gServer, handler);
     }
     if (gMode == Mode::devLan) {
@@ -742,8 +762,8 @@ Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
             touch();
             continue;
         }
-        EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit | kErasedBit, pdTRUE,
-                                               pdFALSE, pdMS_TO_TICKS(1000));
+        EventBits_t bits = xEventGroupWaitBits(gEvents, kSavedBit | kJoinedBit | kIntruderBit | kErasedBit | kLeftBit,
+                                               pdTRUE, pdFALSE, pdMS_TO_TICKS(1000));
         if (bits & kIntruderBit) {
             return Event::intruder;
         }
@@ -754,6 +774,10 @@ Event waitForEvent(uint32_t idleTimeoutMs, uint32_t sessionLimitMs) {
         if (bits & kSavedBit) {
             vTaskDelay(pdMS_TO_TICKS(1500));  // let the "saved" page reach the phone
             return Event::saved;
+        }
+        if (bits & kLeftBit) {
+            vTaskDelay(pdMS_TO_TICKS(1500));  // let the "left" page reach the phone
+            return Event::left;
         }
         if (bits & kJoinedBit) {
             return Event::joined;
